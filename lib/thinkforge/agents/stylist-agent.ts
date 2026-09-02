@@ -152,7 +152,7 @@ Output the complete rewritten draft, not a diff or summary.
     violations: string[];
     flags: string[];
     brandContext?: string;
-  }): Promise<string | null> {
+  } & Pick<AgentInput, 'brandId' | 'sessionId'>): Promise<string | null> {
     const { content, violations, flags } = input;
 
     const allIssues = [...violations, ...flags];
@@ -189,6 +189,8 @@ Output the complete rewritten draft, not a diff or summary.
         maxTokens: 2600,
         sourceKind: 'stylist_targeted_rewrite',
         resultCount: allIssues.length,
+        projectId: input.brandId,
+        taskId: input.sessionId,
       });
       if (rewritten.length < content.length * 0.5) {
         console.warn(`[ThinkForge:Stylist] Rewrite too short (${rewritten.length} vs ${content.length}), discarding`);
@@ -213,6 +215,8 @@ Output the complete rewritten draft, not a diff or summary.
         maxTokens: 2600,
         sourceKind: 'stylist_targeted_rewrite',
         resultCount: allIssues.length,
+        projectId: input.brandId,
+        taskId: input.sessionId,
         error: e,
       });
       console.error('[ThinkForge:Stylist] Rewrite failed:', e);

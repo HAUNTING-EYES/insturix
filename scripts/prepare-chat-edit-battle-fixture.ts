@@ -7,6 +7,7 @@ import { config as loadEnv } from 'dotenv';
 
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import {
+  buildChatBattleInitialProjectDocument,
   persistChatBattleDurableSeeds,
   prepareChatBattleDurableSeeds,
 } from '../lib/editron/services/chat-edit-battle-fixture-seeds';
@@ -195,7 +196,10 @@ async function main(): Promise<void> {
       if (storyboard) {
         await db.collection('storyboards').insertOne(storyboard, { session });
       }
-      await db.collection(COLLECTIONS.PROJECTS).insertOne(prepared.project, { session });
+      await db.collection(COLLECTIONS.PROJECTS).insertOne(
+        buildChatBattleInitialProjectDocument(durableSeeds),
+        { session },
+      );
       if (uploadBatch) {
         await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).insertOne(uploadBatch, { session });
       }

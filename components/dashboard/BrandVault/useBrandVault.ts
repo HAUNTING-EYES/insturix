@@ -48,7 +48,7 @@ export const BRAND_VAULT_KEYS = {
 /* ------------------------------------------------------------------ */
 
 async function brandVaultFetch(url: string, init?: RequestInit): Promise<BrandVaultApiSuccess> {
-  const response = await fetch(url, { credentials: 'include', ...init });
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init });
   const payload = (await response.json().catch(() => null)) as BrandVaultApiResult | null;
   if (!payload || payload.ok !== true) {
     const message =
@@ -229,6 +229,12 @@ export function useBrandVaultJob(jobId: string | null) {
       const status = query.state.data?.job?.status;
       return status === 'queued' || status === 'running' ? 2500 : false;
     },
+    // A scan is a live operation. Keep observing while the dashboard is backgrounded,
+    // then force a fresh status read whenever the user returns or reconnects.
+    refetchIntervalInBackground: true,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
     staleTime: 30 * 1000,
   });
 }

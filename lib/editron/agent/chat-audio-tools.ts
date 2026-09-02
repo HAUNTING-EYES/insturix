@@ -11,6 +11,7 @@ import {
   CHAT_LOCALIZED_ANCHOR_SIGNALS,
   type ChatLocalizedAnchorSignal,
 } from "./chat-command-authority";
+import { readProjectRevisionV1 } from "../services/project-revision-v1";
 
 type OverlayId = string | number;
 
@@ -509,10 +510,22 @@ This is read-only: it returns safe frame params for add_sfx, apply_camera_shake,
           });
         }
 
+        let expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
+          throw new Error("The project revision is unavailable; reload before applying audio ducking.");
+        }
         for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            styles: update.nextStyles,
-          } as any);
+          const result = await projectService.updateOverlayAtRevisionV1(
+            userId,
+            projectId,
+            {
+              expectedRevision,
+              actorKind: "AGENT",
+              overlayId: update.overlayId,
+              updates: { styles: update.nextStyles } as any,
+            },
+          );
+          expectedRevision = result.mutationReceipt.revision;
         }
 
         return JSON.stringify({

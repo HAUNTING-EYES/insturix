@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readPersistedScriptSidecar } from '@/lib/thinkforge/persistence/script-sidecar-reader';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import { SCRIPT_SIDECAR_VERSION } from '@/lib/thinkforge/schemas/script-sidecar';
 import { SCRIPT_SIDECAR_V2_VERSION } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import {
+  SCRIPT_SIDECAR_V3_VERSION,
+  type ScriptSidecarV3,
+} from '@/lib/thinkforge/schemas/script-sidecar-v3';
+import { longFormTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 const routeMocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -121,6 +127,54 @@ function v2Sidecar() {
   };
 }
 
+function v3Sidecar(): ScriptSidecarV3 {
+  const treatmentEvent = structuredClone(longFormTreatment.visualEvents[0]!);
+  return {
+    sidecarVersion: SCRIPT_SIDECAR_V3_VERSION,
+    spokenTextSource: 'beat-lines',
+    treatment: {
+      treatmentId: longFormTreatment.treatmentId,
+      treatmentVersion: longFormTreatment.version,
+      inputFingerprint: longFormTreatment.decisionTrace.inputFingerprint,
+    },
+    characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+    acts: [{
+      id: 'act_1',
+      title: 'Act one',
+      narrativePurpose: 'State the semantic argument.',
+      narrativeScenes: [{
+        id: 'scene_1',
+        title: 'The argument',
+        narrativePurpose: 'Deliver the semantic claim.',
+        durationIntentSeconds: 12,
+        charactersPresent: [],
+        sourceRefs: [],
+        beats: [{
+          id: 'beat_1',
+          kind: 'voiceover',
+          narrativePurpose: 'Explain the claim while retaining treatment authority.',
+          durationIntentSeconds: 12,
+          lines: [{
+            id: 'line_1',
+            text: 'This V3 line is bound to the approved semantic treatment.',
+            speakerId: 'narrator',
+            languageCode: 'en',
+            onCamera: false,
+            delivery: 'voiceover',
+            sourceRefs: [],
+          }],
+          visualEvents: [{
+            ...treatmentEvent,
+            treatmentEventId: treatmentEvent.id,
+          }],
+          sourceRefs: [],
+        }],
+      }],
+    }],
+    sourceRefs: [],
+  };
+}
+
 describe('persisted ThinkForge script sidecars', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -177,6 +231,22 @@ describe('persisted ThinkForge script sidecars', () => {
     });
   });
 
+  it('round-trips the current V3 semantic treatment binding without projecting legacy shot form', () => {
+    const sidecar = v3Sidecar();
+    const result = readPersistedScriptSidecar({
+      writerOutput: {
+        sidecarVersion: SCRIPT_SIDECAR_V3_VERSION,
+        scriptSidecar: sidecar,
+      },
+    });
+
+    expect(result).toEqual({
+      sourceVersion: SCRIPT_SIDECAR_V3_VERSION,
+      sidecar,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/shotIntent|visualIntent|renderPlan/i);
+  });
+
   it('allows historical documents that have no sidecar property', () => {
     expect(readPersistedScriptSidecar({ writerOutput: { writerType: 'script' } })).toBeUndefined();
     expect(readPersistedScriptSidecar({ writerOutput: { writerType: 'post' } })).toBeUndefined();
@@ -185,10 +255,10 @@ describe('persisted ThinkForge script sidecars', () => {
   it('fails loudly for unknown and inconsistent persisted versions', () => {
     expect(() => readPersistedScriptSidecar({
       writerOutput: {
-        sidecarVersion: 3,
-        scriptSidecar: { ...v1Sidecar(), sidecarVersion: 3 },
+        sidecarVersion: SCRIPT_SIDECAR_V3_VERSION + 1,
+        scriptSidecar: { ...v1Sidecar(), sidecarVersion: SCRIPT_SIDECAR_V3_VERSION + 1 },
       },
-    })).toThrow(/Unsupported script sidecar version: 3/);
+    })).toThrow(/Unsupported script sidecar version: 4/);
 
     expect(() => readPersistedScriptSidecar({
       writerOutput: {
@@ -201,8 +271,8 @@ describe('persisted ThinkForge script sidecars', () => {
   it('hydrates the canonical sidecar read result through the session endpoint', async () => {
     const metadata = {
       writerOutput: {
-        sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
-        scriptSidecar: v2Sidecar(),
+        sidecarVersion: SCRIPT_SIDECAR_V3_VERSION,
+        scriptSidecar: v3Sidecar(),
       },
     };
     const scriptSidecarRead = readPersistedScriptSidecar(metadata);
@@ -210,7 +280,7 @@ describe('persisted ThinkForge script sidecars', () => {
       _id: 'document_1',
       sessionId: 'session_1',
       scriptId: 'script_1',
-      title: 'V2 script',
+      title: 'V3 script',
       content: 'Rendered text is not a sidecar source.',
       blocks: [],
       richText: { type: 'doc', content: [] },
@@ -218,12 +288,7 @@ describe('persisted ThinkForge script sidecars', () => {
       scriptSidecarRead,
       version: 4,
       documentType: 'video_script',
-      contentContract: {
-        version: 1,
-        documentKind: 'writer',
-        outputKind: 'script',
-        artifactType: 'video_script',
-      },
+      contentContract: createThinkForgeWriterContract('video_script'),
     });
 
     vi.resetModules();

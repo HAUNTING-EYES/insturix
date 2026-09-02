@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { EDITRON_EMBEDDING_MODEL, generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
 import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
@@ -667,8 +667,4 @@ function mostFrequent(arr: string[]): string | null {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
-// Lazy QStash verification: skip during build when env vars aren't available.
-// In production, QSTASH_CURRENT_SIGNING_KEY is always set via Vercel env.
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
-  ? verifySignatureAppRouter(handler)
-  : handler;
+export const POST = withInternalQStashWorkerAuth(handler, 'asset-analysis');

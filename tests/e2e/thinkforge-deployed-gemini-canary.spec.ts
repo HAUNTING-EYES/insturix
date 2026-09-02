@@ -99,23 +99,6 @@ async function browserJson<T>(page: Page, pathname: string, method: 'GET' | 'POS
   return JSON.parse(response.body) as T;
 }
 
-function parseScriptUpdate(body: string): { scriptId: string; version: number } {
-  const events = body.split(/\r?\n\r?\n/).flatMap((record) => {
-    const data = record.split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.replace(/^data:\s?/, ''))
-      .join('\n');
-    return data ? [JSON.parse(data) as Record<string, unknown>] : [];
-  });
-  const script = recordOf(events.find((event) => event.type === 'script_update')?.script);
-  const scriptId = typeof script?.scriptId === 'string' ? script.scriptId : null;
-  const version = typeof script?.version === 'number' ? script.version : null;
-  if (!scriptId || typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
-    throw new Error('The deployed Gemini canary did not receive a committed script_update event.');
-  }
-  return { scriptId, version };
-}
-
 function readWriterTrace(metadata: unknown): Record<string, unknown> {
   const writerOutput = recordOf(recordOf(metadata)?.writerOutput);
   const trace = recordOf(writerOutput?.generationTrace);
@@ -207,7 +190,7 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
     };
     const created = await browserJson<SessionPayload>(page, '/api/services/thinkforge/session', 'POST', {
       projectMeta: {
-        brandId: tenant.personalBrand.brandId,
+        brandId: tenant.organizationBrand.brandId,
         sessionName,
         idea: 'A visible review lane',
         purpose: 'Explain one synthetic operating habit without external claims.',
@@ -231,25 +214,34 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       new URL(response.url()).pathname === '/api/services/thinkforge/chat'
       && response.request().method() === 'POST'
     ));
-    await input.fill('Create a 45-second non-factual video script for the synthetic brand Canary Studio. Explain this supplied operating pattern only: one shared review lane keeps the current artifact, decision owner, and next unresolved choice visible. Use calm, practical language. Treat this as a narrated motion-graphics explainer with no physical filming, no source footage, no customer facts, and no invented metrics.');
+    await input.fill(`Create a 45-second non-factual video script for the selected synthetic brand ${tenant.organizationBrand.name}. Explain this supplied operating pattern only: one shared review lane keeps the current artifact, decision owner, and next unresolved choice visible. Use calm, practical language. Treat this as a narrated motion-graphics explainer with no physical filming, no source footage, no customer facts, and no invented metrics.`);
     await input.press('Enter');
     const response = await responsePromise;
     expect(response.status()).toBe(200);
-    const update = parseScriptUpdate(await response.text());
 
     await expect.poll(async () => {
       const current = await browserJson<ScriptPayload>(page, '/api/services/thinkforge/script/current', 'POST', {
         sessionId,
-        scriptId: update.scriptId,
+        scriptId: 'default',
       });
       return recordOf(current.script?.metadata)?.writerOutput ? current : null;
     }, { timeout: 180_000 }).not.toBeNull();
 
     const current = await browserJson<ScriptPayload>(page, '/api/services/thinkforge/script/current', 'POST', {
       sessionId,
-      scriptId: update.scriptId,
+      scriptId: 'default',
     });
     const script = current.script;
+    const scriptId = script?.scriptId;
+    const documentVersion = script?.version;
+    if (scriptId !== 'default' || typeof documentVersion !== 'number'
+      || !Number.isInteger(documentVersion) || documentVersion < 1) {
+      throw new Error('The deployed Gemini canary did not persist the expected default document version.');
+    }
+    const update = {
+      scriptId,
+      version: documentVersion,
+    };
     expect(script?.version).toBe(update.version);
     expect(script?.contentContract?.outputKind).toBe('video_script');
     expect(script?.content?.trim().length).toBeGreaterThan(120);
@@ -282,7 +274,7 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       scriptId: update.scriptId,
       blocks: blocks.blocks,
       plainText: script?.content,
-      brandId: tenant.personalBrand.brandId,
+      brandId: tenant.organizationBrand.brandId,
     });
     expect(handoff.success).toBe(true);
     expect(handoff.sceneCount).toBeGreaterThan(0);
@@ -300,11 +292,12 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       scriptId: update.scriptId,
       documentVersion: update.version,
       outputKind: 'video_script',
-      authoringContext: { brandId: tenant.personalBrand.brandId },
+      authoringContext: { brandId: tenant.organizationBrand.brandId },
       writer: { provider: 'gemini' },
       traceIntegrity: { valid: true },
       generationReceipt: { valid: true },
     });
+    expect(verification.document?.authoringContext?.profileFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(verification.document?.writer?.model).toEqual(expect.any(String));
     const costEvents = verification.cost?.events ?? [];
     expect(costEvents.length).toBeGreaterThan(0);

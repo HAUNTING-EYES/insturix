@@ -5,9 +5,11 @@ import { z } from 'zod';
 import { enqueueRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
 import {
   claimFailedJobFinalizationRetry,
-  getJob,
+  getCurrentProjectRenderJobV1,
+  getProjectRenderJobAuthorizationByAdmissionV1,
   releaseFailedJobFinalizationRetryClaim,
 } from '@/lib/editron/services/render-job-service';
+import { projectService } from '@/lib/editron/services/project-service';
 
 const RetryFinalizationRequestSchema = z.object({
   jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
@@ -29,8 +31,81 @@ export async function POST(request: Request) {
     );
   }
 
-  const job = await getJob(parsed.data.jobId);
-  if (!job || job.userId !== userId) {
+  const lookup = await getProjectRenderJobAuthorizationByAdmissionV1({
+    jobId: parsed.data.jobId,
+  });
+  if (!lookup.ok && lookup.status !== 'NOT_PROJECT_RENDER_JOB') {
+    return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
+  }
+  if (lookup.ok) {
+    const projectSnapshot = await projectService.loadProjectForRenderSnapshot(
+      userId,
+      lookup.authorization.projectId,
+    );
+    if (
+      !projectSnapshot
+      || projectSnapshot.ownerId !== lookup.authorization.ownerId
+      || projectSnapshot.project.projectId !== lookup.authorization.projectId
+    ) {
+      return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
+    }
+    const current = await getCurrentProjectRenderJobV1({
+      authorization: lookup.authorization,
+      currentProjectRevision: projectSnapshot.revision,
+    });
+    if (!current.ok) return projectRenderNotCurrent();
+    const job = current.job;
+    if (job.status === 'done') {
+      return NextResponse.json({ type: 'success', data: { state: 'already_done', jobId: job._id } });
+    }
+    if (job.status === 'finalizing') {
+      return NextResponse.json(
+        { type: 'success', data: { state: 'already_finalizing', jobId: job._id } },
+        { status: 202 },
+      );
+    }
+    if (job.status !== 'error' || job.finalization?.state !== 'failed') {
+      return notRetryable();
+    }
+
+    const claim = await projectService.claimFailedProjectRenderJobFinalizationRetryTransactionV1({
+      authorization: lookup.authorization,
+    });
+    if (!claim.ok) {
+      return claim.reason === 'PROJECT_REVISION_STALE'
+        ? projectRenderNotCurrent()
+        : notRetryable();
+    }
+
+    try {
+      const dispatch = await enqueueRenderFinalization(claim);
+      return NextResponse.json(
+        {
+          type: 'success',
+          data: {
+            state: 'enqueued',
+            jobId: claim.jobId,
+            messageId: dispatch.messageId,
+          },
+        },
+        { status: 202 },
+      );
+    } catch (error) {
+      const released = await projectService
+        .releaseFailedProjectRenderJobFinalizationRetryClaimTransactionV1({
+          authorization: claim.authorization,
+          claimToken: claim.claimToken,
+          error,
+        }).catch(() => null);
+      if (!released?.ok) {
+        console.error(`[RenderFinalizationRetry] Failed to restore strict claim ${claim.claimToken}.`);
+      }
+      return retryDispatchFailed();
+    }
+  }
+
+  const job = lookup.job;
+  if (job.userId !== userId) {
     return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
   }
   if (job.status === 'done') {
@@ -71,14 +146,7 @@ export async function POST(request: Request) {
     if (!released) {
       console.error(`[RenderFinalizationRetry] Failed to restore claim ${claim.claimToken}.`);
     }
-    return NextResponse.json(
-      {
-        type: 'error',
-        code: 'FINALIZATION_RETRY_DISPATCH_FAILED',
-        message: 'Render finalization could not be queued. The original render was preserved.',
-      },
-      { status: 503 },
-    );
+    return retryDispatchFailed();
   }
 }
 
@@ -88,6 +156,28 @@ function notRetryable() {
       type: 'error',
       code: 'FINALIZATION_NOT_RETRYABLE',
       message: 'This render has no retryable preserved finalization artifact.',
+    },
+    { status: 409 },
+  );
+}
+
+function retryDispatchFailed() {
+  return NextResponse.json(
+    {
+      type: 'error',
+      code: 'FINALIZATION_RETRY_DISPATCH_FAILED',
+      message: 'Render finalization could not be queued. The original render was preserved.',
+    },
+    { status: 503 },
+  );
+}
+
+function projectRenderNotCurrent() {
+  return NextResponse.json(
+    {
+      type: 'error',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      message: 'Project render admission is no longer current.',
     },
     { status: 409 },
   );

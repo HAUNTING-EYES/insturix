@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
     // Get all sessions for this user from database
-    const allSessions = await db.getUserSessions(userId);
+    const allSessions = await db.getUserSessions(userId, orgId);
 
     // Transform database sessions to frontend metadata format
     const sessions = allSessions
@@ -86,4 +86,4 @@ function isSessionUsed(session: any): boolean {
     (session.chat_history && session.chat_history.length > 0) ||
     session.generated_script
   );
-} 
+}

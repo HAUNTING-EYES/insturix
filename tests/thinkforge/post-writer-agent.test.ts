@@ -55,6 +55,8 @@ function postAuthoringRequest(overrides: {
 }
 
 const baseInput: PostWriterInput = {
+  sessionId: 'session_post_1',
+  brandId: 'brand_post_1',
   context: {
     projectSummary: 'Platform: LinkedIn. Audience: agency founders. Topic: content approval bottlenecks.',
   },
@@ -1633,10 +1635,14 @@ describe('assertUsablePostWriterResult', () => {
     const output = await new PostWriterAgent().runStructured(baseInput, { temperature: 0.45 });
 
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
+    expect(writerMocks.generateStructured.mock.calls[0]?.[0]).toMatchObject({
+      telemetry: { projectId: 'brand_post_1', taskId: 'session_post_1' },
+    });
     expect(writerMocks.generateStructured.mock.calls[1]?.[0]).toMatchObject({
       temperature: 0.25,
       systemInstruction: expect.stringContaining('generic_cta'),
       prompt: expect.stringContaining('<post_contract_repair_input>'),
+      telemetry: { projectId: 'brand_post_1', taskId: 'session_post_1' },
     });
     expect(writerMocks.generateStructured.mock.calls[1]?.[0].prompt).toContain('previousModelOutput');
     expect(output.result.content).toBe(completeLinkedInPost());

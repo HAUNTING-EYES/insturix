@@ -30,6 +30,7 @@ import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/
 
 interface Project {
   projectId: string;
+  projectRevision?: number;
   name: string;
   thumbnail?: string;
   updatedAt: string;
@@ -398,8 +399,18 @@ export default function ProjectDashboard() {
 
   const deleteProject = async (projectId: string) => {
     try {
+      const project = projects.find((candidate) => candidate.projectId === projectId);
+      if (!project) throw new Error('Project revision is unavailable. Reload and try again.');
       const response = await fetch(`/api/services/editron/projects/${projectId}`, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expectedRevision: {
+            schemaVersion: 1,
+            value: project.projectRevision ?? 0,
+            compatibilityUpdatedAt: new Date(project.updatedAt).toISOString(),
+          },
+        }),
       });
 
       if (response.ok) {
@@ -409,7 +420,10 @@ export default function ProjectDashboard() {
         });
         loadProjects(); // Reload the list
       } else {
-        throw new Error('Failed to delete project');
+        const failure = await response.json().catch(() => null) as { error?: unknown } | null;
+        throw new Error(
+          typeof failure?.error === 'string' ? failure.error : 'Failed to delete project',
+        );
       }
     } catch (error) {
       console.error('Error deleting project:', error);

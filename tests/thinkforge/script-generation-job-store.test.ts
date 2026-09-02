@@ -1,4 +1,4 @@
-import type { Collection } from 'mongodb';
+import { BSON, type Collection } from 'mongodb';
 import { describe, expect, it, vi } from 'vitest';
 import { materializeScriptChapterPlan, type ScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import { hashScriptDocumentContent } from '@/lib/thinkforge/persistence/script-sidecar-binding';
@@ -121,6 +121,32 @@ function successfulUpdate() {
 }
 
 describe('LongFormScriptGenerationJobStore', () => {
+  it('keeps immutable input hashes stable across a BSON round trip', () => {
+    const inputWithOptionalValues = {
+      ...input,
+      authoringInput: {
+        ...input.authoringInput,
+        generationMode: undefined,
+        generationIdentity: undefined,
+      },
+      contextMetadata: {
+        trendContext: {
+          omitted: undefined,
+          orderedValues: ['preserved', undefined, { omitted: undefined, preserved: true }],
+        },
+      },
+    } as unknown as LongFormScriptGenerationJobInput;
+    const persistedInput = BSON.deserialize(
+      BSON.serialize(inputWithOptionalValues),
+    ) as unknown as LongFormScriptGenerationJobInput;
+
+    expect(persistedInput.authoringInput).not.toHaveProperty('generationMode');
+    expect(persistedInput.contextMetadata?.trendContext?.orderedValues)
+      .toEqual(['preserved', null, { preserved: true }]);
+    expect(createLongFormScriptJobDedupeKey(persistedInput))
+      .toBe(createLongFormScriptJobDedupeKey(inputWithOptionalValues));
+  });
+
   it('creates a deduplicated TTL job with exact authoring input and no visible partial result', async () => {
     const collection = collectionMock();
     vi.mocked(collection.findOne).mockResolvedValue(null);

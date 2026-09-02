@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   resolveBrandContext: vi.fn(),
   buildAnalysisContext: vi.fn(),
   validateYouTubeVideo: vi.fn(),
-  updateProjectMetadata: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -60,8 +61,11 @@ vi.mock("@upstash/qstash", () => ({
 }));
 
 vi.mock("@/lib/editron/services/project-service", () => ({
+  ProjectMutationConflictError: class ProjectMutationConflictError extends Error {},
+  ProjectNotFoundOrForbiddenError: class ProjectNotFoundOrForbiddenError extends Error {},
   projectService: {
-    updateProjectMetadata: mocks.updateProjectMetadata,
+    loadProjectForMutation: mocks.loadProjectForMutation,
+    saveProjectWithReceipt: mocks.saveProjectWithReceipt,
   },
 }));
 
@@ -109,6 +113,18 @@ describe("Alyzitron analyze media source ownership", () => {
     mocks.resolveBrandContext.mockResolvedValue({ source: "none" });
     mocks.buildAnalysisContext.mockImplementation((context) => context);
     mocks.validateYouTubeVideo.mockResolvedValue({ valid: true, duration: 120 });
+    mocks.loadProjectForMutation.mockResolvedValue({
+      revision: { schemaVersion: 1, value: 7, compatibilityUpdatedAt: "2026-09-02T00:00:00.000Z" },
+      project: {
+        projectId: "project_1",
+        userId: "user_123",
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 1_800,
+      },
+    });
   });
 
   afterEach(() => {
@@ -189,6 +205,31 @@ describe("Alyzitron analyze media source ownership", () => {
       orgId: "org_agency",
       brandId: "brand_alyzi",
     }));
+  });
+
+  it("binds linked Editron analysis to the authenticated project revision before charging", async () => {
+    const response = await POST(request({
+      video_url: "user_123/alyzitron-uploads/clip.mp4",
+      storage: "r2",
+      metadata: { duration: 60, mimeType: "video/mp4" },
+      editronProjectId: "project_1",
+    }));
+
+    expect(response!.status).toBe(200);
+    expect(mocks.loadProjectForMutation).toHaveBeenCalledWith("user_123", "project_1");
+    expect(mocks.loadProjectForMutation.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.deduct.mock.invocationCallOrder[0]);
+    expect(mocks.analysesInsertOne).toHaveBeenCalledWith(expect.objectContaining({
+      editronProjectId: "project_1",
+      editronProjectBindingV1: expect.objectContaining({
+        schemaVersion: 1,
+        projectId: "project_1",
+        projectRevision: expect.objectContaining({ value: 7 }),
+        sourceAccessBasis: "REGISTERED_USER_UPLOAD",
+        wholeSourceRangeMs: { startInclusive: 0, endExclusive: 60_000 },
+      }),
+    }));
+    expect(mocks.saveProjectWithReceipt).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported arbitrary external media hosts before credits", async () => {

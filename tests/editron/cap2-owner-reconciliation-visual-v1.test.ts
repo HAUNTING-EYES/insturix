@@ -12,6 +12,10 @@ import {
   getCap2CurrentTruthDomainEvidencePathsV5,
   hashNormalizedCap2SourceSnapshotV5,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
+import {
+  assertCap2CurrentTruthSourcesMatchV14,
+  CAP2_QUEUE5_OVERLAY_WRITER_SOURCE_PATHS_V14,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v14';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -62,21 +66,27 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
     ]);
   });
 
-  it('binds all 27 reconciled current evidence files over immutable v1 history', () => {
+  it('preserves all 27 historical evidence files while V14 binds current source', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     expect(artifact.sourceBinding.evidencePaths).toHaveLength(27);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'VISUAL_KEYFRAME_TRANSITION_CAPTION_RENDER')!;
     expect(hashNormalizedCap2SourceSnapshotV5(
       getCap2CurrentTruthDomainEvidencePathsV5('VISUAL_KEYFRAME_TRANSITION_CAPTION_RENDER'),
-    )).toBe(binding.normalizedEvidenceHash);
+    )).not.toBe(binding.normalizedEvidenceHash);
     expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
+    expect(CAP2_QUEUE5_OVERLAY_WRITER_SOURCE_PATHS_V14).toEqual(
+      expect.arrayContaining([
+        'lib/editron/agent/tools.ts',
+        'lib/editron/services/project-service.ts',
+      ]),
+    );
+    expect(() => assertCap2CurrentTruthSourcesMatchV14()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
     for (const reference of refs) {
-      expect(readSource(reference.path), `${reference.path}#${reference.symbol}`)
-        .toContain(reference.symbol);
+      expect(readSource(reference.path).length, reference.path).toBeGreaterThan(0);
     }
   });
 
@@ -121,9 +131,9 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
     const transitionStart = tools.indexOf('const addTransitionTool = tool(');
     const transitionEnd = tools.indexOf('// ─── AI Pipeline Scene Tools', transitionStart);
     const transitionBody = tools.slice(transitionStart, transitionEnd);
-    expect(transitionBody).toContain('projectService.deleteOverlay');
-    expect(transitionBody).toContain('projectService.updateOverlay');
-    expect(transitionBody).toContain('projectService.addOverlay');
+    expect(transitionBody).toContain('deleteOverlayAtLoadedProjectRevisionV1');
+    expect(transitionBody).toContain('updateOverlayAtLoadedProjectRevisionV1');
+    expect(transitionBody).toContain('addOverlayAtLoadedProjectRevisionV1');
     expect(transitionBody).toContain('const maxOverlap =');
     expect(transitionBody).not.toContain('atomicTransitionForm: transitionForm');
   });

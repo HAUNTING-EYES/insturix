@@ -11,6 +11,7 @@ import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/expor
 import { ShootKitDialog } from "@/components/dashboard/ThinkForge/production/ShootKitDialog";
 import type { IdeaCardData, ProjectMeta } from "@/lib/thinkforge/state/types";
 import { resolveThinkForgeExportDestination } from "@/lib/thinkforge/export/export-destination-policy";
+import { resolveThinkForgeShootKitAccess } from "@/lib/thinkforge/production/shoot-kit-access-policy";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
 import { AnimatePresence, motion } from "framer-motion";
@@ -65,6 +66,19 @@ export default function StoryboardingMode({
   const [showShootKit, setShowShootKit] = useState(false);
   const exportScriptId = scriptId || script?.scriptId || null;
   const hasExportDocumentIdentity = Boolean(script && sessionId && exportScriptId);
+  const shootKitAccess = resolveThinkForgeShootKitAccess(script?.contentContract);
+  const loadedShootKitScriptId = script?.scriptId || null;
+  const shootKitDocumentMatchesSelection = !scriptId || scriptId === loadedShootKitScriptId;
+  const hasShootKitDocumentIdentity = Boolean(
+    script
+    && sessionId
+    && loadedShootKitScriptId
+    && shootKitDocumentMatchesSelection
+    && typeof script.version === "number"
+    && Number.isInteger(script.version)
+    && script.version > 0,
+  );
+  const canOpenShootKit = hasShootKitDocumentIdentity && shootKitAccess.allowed;
   const clickatronExportDecision = resolveThinkForgeExportDestination(script?.contentContract, "clickatron");
   const editronExportDecision = resolveThinkForgeExportDestination(script?.contentContract, "editron");
   const canExportToClickatron = hasExportDocumentIdentity && clickatronExportDecision.allowed;
@@ -126,7 +140,8 @@ export default function StoryboardingMode({
   useEffect(() => {
     if (!canExportToClickatron) setShowClickatronDialog(false);
     if (!canExportToEditron) setShowExportDialog(false);
-  }, [canExportToClickatron, canExportToEditron]);
+    if (!canOpenShootKit) setShowShootKit(false);
+  }, [canExportToClickatron, canExportToEditron, canOpenShootKit]);
 
   const handleOpenSettings = () => setShowSettings(true);
   const handleCloseSettings = () => setShowSettings(false);
@@ -184,20 +199,21 @@ export default function StoryboardingMode({
               <button className="sidebar-item" onClick={() => setShowSettings(true)}>Settings</button>
             </div>
           </div>
-          <div className="sidebar-section">
-            <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>production</div>
-            <div className="sidebar-items">
-              <button
-                className="sidebar-item"
-                onClick={() => setShowShootKit(true)}
-                disabled={!script || !sessionId}
-                title="Turn this script into a capability-aware shot plan"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Clapperboard size={13} className="shrink-0" /> Shoot Kit
-              </button>
+          {canOpenShootKit && (
+            <div className="sidebar-section">
+              <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>production</div>
+              <div className="sidebar-items">
+                <button
+                  className="sidebar-item"
+                  onClick={() => canOpenShootKit && setShowShootKit(true)}
+                  title="Turn this script into a capability-aware shot plan"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Clapperboard size={13} className="shrink-0" /> Shoot Kit
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           <div className="sidebar-section">
             <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>export</div>
             <div className="sidebar-items">
@@ -318,12 +334,14 @@ export default function StoryboardingMode({
         title={script?.title || selectedIdea.idea}
       />
 
-      <ShootKitDialog
-        open={showShootKit}
-        onOpenChange={setShowShootKit}
-        sessionId={sessionId || undefined}
-        scriptId={scriptId || undefined}
-      />
+      {canOpenShootKit && (
+        <ShootKitDialog
+          open={showShootKit}
+          onOpenChange={setShowShootKit}
+          sessionId={sessionId || undefined}
+          scriptId={loadedShootKitScriptId || undefined}
+        />
+      )}
 
       <AnimatePresence>
         {showSettings && (

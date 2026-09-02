@@ -1,5 +1,5 @@
 import React, { createContext, useContext, type ReactNode } from 'react';
-import { AbsoluteFill, OffthreadVideo, Sequence, staticFile, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Img, OffthreadVideo, Sequence, staticFile, useCurrentFrame } from 'remotion';
 
 export interface GeneratedCompositionRuntimeManifestV1 {
   canvas: { width: number; height: number };
@@ -7,6 +7,7 @@ export interface GeneratedCompositionRuntimeManifestV1 {
   sources: readonly {
     slotId: string;
     publicFileName: string;
+    mediaKind: 'VIDEO' | 'STILL_IMAGE';
     startFrame: number;
     endExclusiveFrame: number;
   }[];
@@ -38,6 +39,11 @@ export function GeneratedCompositionProvider({
   children: ReactNode;
 }) {
   assertUnique(manifest.sources.map(({ slotId }) => slotId), 'source slot');
+  for (const source of manifest.sources) {
+    if (source.mediaKind !== 'VIDEO' && source.mediaKind !== 'STILL_IMAGE') {
+      throw new Error(`Generated composition source media kind is unsupported: ${source.slotId}`);
+    }
+  }
   assertUnique(manifest.fonts.map(({ slotId }) => slotId), 'font slot');
   assertUnique(manifest.textSlots.map(({ slotId }) => slotId), 'text slot');
   assertUnique(manifest.layers.map(({ layerId }) => layerId), 'layer');
@@ -203,12 +209,16 @@ export function AssetSlot({
     throw new Error(`Generated composition source frame is outside ${slotId}: ${sourceFrame}`);
   }
   const objectPosition = crop === 'portrait-left' ? '25% 50%' : crop === 'portrait-right' ? '75% 50%' : '50% 50%';
+  const style = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', objectFit: 'cover' as const, objectPosition };
+  if (source.mediaKind === 'STILL_IMAGE') {
+    return <Img src={staticFile(source.publicFileName)} style={style} />;
+  }
   return (
     <Sequence from={frame - sourceFrame} layout="none">
       <OffthreadVideo
         src={staticFile(source.publicFileName)}
         muted
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition }}
+        style={style}
       />
     </Sequence>
   );

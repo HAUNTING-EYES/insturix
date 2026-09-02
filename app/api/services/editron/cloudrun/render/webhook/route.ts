@@ -2,8 +2,25 @@ import { validateWebhookSignature } from '@remotion/lambda/client';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
-import { reconcileProviderTerminalEvent } from '@/lib/editron/services/render-job-service';
+import {
+  beginProjectRenderFinalizationV1,
+  beginRenderFinalization,
+} from '@/lib/editron/services/render-finalization-dispatch';
+import {
+  getCurrentProjectRenderJobV1,
+  getProjectRenderJobAuthorizationByAdmissionV1,
+  reconcileProviderTerminalEvent,
+} from '@/lib/editron/services/render-job-service';
+import {
+  bindProjectRenderDispatchFromSignedProofV1,
+  getProjectRenderDispatchAdmissionProofV1,
+  validateSignedProjectRenderDispatchProofV1,
+} from '@/lib/editron/services/render-dispatch-recovery-v1';
+import {
+  projectService,
+  ProjectNotFoundOrForbiddenError,
+} from '@/lib/editron/services/project-service';
+import { ProjectRenderSourceCleanupAwsRegionSchemaV1 } from '@/lib/editron/services/project-render-source-cleanup-v1';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +29,9 @@ const StaticPayloadSchema = z.object({
   bucketName: z.string().min(1),
   customData: z.object({
     editronRenderAdmissionId: z.string().regex(/^rnd_[A-Za-z0-9_-]+$/),
+    projectRenderBindingHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    renderRegion: ProjectRenderSourceCleanupAwsRegionSchemaV1.optional(),
+    editronRenderAttemptToken: z.string().min(1).max(200).optional(),
   }).passthrough(),
 });
 
@@ -83,23 +103,166 @@ export async function POST(request: Request) {
   const payload = parsed.data;
   const jobId = payload.customData.editronRenderAdmissionId;
   try {
+    const lookup = await getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId,
+      expectedBindingHash: payload.customData.projectRenderBindingHash,
+    });
+    if (lookup.status === 'NOT_PROJECT_RENDER_JOB') {
+      if (payload.type === 'success') {
+        const outputUrl = payload.outputFile ?? payload.outputUrl;
+        if (!outputUrl) throw new Error('Successful Remotion webhook has no output URL');
+        await beginRenderFinalization({
+          renderId: jobId,
+          providerRenderId: payload.renderId,
+          bucketName: payload.bucketName,
+          sourceOutputUrl: outputUrl,
+          sourceOutputSize: payload.outputSizeInBytes ?? 0,
+        });
+      } else {
+        await reconcileProviderTerminalEvent({
+          jobId,
+          providerRenderId: payload.renderId,
+          bucketName: payload.bucketName,
+          event: terminalError(payload),
+        });
+      }
+      return NextResponse.json({ type: 'success' });
+    }
+    if (!lookup.ok) {
+      if (payload.type === 'success') {
+        await cleanupKnownStaleProjectRenderSuccess({
+          jobId,
+          bindingHash: payload.customData.projectRenderBindingHash,
+          payload,
+        });
+      }
+      return projectRenderNotCurrent();
+    }
+    if (!payload.customData.projectRenderBindingHash) {
+      return NextResponse.json(
+        { type: 'error', message: 'Project render binding hash is required' },
+        { status: 400 },
+      );
+    }
+    const renderRegion = payload.customData.renderRegion;
+    if (!renderRegion) {
+      return NextResponse.json(
+        { type: 'error', message: 'Project render region is required' },
+        { status: 400 },
+      );
+    }
+
+    let currentProjectRevision;
+    try {
+      currentProjectRevision = await projectService.getProjectRevision(
+        lookup.authorization.ownerId,
+        lookup.authorization.projectId,
+      );
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        if (payload.type === 'success') {
+          await cleanupKnownStaleProjectRenderSuccess({
+            jobId,
+            bindingHash: payload.customData.projectRenderBindingHash,
+            payload,
+          });
+        }
+        return projectRenderNotCurrent();
+      }
+      throw error;
+    }
+    const current = await getCurrentProjectRenderJobV1({
+      authorization: lookup.authorization,
+      currentProjectRevision,
+    });
+    if (!current.ok) {
+      if (payload.type === 'success') {
+        await cleanupKnownStaleProjectRenderSuccess({
+          jobId,
+          bindingHash: payload.customData.projectRenderBindingHash,
+          payload,
+        });
+      }
+      return projectRenderNotCurrent();
+    }
+    const dispatchProof = validateSignedProjectRenderDispatchProofV1({
+      authorization: lookup.authorization,
+      job: current.job,
+      attemptToken: payload.customData.editronRenderAttemptToken,
+      providerRenderId: payload.renderId,
+      bucketName: payload.bucketName,
+      region: renderRegion,
+    });
+    if (!dispatchProof.ok) return projectRenderNotCurrent();
+    const bound = await bindProjectRenderDispatchFromSignedProofV1({
+      authorization: lookup.authorization,
+      job: current.job,
+      attemptToken: payload.customData.editronRenderAttemptToken,
+      providerRenderId: payload.renderId,
+      bucketName: payload.bucketName,
+      region: renderRegion,
+    });
+    if (!bound.ok) return projectRenderNotCurrent();
+    const hasStoredProviderIdentity = current.job.providerRenderId !== undefined
+      || current.job.bucketName !== undefined;
+    const exactProviderIdentity = current.job.providerRenderId === payload.renderId
+      && current.job.bucketName === payload.bucketName
+      && current.job.region === renderRegion;
+    if (hasStoredProviderIdentity && !exactProviderIdentity) {
+      return projectRenderNotCurrent();
+    }
+    const successfulOutputUrl = payload.type === 'success'
+      ? payload.outputFile ?? payload.outputUrl
+      : null;
+    if (payload.type === 'success' && !successfulOutputUrl) {
+      throw new Error('Successful Remotion webhook has no output URL');
+    }
+    const sourceOutputSize = payload.type === 'success'
+      ? payload.outputSizeInBytes ?? 0
+      : null;
+    if (
+      payload.type === 'success'
+      && exactProviderIdentity
+      && (current.job.status === 'finalizing' || current.job.status === 'done')
+    ) {
+      const storedFinalization = current.job.finalization;
+      const exactStoredSource = storedFinalization?.sourceOutputUrl === successfulOutputUrl
+        && storedFinalization?.sourceOutputSize === sourceOutputSize;
+      const validStoredState = current.job.status === 'finalizing'
+        ? storedFinalization?.state === 'running'
+        : storedFinalization?.state === 'done' && storedFinalization.receipt !== undefined;
+      return exactStoredSource && validStoredState
+        ? NextResponse.json({ type: 'success', state: 'already_reconciled' })
+        : projectRenderNotCurrent();
+    }
+    const providerError = payload.type === 'success'
+      ? null
+      : terminalError(payload).error.trim().slice(0, 1000);
+    if (payload.type !== 'success' && exactProviderIdentity && current.job.status === 'error') {
+      return current.job.finalization === undefined && current.job.error === providerError
+        ? NextResponse.json({ type: 'success', state: 'already_reconciled' })
+        : projectRenderNotCurrent();
+    }
+
     if (payload.type === 'success') {
-      const outputUrl = payload.outputFile ?? payload.outputUrl;
-      if (!outputUrl) throw new Error('Successful Remotion webhook has no output URL');
-      await beginRenderFinalization({
-        renderId: jobId,
+      const result = await beginProjectRenderFinalizationV1({
+        authorization: lookup.authorization,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
-        sourceOutputUrl: outputUrl,
-        sourceOutputSize: payload.outputSizeInBytes ?? 0,
+        region: renderRegion,
+        sourceOutputUrl: successfulOutputUrl!,
+        sourceOutputSize: sourceOutputSize!,
       });
+      if (!('state' in result)) return projectRenderNotCurrent();
     } else {
-      await reconcileProviderTerminalEvent({
-        jobId,
+      const result = await projectService.failProjectRenderJobFromProviderTransactionV1({
+        authorization: lookup.authorization,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
-        event: terminalError(payload),
+        region: renderRegion,
+        error: providerError!,
       });
+      if (!result.ok) return projectRenderNotCurrent();
     }
   } catch (error) {
     console.error('[RenderWebhook] terminal reconciliation failed:', {
@@ -116,6 +279,39 @@ export async function POST(request: Request) {
   return NextResponse.json({ type: 'success' });
 }
 
+async function cleanupKnownStaleProjectRenderSuccess(input: {
+  jobId: string;
+  bindingHash?: string;
+  payload: Extract<z.infer<typeof WebhookPayloadSchema>, { type: 'success' }>;
+}): Promise<boolean> {
+  const outputUrl = input.payload.outputFile ?? input.payload.outputUrl;
+  const renderRegion = input.payload.customData.renderRegion;
+  if (!input.bindingHash || !outputUrl || !renderRegion) return false;
+  const admission = await getProjectRenderDispatchAdmissionProofV1({
+    jobId: input.jobId,
+    expectedBindingHash: input.bindingHash,
+  });
+  if (!admission) return false;
+  const proof = validateSignedProjectRenderDispatchProofV1({
+    authorization: admission.authorization,
+    job: admission.job,
+    attemptToken: input.payload.customData.editronRenderAttemptToken,
+    providerRenderId: input.payload.renderId,
+    bucketName: input.payload.bucketName,
+    region: renderRegion,
+  });
+  if (!proof.ok) return false;
+  await beginProjectRenderFinalizationV1({
+    authorization: proof.authorization,
+    providerRenderId: proof.providerTuple.providerRenderId,
+    bucketName: proof.providerTuple.bucketName,
+    region: proof.providerTuple.region,
+    sourceOutputUrl: outputUrl,
+    sourceOutputSize: input.payload.outputSizeInBytes ?? 0,
+  });
+  return true;
+}
+
 function terminalError(payload: Exclude<z.infer<typeof WebhookPayloadSchema>, { type: 'success' }>) {
   if (payload.type === 'timeout') {
     return {
@@ -127,4 +323,15 @@ function terminalError(payload: Exclude<z.infer<typeof WebhookPayloadSchema>, { 
     type: 'error' as const,
     error: payload.errors[0]?.message ?? 'Remotion render failed',
   };
+}
+
+function projectRenderNotCurrent() {
+  return NextResponse.json(
+    {
+      type: 'error',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      message: 'Project render admission is no longer current.',
+    },
+    { status: 409 },
+  );
 }

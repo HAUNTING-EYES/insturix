@@ -10,7 +10,7 @@ Analyzes video segments using Meta's V-JEPA 2 encoder to extract:
   - face_emotion / eye_contact: null (requires separate face model, Phase 3)
 
 Endpoint: POST https://insturix--vjepa-2-visual.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/vjepa-service.ts → moment-weight-service.ts (30% Phase 2)
 
 Deploy:   modal deploy modal/vjepa_visual.py
@@ -22,7 +22,12 @@ GPU:      NVIDIA A10G (24GB VRAM) — ViT-L fp16 uses ~2GB, leaves room for batc
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import modal
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # ─── Modal App ──────────────────────────────────────────────────────────────
 
@@ -96,18 +101,15 @@ class VJEPAAnalyzer:
         ).cuda()
         self.model.eval()
         self.device = next(self.model.parameters()).device
-        print(f"[VJEPAAnalyzer] Model loaded on {self.device}, dtype=float16")
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def analyze(self, request: dict):
         import time
-        import numpy as np
 
         t0 = time.time()
 
         video_url = request.get("video_url")
         segments = request.get("segments", [])
-        features = set(request.get("features", []))
         max_frames_per_segment = _normalize_max_frames_per_segment(request.get("max_frames_per_segment"))
 
         if not video_url or not segments:
@@ -116,8 +118,7 @@ class VJEPAAnalyzer:
         # ── 1. Download video + extract frames per segment ──────────────
         try:
             frames_by_seg = _extract_segment_frames(video_url, segments, max_frames_per_segment)
-        except Exception as e:
-            print(f"[VJEPAAnalyzer] Frame extraction failed: {e}")
+        except Exception:
             return {
                 "segments": [_empty(s) for s in segments],
                 "model_version": "vjepa-2-vitl",
@@ -176,10 +177,6 @@ class VJEPAAnalyzer:
             results[i]["motion_intensity"] = _motion_adaptive(raw_motions, i)
 
         elapsed_ms = int((time.time() - t0) * 1000)
-        print(
-            f"[VJEPAAnalyzer] {len(results)} segments in {elapsed_ms}ms "
-            f"(avg sig={np.mean([r['visual_significance'] for r in results]):.2f})"
-        )
 
         return {
             "segments": results,

@@ -6,6 +6,13 @@ import {
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
+import { serializeThinkForgeBlocksToMarkdown } from '@/lib/thinkforge/canonical-document-state';
+import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
+import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
+import {
+  abstractExplainerTreatment,
+  mixedPresenterCutawayTreatment,
+} from '@/tests/fixtures/thinkforge-video-treatment';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
@@ -20,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   getWritingKnowledgeIdentity: vi.fn(),
   getWritingKnowledgeVersion: vi.fn(),
   postRun: vi.fn(),
+  planVideoTreatment: vi.fn(),
   resolveAuthoringContext: vi.fn(),
   resolveProductionBrief: vi.fn(),
   resolveSignalProfile: vi.fn(),
@@ -53,6 +61,10 @@ vi.mock('@/lib/thinkforge/brief/resolve-production-brief', () => ({
   resolveThinkForgeProductionBrief: mocks.resolveProductionBrief,
 }));
 
+vi.mock('@/lib/thinkforge/video-treatment/treatment-planner', () => ({
+  planVideoTreatment: mocks.planVideoTreatment,
+}));
+
 vi.mock('@/lib/thinkforge/provenance/source-ledger-continuity', () => ({
   buildContinuedThinkForgeSourceLedger: mocks.buildSourceLedger,
 }));
@@ -76,7 +88,10 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getSession: mocks.getSession,
 }));
 
-import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
+import {
+  planProductionContractRefresh,
+  reviseDocumentViaFlatWriter,
+} from '@/lib/thinkforge/services/flat-writer-edit';
 
 const signalProfile = {
   profile: { constraints: {}, signals: {}, derived: {}, _inference_metadata: {} },
@@ -261,6 +276,19 @@ describe('flat writer edit authoring context', () => {
     mocks.buildSignalTrace.mockReturnValue({ version: 1, selectedIntent: { outputFormat: 'social_post' } });
     mocks.resolveProductionBrief.mockReturnValue(productionBrief);
     mocks.buildSourceLedger.mockReturnValue(sourceLedger);
+    mocks.planVideoTreatment.mockResolvedValue({
+      treatment: abstractExplainerTreatment,
+      inputFingerprint: abstractExplainerTreatment.decisionTrace.inputFingerprint,
+      source: 'generated',
+      cacheStatus: 'miss',
+      modelName: 'gemini-test',
+      latencyMs: 120,
+      writingContextCacheStatus: 'hit',
+      knowledge: {
+        writingKnowledge: { version: 'writing-v4' },
+        editronGraph: { version: 'editron-v3' },
+      },
+    });
     mocks.applyCommand.mockResolvedValue({ ok: true, script: { version: 2 } });
   });
 
@@ -297,10 +325,7 @@ describe('flat writer edit authoring context', () => {
       orgId: 'org_1',
       sessionId: 'session_1',
       scriptId: 'post_1',
-      existingScript: stored,
-      existingContent: stored.content,
       instruction: 'Make the CTA more direct.',
-      baseVersion: 1,
     });
 
     expect(mocks.resolveAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
@@ -349,6 +374,7 @@ describe('flat writer edit authoring context', () => {
       authoringRequest: postAuthoringRequest,
     }));
     expect(mocks.scriptRun).not.toHaveBeenCalled();
+    expect(mocks.planVideoTreatment).not.toHaveBeenCalled();
     expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({
         documentType: 'social_post',
@@ -399,7 +425,12 @@ describe('flat writer edit authoring context', () => {
       version: 3,
       documentType: 'video_script',
       contentContract: scriptAuthoringRequest.contentContract,
-      metadata: {},
+      metadata: {
+        writerOutput: {
+          sourceLedger,
+          videoTreatment: mixedPresenterCutawayTreatment,
+        },
+      },
     };
     mocks.getSession.mockResolvedValueOnce({
       _id: 'session_1',
@@ -419,17 +450,26 @@ describe('flat writer edit authoring context', () => {
       orgId: 'org_1',
       sessionId: 'session_1',
       scriptId: 'script_1',
-      existingScript: stored,
-      existingContent: stored.content,
       instruction: 'Make the opening more concrete.',
-      baseVersion: 3,
     });
 
+    expect(mocks.planVideoTreatment).toHaveBeenCalledWith(expect.objectContaining({
+      userPrompt: 'Make the opening more concrete.',
+      authoringRequest: scriptAuthoringRequest,
+      productionBrief,
+      sourceLedger,
+      editContext: {
+        currentContent: stored.content,
+        instruction: 'Make the opening more concrete.',
+        existingTreatment: mixedPresenterCutawayTreatment,
+      },
+    }));
     expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       authoringRequest: scriptAuthoringRequest,
       productionBrief,
       sourceLedger,
+      videoTreatment: abstractExplainerTreatment,
       editorialPlan: expect.objectContaining({
         version: 2,
         writerKind: 'script',
@@ -454,6 +494,19 @@ describe('flat writer edit authoring context', () => {
           writerOutput: expect.objectContaining({
             writerType: 'script',
             sourceLedger,
+            videoTreatment: abstractExplainerTreatment,
+            videoTreatmentPlanning: {
+              version: 1,
+              inputFingerprint: abstractExplainerTreatment.decisionTrace.inputFingerprint,
+              treatmentId: abstractExplainerTreatment.treatmentId,
+              source: 'generated',
+              cacheStatus: 'miss',
+              modelName: 'gemini-test',
+              latencyMs: 120,
+              writingKnowledgeVersion: 'writing-v4',
+              editronCreativeGraphVersion: 'editron-v3',
+              writingContextCacheStatus: 'hit',
+            },
             generationTrace: expect.objectContaining({
               operation: { kind: 'edit', id: 'edit:session_1:script_1:v4' },
               document: expect.objectContaining({ expectedVersion: 4, writerType: 'script' }),
@@ -469,6 +522,150 @@ describe('flat writer edit authoring context', () => {
         }),
       }),
     }), 'user_1', 'org_1');
+  });
+
+  it('refreshes a production contract without changing any canonical document content', async () => {
+    const scriptAuthoringContext = {
+      ...authoringContext,
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    };
+    const exactBlocks = [
+      ...parseMarkdownToBlocks(scriptResult().content),
+      {
+        id: 'manual_closing',
+        kind: 'paragraph' as const,
+        content: [{ type: 'text' as const, text: 'QA-MANUAL-REFRESH-2026', styles: {} }],
+      },
+    ];
+    const exactContent = serializeThinkForgeBlocksToMarkdown(exactBlocks);
+    const stored = {
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      title: 'Manually edited script',
+      content: exactContent,
+      blocks: exactBlocks,
+      richText: thinkForgeBlocksToTiptapJSON(exactBlocks),
+      version: 6,
+      documentType: 'video_script',
+      contentContract: scriptAuthoringRequest.contentContract,
+      metadata: {
+        writerOutput: {
+          sourceLedger,
+          videoTreatment: mixedPresenterCutawayTreatment,
+        },
+      },
+    };
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: scriptAuthoringContext.projectMeta,
+    });
+    mocks.getScript.mockResolvedValue(stored);
+    mocks.resolveAuthoringContext.mockResolvedValue(scriptAuthoringContext);
+    mocks.scriptRun.mockImplementation(async (input) => ({
+      result: scriptResult(),
+      metadata: { writerTrace: writerTrace('script', input.editorialPlan) },
+    }));
+
+    const productionContractPlan = await planProductionContractRefresh({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+    });
+    await reviseDocumentViaFlatWriter({
+      mode: 'refresh-production-contract',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+      productionContractPlan,
+    });
+
+    expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
+      videoTreatment: abstractExplainerTreatment,
+      editContext: expect.objectContaining({
+        existingContent: exactContent,
+        focusHint: expect.stringContaining('exactly'),
+      }),
+    }));
+    expect(mocks.planVideoTreatment).toHaveBeenCalledTimes(1);
+    expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
+      baseVersion: 6,
+      payload: expect.objectContaining({
+        title: stored.title,
+        content: exactContent,
+        metadata: expect.objectContaining({
+          workflow: 'production-contract-refresh',
+          writerOutput: expect.objectContaining({
+            sidecarVersion: 1,
+            videoTreatment: abstractExplainerTreatment,
+          }),
+        }),
+      }),
+    }), 'user_1', 'org_1');
+  });
+
+  it('rejects a production-contract refresh if the writer changes visible spoken prose', async () => {
+    const exactContent = scriptResult().content;
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    });
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      title: 'Manually edited script',
+      content: exactContent,
+      version: 6,
+      documentType: 'video_script',
+      contentContract: scriptAuthoringRequest.contentContract,
+      metadata: { writerOutput: { sourceLedger, videoTreatment: mixedPresenterCutawayTreatment } },
+    });
+    mocks.resolveAuthoringContext.mockResolvedValueOnce({
+      ...authoringContext,
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    });
+    mocks.scriptRun.mockResolvedValueOnce({
+      result: {
+        ...scriptResult(),
+        content: scriptResult().content.replace(
+          'Name one owner before launch.',
+          'Name several owners after launch.',
+        ),
+      },
+      metadata: { writerTrace: writerTrace('script') },
+    });
+
+    await expect(reviseDocumentViaFlatWriter({
+      mode: 'refresh-production-contract',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+    })).rejects.toThrow(/changed visible spoken content/i);
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
   });
 
   it('fails before generation when the persisted authoring request is missing', async () => {
@@ -511,10 +708,7 @@ describe('flat writer edit authoring context', () => {
       userId: 'user_1',
       sessionId: 'missing',
       scriptId: 'missing_document',
-      existingScript: null,
-      existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',
-      baseVersion: 0,
     })).rejects.toThrow(/not found or not authorized/i);
 
     mocks.getSession.mockResolvedValueOnce({
@@ -538,10 +732,7 @@ describe('flat writer edit authoring context', () => {
       userId: 'user_1',
       sessionId: 'session_1',
       scriptId: 'post_1',
-      existingScript: null,
-      existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',
-      baseVersion: 0,
     })).rejects.toThrow('brand_profile_unavailable');
 
     expect(mocks.postRun).not.toHaveBeenCalled();

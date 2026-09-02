@@ -10,7 +10,7 @@ import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const ExactIdSchema = z.string().min(1).refine(
   (value) => value.trim().length > 0 && value.trim() === value,

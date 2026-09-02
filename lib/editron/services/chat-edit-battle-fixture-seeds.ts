@@ -7,6 +7,17 @@ import type {
   ChatEditOperationUpdate,
   RestorableProjectState,
 } from './checkpoint-service';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectRevisionV1,
+} from './project-service';
+
+const CHAT_BATTLE_UNDO_MUTATED_FIELDS = [
+  'overlays',
+  'durationInFrames',
+  'name',
+  'projectMetadata',
+] as const;
 
 interface ChatBattleFixtureSeedDependencies {
   captureRestorableProjectState(project: Record<string, unknown>): RestorableProjectState;
@@ -22,12 +33,23 @@ interface ChatBattleFixtureSeedDependencies {
     operationId: string,
     update: ChatEditOperationUpdate,
   ): Promise<void>;
+  loadProjectForMutation(
+    userId: string,
+    projectId: string,
+  ): Promise<{ project: Record<string, unknown>; revision: ProjectRevisionV1 }>;
+  commitUndoFixtureMutation(input: {
+    userId: string;
+    projectId: string;
+    project: Record<string, unknown>;
+    expectedRevision: ProjectRevisionV1;
+  }): Promise<ProjectMutationReceiptV1>;
   prepareChatAiEditTransaction(input: {
     operationId: string;
     sessionId: string;
     projectId: string;
     userId: string;
     project: Record<string, unknown>;
+    projectRevision: ProjectRevisionV1;
   }): Promise<{ status: 'ready' | 'duplicate'; beforeCheckpointId: string }>;
 }
 
@@ -171,6 +193,21 @@ export function prepareChatBattleDurableSeeds(input: {
   return result;
 }
 
+export function buildChatBattleInitialProjectDocument(
+  prepared: PreparedChatBattleDurableSeeds,
+): Record<string, unknown> {
+  const initialProject = structuredClone(prepared.project);
+  if (!prepared.undo) return initialProject;
+  for (const field of CHAT_BATTLE_UNDO_MUTATED_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(prepared.undo.beforeProject, field)) {
+      initialProject[field] = structuredClone(prepared.undo.beforeProject[field]);
+    } else {
+      delete initialProject[field];
+    }
+  }
+  return initialProject;
+}
+
 export async function persistChatBattleDurableSeeds(
   prepared: PreparedChatBattleDurableSeeds,
   dependencies?: ChatBattleFixtureSeedDependencies,
@@ -181,7 +218,8 @@ export async function persistChatBattleDurableSeeds(
 
   if (prepared.undo) {
     const sessionId = requireString(prepared.sessionId, 'undo fixture sessionId');
-    const beforeState = deps.captureRestorableProjectState(prepared.undo.beforeProject);
+    const beforeSnapshot = await deps.loadProjectForMutation(userId, projectId);
+    const beforeState = deps.captureRestorableProjectState(beforeSnapshot.project);
     const claim = await deps.claimChatEditOperation({
       checkpointId: prepared.undo.beforeCheckpointId,
       operationId: prepared.undo.operationId,
@@ -191,6 +229,7 @@ export async function persistChatBattleDurableSeeds(
       userId,
       overlays: asArray(beforeState.fields.overlays) as any[],
       projectState: beforeState,
+      capturedProjectRevision: beforeSnapshot.revision,
       description: `Before seeded battle edit ${prepared.undo.operationId}`,
       type: 'before-llm',
       force: true,
@@ -198,6 +237,12 @@ export async function persistChatBattleDurableSeeds(
     if (!claim.claimed) {
       throw new Error(`Seeded undo checkpoint already exists: ${prepared.undo.beforeCheckpointId}`);
     }
+    const writerReceipt = await deps.commitUndoFixtureMutation({
+      userId,
+      projectId,
+      project: prepared.project,
+      expectedRevision: beforeSnapshot.revision,
+    });
     const afterState = deps.captureRestorableProjectState(prepared.project);
     const after = await deps.createCheckpoint({
       checkpointId: prepared.undo.afterCheckpointId,
@@ -207,6 +252,7 @@ export async function persistChatBattleDurableSeeds(
       userId,
       overlays: asArray(afterState.fields.overlays) as any[],
       projectState: afterState,
+      capturedWriterReceipt: writerReceipt,
       description: `After seeded battle edit ${prepared.undo.operationId}`,
       type: 'after-llm',
       force: true,
@@ -227,12 +273,14 @@ export async function persistChatBattleDurableSeeds(
   }
 
   if (prepared.replay) {
+    const replaySnapshot = await deps.loadProjectForMutation(userId, projectId);
     const replay = await deps.prepareChatAiEditTransaction({
       operationId: prepared.replay.operationId,
       sessionId: prepared.replay.sessionId,
       projectId,
       userId,
-      project: prepared.project,
+      project: replaySnapshot.project,
+      projectRevision: replaySnapshot.revision,
     });
     if (replay.status !== 'ready') {
       throw new Error(`Seeded replay operation was not freshly claimed: ${prepared.replay.operationId}`);
@@ -241,9 +289,10 @@ export async function persistChatBattleDurableSeeds(
 }
 
 async function productionDependencies(): Promise<ChatBattleFixtureSeedDependencies> {
-  const [checkpointModule, transactionRuntime] = await Promise.all([
+  const [checkpointModule, transactionRuntime, projectModule] = await Promise.all([
     import('./checkpoint-service'),
     import('../agent/chat-ai-edit-transaction-runtime'),
+    import('./project-service'),
   ]);
   const { checkpointService } = checkpointModule;
   return {
@@ -251,6 +300,31 @@ async function productionDependencies(): Promise<ChatBattleFixtureSeedDependenci
     claimChatEditOperation: checkpointService.claimChatEditOperation.bind(checkpointService),
     createCheckpoint: checkpointService.createCheckpoint.bind(checkpointService),
     updateChatEditOperation: checkpointService.updateChatEditOperation.bind(checkpointService),
+    loadProjectForMutation: async (userId, projectId) => {
+      const snapshot = await projectModule.projectService.loadProjectForMutation(userId, projectId);
+      return {
+        project: snapshot.project as unknown as Record<string, unknown>,
+        revision: snapshot.revision,
+      };
+    },
+    commitUndoFixtureMutation: ({ userId, projectId, project, expectedRevision }) => {
+      const projectUpdates: Record<string, unknown> = {};
+      for (const field of ['name', 'projectMetadata'] as const) {
+        if (Object.prototype.hasOwnProperty.call(project, field)) {
+          projectUpdates[field] = structuredClone(project[field]);
+        }
+      }
+      return projectModule.projectService.saveProjectWithReceipt(
+        userId,
+        projectId,
+        project as any,
+        {
+          expectedRevision,
+          overlayAuthority: 'server',
+          projectUpdates,
+        },
+      );
+    },
     prepareChatAiEditTransaction: transactionRuntime.prepareChatAiEditTransaction,
   };
 }

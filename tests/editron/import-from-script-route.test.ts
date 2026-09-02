@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   deductCredits: vi.fn(),
   findLinkBySessionId: vi.fn(),
   findProjectBySessionId: vi.fn(),
+  getProjectRevision: vi.fn(),
   saveProjectWithReceipt: vi.fn(),
   scenesToOverlays: vi.fn(),
   scenesToTotalFrames: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
     findProjectBySessionId: mocks.findProjectBySessionId,
+    getProjectRevision: mocks.getProjectRevision,
     saveProjectWithReceipt: mocks.saveProjectWithReceipt,
   },
 }));
@@ -83,6 +85,11 @@ describe('import-from-script route', () => {
     mocks.deductCredits.mockResolvedValue({ success: true });
     mocks.scenesToOverlays.mockReturnValue([{ id: 1, type: 'text' }]);
     mocks.scenesToTotalFrames.mockReturnValue(90);
+    mocks.getProjectRevision.mockResolvedValue({
+      schemaVersion: 1,
+      value: 0,
+      compatibilityUpdatedAt: '2026-08-19T00:00:00.000Z',
+    });
     mocks.saveProjectWithReceipt.mockResolvedValue({
       revision: { schemaVersion: 1, value: 1, compatibilityUpdatedAt: '2026-08-19T00:00:00.000Z' },
       committedAt: '2026-08-19T00:00:00.000Z',
@@ -113,13 +120,20 @@ describe('import-from-script route', () => {
       'user_1',
       'proj_existing',
       expect.objectContaining({ durationInFrames: 90 }),
-      { projectUpdates: expect.objectContaining({
-        name: 'Imported Script',
-        pipelineStage: 'edit',
-        brandId: 'brand_1',
-        sourceSessionId: 'tf_session_1',
-        sourceScriptId: 'script_1',
-      }) },
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: '2026-08-19T00:00:00.000Z',
+        },
+        projectUpdates: expect.objectContaining({
+          name: 'Imported Script',
+          pipelineStage: 'edit',
+          brandId: 'brand_1',
+          sourceSessionId: 'tf_session_1',
+          sourceScriptId: 'script_1',
+        }),
+      },
     );
     expect(mocks.addProjectToLinkBySessionId).toHaveBeenCalledWith('user_1', 'tf_session_1', 'proj_existing');
   });

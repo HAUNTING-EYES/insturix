@@ -158,6 +158,13 @@ describe('non-MG atomic overlay receipts', () => {
         asset: expect.objectContaining({ primarySearchToken: 'whoosh' }),
       }),
       expect.any(Function),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        surface: 'transition',
+        confidence: expect.any(Number),
+        evidenceKeys: expect.arrayContaining(['transition-surface']),
+      }),
     );
     expect(transition?.metadata.transitionSfxPlacement.providerSearchReport).toEqual(expect.objectContaining({
       version: 'sfx-library-search-report-v1',

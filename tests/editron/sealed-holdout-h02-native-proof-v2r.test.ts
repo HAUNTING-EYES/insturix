@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { materializeHoldoutMediaV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
 import {
+  assertSealedHoldoutH02RevisionChainV4R,
+  assertSealedHoldoutH02SemanticSequenceV4R,
   proveSealedHoldoutH02NativeOutcomeV2R,
   proveSealedHoldoutH02NativeOutcomeV3R2,
 }
@@ -46,6 +48,53 @@ function calls(closingRange = { startFrame: 240, endFrame: 315 }): readonly Seal
   ];
 }
 
+type Segment = Readonly<{
+  assetId: 'h02-door' | 'h02-process';
+  sourceRange: Readonly<{ startFrame: number; endFrame: number }>;
+}>;
+
+function semanticPlacements(segments: readonly Segment[]) {
+  let cursor = 0;
+  return segments.map((segment) => {
+    const duration = segment.sourceRange.endFrame - segment.sourceRange.startFrame;
+    const target = { startFrame: cursor, endFrame: cursor + duration };
+    cursor += duration;
+    return { assetId: segment.assetId, target, source: segment.sourceRange };
+  });
+}
+
+const canonicalSegments = [
+  { assetId: 'h02-door', sourceRange: { startFrame: 30, endFrame: 105 } },
+  { assetId: 'h02-process', sourceRange: { startFrame: 0, endFrame: 90 } },
+  { assetId: 'h02-door', sourceRange: { startFrame: 240, endFrame: 315 } },
+] as const;
+
+const semanticContract = {
+  doorAssetId: 'h02-door',
+  processAssetId: 'h02-process',
+  projectDurationInFrames: 720,
+  doorOpen: { startFrame: 30, endFrame: 105 },
+  doorClose: { startFrame: 240, endFrame: 315 },
+  processWindows: [
+    { startFrame: 0, endFrame: 90 },
+    { startFrame: 120, endFrame: 210 },
+    { startFrame: 240, endFrame: 330 },
+  ],
+  requiredEvidenceRefs: ['E1', 'E2'],
+} as const;
+const alternateSemanticPlacements = semanticPlacements([
+  { assetId: 'h02-door', sourceRange: { startFrame: 10, endFrame: 30 } },
+  { assetId: 'h02-process', sourceRange: { startFrame: 400, endFrame: 420 } },
+  { assetId: 'h02-door', sourceRange: { startFrame: 200, endFrame: 220 } },
+]);
+const alternateSemanticContract = {
+  ...semanticContract,
+  projectDurationInFrames: 100,
+  doorOpen: { startFrame: 10, endFrame: 50 },
+  doorClose: { startFrame: 200, endFrame: 250 },
+  processWindows: [{ startFrame: 400, endFrame: 430 }],
+} as const;
+
 async function setup(closingRange?: { startFrame: number; endFrame: number }) {
   const root = await mkdtemp(join(tmpdir(), 'editron-h02-proof-'));
   scratch.push(root);
@@ -59,12 +108,12 @@ async function setup(closingRange?: { startFrame: number; endFrame: number }) {
   return { root, mediaManifest, ...episode };
 }
 
-async function setupCurrent() {
+async function setupCurrent(currentCalls: readonly SealedHoldoutScriptedCallV2R[] = calls()) {
   const root = await mkdtemp(join(tmpdir(), 'editron-current-h02-proof-'));
   scratch.push(root);
   const [episode, mediaManifest] = await Promise.all([
     runScriptedBudgetedSealedHoldoutV3R2({
-      caseId: 'HOLD-02:C1', calls: calls(),
+      caseId: 'HOLD-02:C1', calls: currentCalls,
       argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
     }),
     materializeHoldoutMediaV2R(join(root, 'media')),
@@ -73,6 +122,69 @@ async function setupCurrent() {
 }
 
 describe('sealed HOLD-02 rendered native proof V2R', () => {
+  it('accepts the canonical sequence through the semantic V4 contract', () => {
+    expect(assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: semanticPlacements(canonicalSegments), contract: semanticContract,
+    })).toEqual({ endFrame: 240 });
+  });
+
+  it('accepts a shorter legal sequence with a repeated process source window', () => {
+    const variableSegments = [
+      { assetId: 'h02-door', sourceRange: { startFrame: 35, endFrame: 100 } },
+      { assetId: 'h02-process', sourceRange: { startFrame: 130, endFrame: 155 } },
+      { assetId: 'h02-process', sourceRange: { startFrame: 130, endFrame: 155 } },
+      { assetId: 'h02-door', sourceRange: { startFrame: 245, endFrame: 310 } },
+    ] as const;
+    expect(assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: semanticPlacements(variableSegments), contract: semanticContract,
+    })).toEqual({ endFrame: 180 });
+  });
+
+  it('rejects a process selection that crosses an undeclared source gap', () => {
+    expect(() => assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: semanticPlacements([
+        canonicalSegments[0],
+        { assetId: 'h02-process', sourceRange: { startFrame: 60, endFrame: 150 } },
+        canonicalSegments[2],
+      ]),
+      contract: semanticContract,
+    })).toThrow('SEALED_H02_V4_PROOF_SEMANTIC_SEQUENCE_INVALID');
+  });
+
+  it('rejects close-process-open final ordering', () => {
+    expect(() => assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: semanticPlacements([
+        canonicalSegments[2], canonicalSegments[1], canonicalSegments[0],
+      ]),
+      contract: semanticContract,
+    })).toThrow('SEALED_H02_V4_PROOF_SEMANTIC_SEQUENCE_INVALID');
+  });
+
+  it('metamorphically follows alternate evidence windows', () => {
+    expect(assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: alternateSemanticPlacements,
+      contract: alternateSemanticContract,
+    })).toEqual({ endFrame: 60 });
+  });
+
+  it('metamorphically rejects a target beyond the declared project duration', () => {
+    expect(() => assertSealedHoldoutH02SemanticSequenceV4R({
+      placements: alternateSemanticPlacements,
+      contract: { ...alternateSemanticContract, projectDurationInFrames: 59 },
+    })).toThrow('SEALED_H02_V4_PROOF_SEMANTIC_SEQUENCE_INVALID');
+  });
+
+  it('accepts an alternate initial revision through the pure V4 revision chain', () => {
+    expect(assertSealedHoldoutH02RevisionChainV4R({
+      initialProjectRevision: 'ALT-R9',
+      mutations: [
+        { expectedProjectRevision: 'ALT-R9', writerIssuedProjectRevision: 'writer-1' },
+        { expectedProjectRevision: 'writer-1', writerIssuedProjectRevision: 'writer-2' },
+        { expectedProjectRevision: 'writer-2', writerIssuedProjectRevision: 'writer-3' },
+      ],
+    })).toEqual(['writer-1', 'writer-2', 'writer-3']);
+  });
+
   it('binds the current resource receipt to the same decoded bookend proof', async () => {
     const result = await setupCurrent();
     const proof = await proveSealedHoldoutH02NativeOutcomeV3R2({

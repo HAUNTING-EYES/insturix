@@ -15,11 +15,28 @@ function profile() {
       naturalLightSources: [{ id: 'window_left', kind: 'window', direction: 'north' }],
     }],
     equipment: [
-      { id: 'phone', label: 'Existing phone', category: 'camera', kind: 'phone', availability: 'owned', preferred: true },
+      {
+        id: 'phone',
+        label: 'Existing phone',
+        category: 'camera',
+        kind: 'phone',
+        availability: 'owned',
+        preferred: true,
+        focalLengthEquivalentMm: { min: 24, max: 28 },
+      },
       { id: 'tripod', label: 'Phone tripod', category: 'support', kind: 'tripod', availability: 'owned', maxHeightM: 1.8 },
       { id: 'lav', label: 'Wired lav', category: 'audio', kind: 'wired-lav', availability: 'owned' },
     ],
-    people: { performersAvailable: 1, cameraOperatorsAvailable: 0, assistantsAvailable: 0, selfShoot: true },
+    people: {
+      performersAvailable: 1,
+      cameraOperatorsAvailable: 0,
+      assistantsAvailable: 0,
+      selfShoot: true,
+      subjectCalibration: {
+        source: 'user-measured',
+        eyeHeightMByStance: { seated: 1.24 },
+      },
+    },
     constraints: {
       currency: 'INR',
       maxIncrementalSpend: 0,
@@ -94,7 +111,7 @@ describe('resolveSceneShotPlan', () => {
     expect(result.plan.feasibility.warnings.join(' ')).toMatch(/room depth/);
   });
 
-  it('uses normalized marks without inventing room depth when measurements are absent', () => {
+  it('requires calibration instead of inventing normalized marks when measurements are absent', () => {
     const inputProfile = profile();
     const room = inputProfile.spaces[0] as unknown as Record<string, unknown>;
     delete room.dimensionsM;
@@ -108,15 +125,11 @@ describe('resolveSceneShotPlan', () => {
 
     const result = resolveSceneShotPlan({ profile: inputProfile, intent: inputIntent });
 
-    expect(result.status).toBe('resolved');
-    if (result.status !== 'resolved') return;
-    expect(result.plan.coordinateSystem.unit).toBe('normalized');
-    expect(result.plan.scenes[0]?.camera.framing).toBe('wide');
-    expect(result.plan.feasibility.status).toBe('ready-with-assumptions');
-    expect(result.plan.feasibility.assumptions.join(' ')).toMatch(/depth is unknown/i);
-    const cameraInstruction = result.plan.setupGroups[0]?.instructions[0] ?? '';
-    expect(cameraInstruction).toMatch(/live preview/);
-    expect(cameraInstruction).not.toMatch(/\d+(?:\.\d+)?m\b/);
+    expect(result).toMatchObject({
+      status: 'needs-user-input',
+      blockers: [expect.objectContaining({ code: 'room_depth' })],
+    });
+    expect(JSON.stringify(result)).not.toContain('normalized');
   });
 
   it('treats an explicitly supplied usable depth as measured evidence', () => {
@@ -133,6 +146,59 @@ describe('resolveSceneShotPlan', () => {
     if (result.status !== 'resolved') return;
     expect(result.plan.coordinateSystem.unit).toBe('meters');
     expect(result.plan.setupGroups[0]?.instructions[0]).toMatch(/m from the lead performer/);
+  });
+
+  it('does not treat performance direction as measured subject geometry', () => {
+    const inputProfile = profile();
+    delete (inputProfile.people as unknown as Record<string, unknown>).subjectCalibration;
+
+    const result = resolveSceneShotPlan({
+      profile: inputProfile,
+      intent: { ...intent(), desiredMovement: 'static', movementMotivation: undefined },
+    });
+
+    expect(result).toMatchObject({
+      status: 'needs-user-input',
+      blockers: [expect.objectContaining({ code: 'subject_calibration' })],
+    });
+    expect(JSON.stringify(result)).toContain('Performance direction is not geometry evidence');
+  });
+
+  it('requires a measurement for the exact authored stance', () => {
+    const result = resolveSceneShotPlan({
+      profile: profile(),
+      intent: {
+        ...intent(),
+        desiredMovement: 'static',
+        movementMotivation: undefined,
+        performance: [{ ...intent().performance[0], stance: 'standing' }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'needs-user-input',
+      blockers: [expect.objectContaining({ code: 'subject_calibration' })],
+    });
+  });
+
+  it('uses the one explicitly preferred room in a multi-space profile', () => {
+    const base = profile();
+    const inputProfile = {
+      ...base,
+      spaces: [
+        { ...base.spaces[0], preferred: false },
+        { ...base.spaces[0], id: 'room_studio', label: 'Studio', preferred: true },
+      ],
+    };
+
+    const result = resolveSceneShotPlan({
+      profile: inputProfile,
+      intent: { ...intent(), desiredMovement: 'static', movementMotivation: undefined },
+    });
+
+    expect(result.status).toBe('resolved');
+    if (result.status !== 'resolved') return;
+    expect(result.plan.setupGroups[0]?.spaceId).toBe('room_studio');
   });
 
   it('keeps demonstrations readable instead of honoring an unusably wide creative request', () => {
@@ -203,6 +269,7 @@ describe('resolveSceneShotPlan', () => {
           availability: 'purchase-approved',
           estimatedIncrementalCost: 5_000,
           costBasis: 'one-time',
+          focalLengthEquivalentMm: { min: 24, max: 28 },
         },
         ...profile().equipment.filter((item) => item.category !== 'camera'),
       ],

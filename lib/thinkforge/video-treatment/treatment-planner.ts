@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ZodError } from 'zod';
 
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
@@ -27,6 +28,7 @@ import {
 import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 import {
   generateStructuredWithWritingContextCache,
+  type WritingContextTelemetry,
 } from '@/lib/thinkforge/services/gemini-writing-context-cache';
 
 import {
@@ -35,17 +37,42 @@ import {
   type VideoTreatmentKnowledgeDependencies,
 } from './treatment-knowledge';
 
-const VIDEO_TREATMENT_MODEL = 'gemini-2.5-flash';
+const VIDEO_TREATMENT_MODEL = 'gemini-3.6-flash';
 const VIDEO_TREATMENT_TEMPERATURE = 0.35;
-// Gemini 2.5 counts hidden reasoning against maxOutputTokens. Treatment planning
-// therefore reserves capacity for bounded semantic JSON and reasoning together.
+// Output capacity remains explicit even though Gemini 3 models use thinking levels
+// instead of exposing a token budget for its internal reasoning.
 const VIDEO_TREATMENT_MAX_TOKENS = 20_480;
 const VIDEO_TREATMENT_THINKING_BUDGET_TOKENS = 4_096;
 const VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS = 2_048;
-const VIDEO_TREATMENT_CACHE_VERSION = 1;
+// Trusted treatment policy is part of the cache contract. Never replay output
+// authored under an older semantic-evidence policy after that policy changes.
+const VIDEO_TREATMENT_CACHE_VERSION = 5;
 const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
 const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
-const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v1';
+const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v5';
+
+const TREATMENT_CONTEXT_DECISION_EVIDENCE = {
+  authoringRequest: 'context_authoring_request',
+  editorialPlan: 'context_editorial_plan',
+  productionBrief: 'context_production_brief',
+  userBrief: 'context_user_brief',
+  brandContext: 'context_brand_context',
+  contentSignalProfile: 'context_content_signal_profile',
+} as const;
+
+type TreatmentTraceEvidencePolicy = {
+  sourceRefs: readonly string[];
+  creativeReferenceIds: readonly string[];
+  creativeReferenceEvidenceIds: readonly string[];
+  graphConstraintIds: readonly string[];
+  writingConstraintIds: readonly string[];
+  contextDecisionEvidenceIds: readonly string[];
+  decisionEvidenceIds: readonly string[];
+  allowedSourceRefs: ReadonlySet<string>;
+  allowedDecisionEvidenceIds: ReadonlySet<string>;
+  allowedConstraintIds: ReadonlySet<string>;
+  legacyDecisionEvidenceAliases: ReadonlyMap<string, string>;
+};
 
 export type VideoTreatmentPlanCacheStatus = 'hit' | 'miss' | 'unavailable';
 
@@ -93,12 +120,21 @@ export type VideoTreatmentPlannerGenerator = (input: {
   temperature: number;
   maxTokens: number;
   thinkingBudgetTokens: number;
+  thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }) => Promise<{
   result: VideoTreatmentModelOutput;
   cacheStatus: 'hit' | 'created' | 'inline';
   modelName: string;
 }>;
+
+export interface VideoTreatmentEditContext {
+  currentContent: string;
+  instruction: string;
+  selection?: string;
+  existingTreatment?: VideoTreatment;
+}
 
 export interface PlanVideoTreatmentInput {
   userPrompt: string;
@@ -112,6 +148,7 @@ export interface PlanVideoTreatmentInput {
   orgId?: string | null;
   sessionId?: string;
   projectId?: string;
+  editContext?: VideoTreatmentEditContext;
   abortSignal?: AbortSignal;
 }
 
@@ -140,6 +177,7 @@ export class VideoTreatmentPlannerError extends Error {
       | 'editorial_plan_invalid'
       | 'prompt_boundary_truncated'
       | 'provenance_invalid'
+      | 'treatment_contract_invalid'
       | 'response_truncated',
     message: string,
   ) {
@@ -166,6 +204,12 @@ export async function planVideoTreatment(
     contentSignalProfile: input.contentSignalProfile,
     creativeReferenceContext: input.authoringContext.creativeReferenceContext,
   }, dependencies.knowledge);
+  const provenancePolicy = buildTreatmentTraceEvidencePolicy({
+    sourceLedger,
+    authoringContext: input.authoringContext,
+    contentSignalProfile: input.contentSignalProfile,
+    knowledge,
+  });
   const inputFingerprint = buildVideoTreatmentInputFingerprint({
     input,
     editorialPlan,
@@ -182,9 +226,8 @@ export async function planVideoTreatment(
   ) {
     assertTreatmentProvenance(
       cacheRead.record.treatment,
-      sourceLedger,
       input.authoringContext,
-      knowledge,
+      provenancePolicy,
     );
     await (dependencies.recordReceipt ?? recordVideoTreatmentPlanningReceipt)({
       inputFingerprint,
@@ -216,6 +259,7 @@ export async function planVideoTreatment(
     editorialPlan,
     sourceLedger,
     knowledge,
+    provenancePolicy,
     inputFingerprint,
   });
   assertNoCriticalPromptTruncation(promptParts.truncatedFields);
@@ -230,7 +274,14 @@ export async function planVideoTreatment(
     temperature: VIDEO_TREATMENT_TEMPERATURE,
     maxTokens: VIDEO_TREATMENT_MAX_TOKENS,
     thinkingBudgetTokens: VIDEO_TREATMENT_THINKING_BUDGET_TOKENS,
+    thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
+    telemetry: {
+      userId: input.userId,
+      orgId: input.orgId ?? undefined,
+      projectId: input.projectId,
+      taskId: input.sessionId,
+    },
   } satisfies Parameters<VideoTreatmentPlannerGenerator>[0];
   let recoveryAttempted = false;
   let generation: Awaited<ReturnType<VideoTreatmentPlannerGenerator>>;
@@ -244,6 +295,7 @@ export async function planVideoTreatment(
         ...generationInput,
         prompt: buildTreatmentLengthRecoveryPrompt(promptParts.prompt),
         thinkingBudgetTokens: VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS,
+        thinkingLevel: 'low',
       });
     } catch (recoveryError) {
       if (!isLengthLimitedStructuredOutput(recoveryError)) throw recoveryError;
@@ -254,14 +306,29 @@ export async function planVideoTreatment(
     }
   }
   const latencyMs = Math.max(0, Date.now() - startedAt);
-  const treatment = materializeVideoTreatment({
-    modelOutput: generation.result,
-    inputFingerprint,
-    treatmentId,
-    input,
-    knowledge,
-  });
-  assertTreatmentProvenance(treatment, sourceLedger, input.authoringContext, knowledge);
+  let treatment: VideoTreatment;
+  try {
+    treatment = materializeVideoTreatment({
+      modelOutput: generation.result,
+      inputFingerprint,
+      treatmentId,
+      input,
+      editorialPlan,
+      knowledge,
+      provenancePolicy,
+    });
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    const issues = error.issues
+      .slice(0, 8)
+      .map((issue) => `${issue.path.join('.')}:${issue.message}`)
+      .join(', ');
+    throw new VideoTreatmentPlannerError(
+      'treatment_contract_invalid',
+      `Video treatment contradicted the approved audiovisual contract: ${issues}`,
+    );
+  }
+  assertTreatmentProvenance(treatment, input.authoringContext, provenancePolicy);
 
   const cacheWrite = await cache.write({
     version: VIDEO_TREATMENT_CACHE_VERSION,
@@ -337,6 +404,7 @@ export function buildVideoTreatmentInputFingerprint(input: {
           warnings: input.input.contentSignalProfile.warnings,
         }
       : null,
+    editContext: input.input.editContext ?? null,
     knowledge: {
       adapterVersion: input.knowledge.adapterVersion,
       writingKnowledge: input.knowledge.writingKnowledge,
@@ -370,12 +438,15 @@ function buildTreatmentPromptParts(input: {
   editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   sourceLedger: SourceLedger;
   knowledge: VideoTreatmentKnowledge;
+  provenancePolicy: TreatmentTraceEvidencePolicy;
   inputFingerprint: string;
 }) {
   return buildIsolatedPromptParts({
     systemInstruction: buildTreatmentSystemInstruction(input.knowledge),
     data: {
-      task: 'Create one whole-video semantic treatment before script prose is written.',
+      task: input.input.editContext
+        ? 'Revise the whole-video semantic treatment for an existing script edit.'
+        : 'Create one whole-video semantic treatment before script prose is written.',
       authoringDestination: input.input.authoringRequest,
       productionBrief: input.input.productionBrief,
       editorialPlan: input.editorialPlan,
@@ -391,18 +462,27 @@ function buildTreatmentPromptParts(input: {
         : null,
       sourceLedger: input.sourceLedger,
       creativeReferences: input.input.authoringContext.creativeReferenceContext,
+      editContext: input.input.editContext
+        ? {
+            currentContent: input.input.editContext.currentContent,
+            instruction: input.input.editContext.instruction,
+            selection: input.input.editContext.selection ?? null,
+            existingTreatment: input.input.editContext.existingTreatment ?? null,
+          }
+        : null,
       treatmentIdentity: {
         treatmentId: `treatment_${input.inputFingerprint.slice(0, 24)}`,
         inputFingerprint: input.inputFingerprint,
         note: 'The server owns these values and will attach them after model output validation.',
       },
       allowedTraceEvidence: {
-        sourceRefs: input.sourceLedger.entries.map((entry) => entry.referenceId),
-        creativeReferenceIds: input.input.authoringContext.creativeReferenceContext.selectedReferenceIds,
-        creativeReferenceEvidenceIds: input.input.authoringContext.creativeReferenceContext.referenceSet.references
-          .flatMap((reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? []),
-        graphConstraintIds: input.knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-        writingConstraintIds: input.knowledge.writingKnowledge.traceConstraintIds,
+        sourceRefs: input.provenancePolicy.sourceRefs,
+        creativeReferenceIds: input.provenancePolicy.creativeReferenceIds,
+        creativeReferenceEvidenceIds: input.provenancePolicy.creativeReferenceEvidenceIds,
+        graphConstraintIds: input.provenancePolicy.graphConstraintIds,
+        writingConstraintIds: input.provenancePolicy.writingConstraintIds,
+        contextDecisionEvidenceIds: input.provenancePolicy.contextDecisionEvidenceIds,
+        decisionEvidenceIds: input.provenancePolicy.decisionEvidenceIds,
       },
     },
     fieldLimits: {
@@ -413,6 +493,7 @@ function buildTreatmentPromptParts(input: {
       editorialPlan: 28_000,
       productionBrief: 16_000,
       contentSignalProfile: 24_000,
+      editContext: 96_000,
     },
   });
 }
@@ -437,14 +518,23 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - Plan the entire video's audiovisual meaning before prose. The result is a semantic treatment, not a shot list or render plan.
 - Return only the structured model schema. The server owns treatment IDs, input fingerprints, Brand Vault revision provenance, and knowledge versions.
 - A visual event may coexist with spoken audio and another visual event inside one narrative moment. Do not flatten mixed media into a single asset recommendation.
-- Choose a capture requirement only when the approved brief genuinely needs original evidence or capture. Classify each requirement as physical-camera, screen-recording, source-asset, or unspecified. Use physical-camera only when the treatment genuinely needs a camera capture; then declare only the necessary user-confirmable capabilities from performer, camera, space, audio, and lighting. A conceptual, graphics-led, archive-led, or generated treatment can have zero capture requirements. If the evidence does not establish the acquisition kind, use unspecified, leave requiredCapabilities empty, and surface the missing decision as an unresolved question.
+- Obey tf_untrusted_data.editorialPlan.execution.plan.audiovisualIntent as four independent hard constraints. It is not a video-type label. "required" must be represented, "forbidden" must be absent, and "unspecified" leaves the creative decision open.
+- audibleSpeech covers every spoken line, including voice-over and synchronous dialogue. onCameraSpeech covers only visible synchronous speech. visiblePerson covers speaking and silent people. physicalCapture covers newly filming physical subjects; it does not include screen recording, supplied assets, stock, animation, graphics, or generated imagery.
+- Fill resolvedAudiovisualDecision with the actual whole-treatment choice for speech, speech source, on-camera speech, visible people, physical capture, graphics, generated imagery, supplied footage, screen material, and source material. This is the treatment's semantic decision, not a copy of audiovisualIntent.
+- For an "unspecified" intake field, choose the option supported by the user brief, approved references, Brand Vault boundaries, narrative need, and production constraints. Use "unresolved" only when a real missing decision prevents a responsible choice, and surface the exact question. Never prefer voice-over merely because speech was unspecified.
+- Cite at least one allowed decision evidence ID for every resolvedAudiovisualDecision section. A category label, guessed format, or unsupported convention is not evidence.
+- Set every visualEvents[].visiblePerson independently. Under a global visiblePerson prohibition every event must say "forbidden"; under a requirement at least one event must say "required". Do not hide people inside free-text visualThesis while marking the structured field otherwise.
+- Genre, style, channel, campaign, and format labels are non-authoritative metadata. Never use a category label alone to decide speech, people, capture, or acquisition form.
+- Resolve unconstrained audiovisual choices from semantic evidence: explicit user constraints, approved source and reference evidence, Brand Vault boundaries, and the narrative or audience need. Cite the material evidence in decisionTrace; a label is not sufficient evidence.
+- Add a capture requirement only when a visual event needs named evidence or subject matter to be acquired. Set captureKind to physical-camera, screen-recording, source-asset, or unspecified according to how that evidence can actually be obtained. Use physical-camera only when the evidence must be newly recorded with a physical camera, and declare only user-confirmable capabilities from performer, camera, space, audio, and lighting. Capture requirements may be empty. If the evidence does not establish the acquisition mechanism, use unspecified, leave requiredCapabilities empty, and surface the missing decision as an unresolved question.
 - Do not prescribe a camera, lens, framing coordinate, room geometry, lighting position, equipment, asset query, visual layout, typography, keyframe, transition implementation, SFX token, render provider, or timeline segmentation. Editron owns final editorial form; Shoot Kit owns physical calibration after user confirmation.
 - Treat sourceLedger as the only factual source. Use only listed source reference IDs; no invented claims, proof, dates, statistics, outcomes, people, UI states, or logos.
 - Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
 - Treat selected creative-content knowledge and selected Editron semantic evidence as binding guidance. They constrain attention, accessibility, continuity, rhythm, and audiovisual relationships; they do not license final form choices.
-- "allowedTraceEvidence" is the server-owned allowlist for trace IDs. In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
+- "allowedTraceEvidence" is the server-owned allowlist for trace IDs. Every "decisionTrace.decisions[].evidenceIds" entry must come from "decisionEvidenceIds". Use the supplied "context_*" IDs for server inputs; never use payload field names such as "editorial_plan" or "brandContext". In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
 - Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
 - Keep the treatment decision-dense and complete: state each top-level strategy once, keep lists to distinct material decisions, and never restate Brand Vault, source-ledger, or reference input verbatim. Visual events represent meaningful audiovisual/narrative turns, never every line, shot, or edit.
+- When editContext is present, revise the existing whole-video treatment against the current saved script and requested change. Preserve unaffected semantic decisions, continuity, and audience intent; change every decision materially affected by the edit. Current authoring constraints and evidence outrank the previous treatment. Return a complete replacement treatment, never a patch, and never rewrite the script prose.
 </video_treatment_planner_contract>`;
 
 function isLengthLimitedStructuredOutput(error: unknown): boolean {
@@ -461,11 +551,11 @@ function isLengthLimitedStructuredOutput(error: unknown): boolean {
 }
 
 function buildTreatmentLengthRecoveryPrompt(prompt: string): string {
-  return `${prompt}\n\n<video_treatment_length_recovery>\nA prior provider response ended before its JSON closed. Return the complete schema now. Preserve every material audiovisual decision, but use one concise sentence per text field, do not paraphrase the input, and include only distinct hierarchy, boundary, reference, continuity, and trace entries. Do not omit visualEvents, captureRequirements, or decisionTrace.\n</video_treatment_length_recovery>`;
+  return `${prompt}\n\n<video_treatment_length_recovery>\nA prior provider response ended before its JSON closed. Return the complete schema now. Preserve every material audiovisual decision, but use one concise sentence per text field, do not paraphrase the input, and include only distinct hierarchy, boundary, reference, continuity, and trace entries. Do not omit resolvedAudiovisualDecision, visualEvents, captureRequirements, or decisionTrace.\n</video_treatment_length_recovery>`;
 }
 
 function assertNoCriticalPromptTruncation(truncatedFields: readonly string[]): void {
-  const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile))/.test(path));
+  const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile|editContext))/.test(path));
   if (critical.length === 0) return;
   throw new VideoTreatmentPlannerError(
     'prompt_boundary_truncated',
@@ -478,10 +568,22 @@ function materializeVideoTreatment(input: {
   inputFingerprint: string;
   treatmentId: string;
   input: PlanVideoTreatmentInput;
+  editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   knowledge: VideoTreatmentKnowledge;
+  provenancePolicy: TreatmentTraceEvidencePolicy;
 }): VideoTreatment {
+  const modelDecisionTrace = {
+    ...input.modelOutput.decisionTrace,
+    decisions: input.modelOutput.decisionTrace.decisions.map((decision) => ({
+      ...decision,
+      evidenceIds: canonicalizeDecisionEvidenceIds(
+        decision.evidenceIds,
+        input.provenancePolicy,
+      ),
+    })),
+  };
   const inheritedUnknowns = [
-    ...input.modelOutput.decisionTrace.unresolvedAssumptions,
+    ...modelDecisionTrace.unresolvedAssumptions,
     ...input.input.authoringContext.creativeReferenceContext.unresolved.map((unknown) => unknown.message),
     ...input.knowledge.editronGraph.unresolvedAssumptions,
   ];
@@ -495,13 +597,27 @@ function materializeVideoTreatment(input: {
         profileFingerprint: snapshotBrand.profileFingerprint,
       }
     : undefined;
+  const audiovisualIntent = input.editorialPlan.execution.plan.audiovisualIntent;
+  const resolvedAudiovisualDecision = canonicalizeResolvedAudiovisualDecision(
+    input.modelOutput.resolvedAudiovisualDecision,
+    input.provenancePolicy,
+  );
+  const audioVoiceStrategy = resolvedAudiovisualDecision.audibleSpeech.presence === 'absent'
+    ? 'No intelligible speech. Use only non-verbal audio that serves the approved treatment.'
+    : input.modelOutput.audioVoiceStrategy;
 
   return parseVideoTreatment({
     version: VIDEO_TREATMENT_VERSION,
     treatmentId: input.treatmentId,
     ...input.modelOutput,
+    audioVoiceStrategy,
+    audiovisualIntent,
+    resolvedAudiovisualDecision: {
+      ...resolvedAudiovisualDecision,
+      origin: 'model',
+    },
     decisionTrace: {
-      ...input.modelOutput.decisionTrace,
+      ...modelDecisionTrace,
       inputFingerprint: input.inputFingerprint,
       ...(traceBrand ? { brand: traceBrand } : {}),
       contentSignalProfileVersion: input.input.contentSignalProfile
@@ -519,43 +635,159 @@ function materializeVideoTreatment(input: {
   });
 }
 
+function buildTreatmentTraceEvidencePolicy(input: {
+  sourceLedger: SourceLedger;
+  authoringContext: ThinkForgeResolvedAuthoringContext;
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+  knowledge: VideoTreatmentKnowledge;
+}): TreatmentTraceEvidencePolicy {
+  const sourceRefs = unique(input.sourceLedger.entries.map((entry) => entry.referenceId));
+  const creativeReferenceIds = unique(input.authoringContext.creativeReferenceContext.selectedReferenceIds);
+  const creativeReferenceEvidenceIds = unique(
+    input.authoringContext.creativeReferenceContext.referenceSet.references.flatMap(
+      (reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? [],
+    ),
+  );
+  const graphConstraintIds = unique(input.knowledge.editronGraph.evidence.map((evidence) => evidence.id));
+  const writingConstraintIds = unique(input.knowledge.writingKnowledge.traceConstraintIds);
+  const contextDecisionEvidenceIds = [
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.authoringRequest,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.editorialPlan,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.productionBrief,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.userBrief,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.brandContext,
+    ...(input.contentSignalProfile
+      ? [TREATMENT_CONTEXT_DECISION_EVIDENCE.contentSignalProfile]
+      : []),
+  ];
+  const decisionEvidenceIds = unique([
+    ...sourceRefs,
+    ...creativeReferenceIds,
+    ...creativeReferenceEvidenceIds,
+    ...graphConstraintIds,
+    ...writingConstraintIds,
+    ...contextDecisionEvidenceIds,
+  ]);
+  const allowedDecisionEvidenceIds = new Set(decisionEvidenceIds);
+  const legacyDecisionEvidenceAliases = new Map<string, string>();
+  const registerLegacyAliases = (canonicalId: string, aliases: readonly string[]) => {
+    if (!allowedDecisionEvidenceIds.has(canonicalId)) return;
+    aliases.forEach((alias) => legacyDecisionEvidenceAliases.set(alias, canonicalId));
+  };
+
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.authoringRequest, [
+    'authoringDestination',
+    'authoring_destination',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.editorialPlan, [
+    'editorialPlan',
+    'editorial_plan',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.productionBrief, [
+    'productionBrief',
+    'production_brief',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.userBrief, [
+    'userBrief',
+    'user_brief',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.brandContext, [
+    'brandContext',
+    'brand_context',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.contentSignalProfile, [
+    'contentSignalProfile',
+    'content_signal_profile',
+  ]);
+
+  return {
+    sourceRefs,
+    creativeReferenceIds,
+    creativeReferenceEvidenceIds,
+    graphConstraintIds,
+    writingConstraintIds,
+    contextDecisionEvidenceIds,
+    decisionEvidenceIds,
+    allowedSourceRefs: new Set(sourceRefs),
+    allowedDecisionEvidenceIds,
+    allowedConstraintIds: new Set([
+      ...graphConstraintIds,
+      ...writingConstraintIds,
+    ]),
+    legacyDecisionEvidenceAliases,
+  };
+}
+
+function canonicalizeDecisionEvidenceIds(
+  evidenceIds: readonly string[],
+  policy: TreatmentTraceEvidencePolicy,
+): string[] {
+  return evidenceIds.map((id) => {
+    if (policy.allowedDecisionEvidenceIds.has(id)) return id;
+    return policy.legacyDecisionEvidenceAliases.get(id) ?? id;
+  });
+}
+
+function canonicalizeResolvedAudiovisualDecision(
+  decision: VideoTreatmentModelOutput['resolvedAudiovisualDecision'],
+  policy: TreatmentTraceEvidencePolicy,
+): VideoTreatmentModelOutput['resolvedAudiovisualDecision'] {
+  const canonicalize = (evidenceIds: readonly string[]) =>
+    canonicalizeDecisionEvidenceIds(evidenceIds, policy);
+  return {
+    ...decision,
+    audibleSpeech: {
+      ...decision.audibleSpeech,
+      evidenceIds: canonicalize(decision.audibleSpeech.evidenceIds),
+    },
+    onCameraSpeech: {
+      ...decision.onCameraSpeech,
+      evidenceIds: canonicalize(decision.onCameraSpeech.evidenceIds),
+    },
+    visiblePeople: {
+      ...decision.visiblePeople,
+      evidenceIds: canonicalize(decision.visiblePeople.evidenceIds),
+    },
+    physicalCapture: {
+      ...decision.physicalCapture,
+      evidenceIds: canonicalize(decision.physicalCapture.evidenceIds),
+    },
+    materials: {
+      ...decision.materials,
+      evidenceIds: canonicalize(decision.materials.evidenceIds),
+    },
+  };
+}
+
 function assertTreatmentProvenance(
   treatment: VideoTreatment,
-  sourceLedger: SourceLedger,
   authoringContext: ThinkForgeResolvedAuthoringContext,
-  knowledge: VideoTreatmentKnowledge,
+  policy: TreatmentTraceEvidencePolicy,
 ): void {
   assertVideoTreatmentReferences(treatment, authoringContext.creativeReferenceContext.referenceSet);
 
-  const allowedSourceRefs = new Set(sourceLedger.entries.map((entry) => entry.referenceId));
-  const allowedDecisionEvidence = new Set([
-    ...allowedSourceRefs,
-    ...authoringContext.creativeReferenceContext.selectedReferenceIds,
-    ...authoringContext.creativeReferenceContext.referenceSet.references.flatMap(
-      (reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? [],
-    ),
-    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-  ]);
-  const allowedConstraintIds = new Set([
-    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-    ...knowledge.writingKnowledge.traceConstraintIds,
-  ]);
   const issues: string[] = [];
-  const check = (ids: readonly string[], allowed: Set<string>, owner: string) => {
+  const check = (ids: readonly string[], allowed: ReadonlySet<string>, owner: string) => {
     ids.forEach((id) => {
       if (!allowed.has(id)) issues.push(`${owner}:${id}`);
     });
   };
 
-  check(treatment.decisionTrace.sourceRefs, allowedSourceRefs, 'trace_source_ref');
-  check(treatment.decisionTrace.appliedConstraintIds, allowedConstraintIds, 'trace_constraint');
+  check(treatment.decisionTrace.sourceRefs, policy.allowedSourceRefs, 'trace_source_ref');
+  check(treatment.decisionTrace.appliedConstraintIds, policy.allowedConstraintIds, 'trace_constraint');
   treatment.decisionTrace.decisions.forEach((decision) => {
-    check(decision.evidenceIds, allowedDecisionEvidence, `decision_evidence:${decision.id}`);
+    check(decision.evidenceIds, policy.allowedDecisionEvidenceIds, `decision_evidence:${decision.id}`);
   });
-  treatment.visualEvents.forEach((event) => check(event.sourceRefs, allowedSourceRefs, `visual_event_source:${event.id}`));
+  const resolved = treatment.resolvedAudiovisualDecision;
+  check(resolved.audibleSpeech.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_audible_speech');
+  check(resolved.onCameraSpeech.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_on_camera_speech');
+  check(resolved.visiblePeople.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_visible_people');
+  check(resolved.physicalCapture.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_physical_capture');
+  check(resolved.materials.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_materials');
+  treatment.visualEvents.forEach((event) => check(event.sourceRefs, policy.allowedSourceRefs, `visual_event_source:${event.id}`));
   treatment.captureRequirements.forEach((requirement) => check(
     requirement.sourceRefs,
-    allowedSourceRefs,
+    policy.allowedSourceRefs,
     `capture_requirement_source:${requirement.id}`,
   ));
 

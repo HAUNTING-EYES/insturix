@@ -18,6 +18,7 @@ import {
   type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { buildScriptEditorialPlan } from '@/lib/thinkforge/agents/script-editorial-plan';
+import { createUnspecifiedAudiovisualIntent } from '@/lib/thinkforge/schemas/audiovisual-intent';
 import {
   resolveThinkForgeAuthoringPrompt,
   resolveThinkForgeProductionBrief,
@@ -286,6 +287,30 @@ describe('ThinkForge script production contract', () => {
     expect(prompt).not.toContain('"maximumDurationSeconds"');
     expect(prompt).not.toContain('"fullRuntimeReferenceSpokenWords"');
     expect(prompt).not.toContain('"fullRuntimeComfortableMaximumSpokenWords"');
+  });
+
+  it('keeps explicitly unspecified speech open instead of defaulting to voice-over', () => {
+    const plan = buildScriptEditorialPlan({
+      productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile(),
+      audiovisualIntent: createUnspecifiedAudiovisualIntent(),
+    });
+
+    expect(plan.narration).toMatchObject({
+      mode: 'open',
+      minimumModeWordsPerMinute: 0,
+      targetWordsPerMinute: 0,
+      comfortableMaximumWordsPerMinute: 170,
+      wordBudgetPolicy: 'guided',
+      fullRuntimeMinimumSpokenWords: 0,
+      fullRuntimeReferenceSpokenWords: 0,
+      fullRuntimeComfortableMaximumSpokenWords: 1190,
+    });
+    expect(plan.narration).not.toHaveProperty('selectedTechnique');
+    expect(plan.visualVerbal).toMatchObject({
+      onScreenTextRole: 'may_replace_narration',
+      defaultUsage: 'selective',
+    });
   });
 
   it('derives hierarchy and narration density without inventing a scene count', () => {

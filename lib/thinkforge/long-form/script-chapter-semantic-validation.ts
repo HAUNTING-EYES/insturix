@@ -4,7 +4,10 @@ import {
   type ScriptWriterResult,
 } from '../agents/script-writer-agent';
 import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
-import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
+import {
+  generateStructuredWithWritingContextCache,
+  type WritingContextTelemetry,
+} from '../services/gemini-writing-context-cache';
 import {
   ScriptChapterPlanSchema,
   type ScriptChapterPlan,
@@ -106,6 +109,7 @@ interface SemanticValidationGenerationInput {
   maxTokens: number;
   thinkingBudgetTokens: number;
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }
 
 interface SemanticValidationGenerationOutput {
@@ -150,6 +154,7 @@ export async function validateScriptChapterSemanticExecution(input: {
   result: ScriptWriterResult;
   modelName?: string;
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }, dependencies: ScriptChapterSemanticValidationDependencies = {}): Promise<ScriptChapterSemanticValidationReceipt> {
   const execution = resolveScriptChapterExecution(input.chapterExecution);
   const requirements = buildScriptChapterSemanticRequirements(execution);
@@ -168,6 +173,7 @@ export async function validateScriptChapterSemanticExecution(input: {
     maxTokens: validationOutputTokenBudget(requirements.length),
     thinkingBudgetTokens: 4_096,
     abortSignal: input.abortSignal,
+    telemetry: input.telemetry,
   };
   const generation = await (dependencies.generate ?? generateSemanticValidation)(generationInput);
   const modelOutput = ScriptChapterSemanticValidationModelOutputSchema.parse(generation.result);

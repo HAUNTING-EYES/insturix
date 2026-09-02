@@ -1,0 +1,89 @@
+{
+  "version": "EDITRON_OE_STAGE25_HELDOUT_ROUTE_TASKS_V1_1",
+  "artifactType": "Stage25HeldoutRouteTasksV1",
+  "fixtureMaterialization": "NOT_MATERIALIZED",
+  "tasks": [
+    {
+      "taskId": "RHC-01",
+      "title": "EDITABLE_FEATURE_BOARD_RELEASE",
+      "timebase": { "numerator": 30, "denominator": 1 },
+      "targetRange": { "startFrame": 0, "endFrame": 180 },
+      "publicBrief": "Use three new product angles to make a six-second feature board. Reveal FAST, QUIET and LIGHT in order, hold all three together, then let the last angle become the following full-screen shot. Keep text, colour, spacing and sources independently changeable.",
+      "sourceRecipeIds": ["rhc01-product-a", "rhc01-product-b", "rhc01-product-c", "rhc01-following-shot"],
+      "fontRecipeIds": ["rhc01-licensed-display", "rhc01-licensed-body"],
+      "targetPredicates": [
+        { "predicateId": "RHC01-T1", "text": "FAST, QUIET and LIGHT reveal in that order." },
+        { "predicateId": "RHC01-T2", "text": "All three labelled sources are simultaneously visible before release." },
+        { "predicateId": "RHC01-T3", "text": "The final source continues across the board-to-full-screen boundary." },
+        { "predicateId": "RHC01-T4", "text": "Text, colour, spacing and all source bindings remain independently editable." }
+      ],
+      "preservationPredicates": [
+        { "predicateId": "RHC01-P1", "text": "No timeline or audio state outside the target and following-shot boundary changes." },
+        { "predicateId": "RHC01-P2", "text": "Only declared licensed fonts and bound sources are used." }
+      ],
+      "correctionTrial": null
+    },
+    {
+      "taskId": "RHC-02",
+      "title": "INTERVIEW_CHAPTER_WITH_CONTINUOUS_AUDIO",
+      "timebase": { "numerator": 30, "denominator": 1 },
+      "targetRange": { "startFrame": 300, "endFrame": 390 },
+      "publicBrief": "Place a three-second chapter moment between two interview beats using two supplied stills and the words How we shipped it. Return without a visual jump; keep the sentence and room tone continuous.",
+      "sourceRecipeIds": ["rhc02-interview", "rhc02-still-a", "rhc02-still-b", "rhc02-room-tone"],
+      "fontRecipeIds": ["rhc02-licensed-title"],
+      "targetPredicates": [
+        { "predicateId": "RHC02-T1", "text": "Both supplied stills and the exact chapter text appear inside the bounded moment." },
+        { "predicateId": "RHC02-T2", "text": "The return to the authored interview has no visual discontinuity beyond the declared chapter construction." },
+        { "predicateId": "RHC02-T3", "text": "Chapter text and source bindings remain editable." }
+      ],
+      "preservationPredicates": [
+        { "predicateId": "RHC02-P1", "text": "The spoken sentence remains complete and intelligible." },
+        { "predicateId": "RHC02-P2", "text": "Room tone remains continuous across both boundaries." },
+        { "predicateId": "RHC02-P3", "text": "No state outside the target range changes." }
+      ],
+      "correctionTrial": null
+    },
+    {
+      "taskId": "RHC-03",
+      "title": "SYNCHRONIZED_DUAL_VIEW_RETURN",
+      "timebase": { "numerator": 30, "denominator": 1 },
+      "targetRange": { "startFrame": 450, "endFrame": 600 },
+      "publicBrief": "Show two synchronized views of the same action side by side, keep a centered label readable, then return to the authored wide shot on the marked action frame. Do not alter sound or timing outside the range.",
+      "sourceRecipeIds": ["rhc03-action-left", "rhc03-action-right", "rhc03-authored-wide", "rhc03-production-audio"],
+      "fontRecipeIds": ["rhc03-licensed-label"],
+      "targetPredicates": [
+        { "predicateId": "RHC03-T1", "text": "The two views depict the same marked action phase while side by side." },
+        { "predicateId": "RHC03-T2", "text": "The centered label remains readable without covering either tracked action subject." },
+        { "predicateId": "RHC03-T3", "text": "The return lands on the marked authored-wide action frame." },
+        { "predicateId": "RHC03-T4", "text": "View bindings, label and layout remain editable." }
+      ],
+      "preservationPredicates": [
+        { "predicateId": "RHC03-P1", "text": "Production audio remains unchanged and synchronized." },
+        { "predicateId": "RHC03-P2", "text": "Timing and state outside the bounded range remain unchanged." }
+      ],
+      "correctionTrial": null
+    },
+    {
+      "taskId": "RHC-04",
+      "title": "RESULTS_CARD_CORRECTION_ROUND_TRIP",
+      "timebase": { "numerator": 30, "denominator": 1 },
+      "targetRange": { "startFrame": 0, "endFrame": 180 },
+      "publicBrief": "Create a six-second results card from three new closeups and 60, 30 and 10. Keep each number paired with its source and finish on the 10 percent closeup.",
+      "sourceRecipeIds": ["rhc04-closeup-60", "rhc04-closeup-30", "rhc04-closeup-10", "rhc04-correction-source"],
+      "fontRecipeIds": ["rhc04-licensed-numerals"],
+      "targetPredicates": [
+        { "predicateId": "RHC04-T1", "text": "60, 30 and 10 remain paired with their declared source closeups." },
+        { "predicateId": "RHC04-T2", "text": "The final held state is the 10 percent closeup." },
+        { "predicateId": "RHC04-T3", "text": "Numbers, sources and hold duration remain independently editable." }
+      ],
+      "preservationPredicates": [
+        { "predicateId": "RHC04-P1", "text": "No undeclared source, font or out-of-range state is introduced." },
+        { "predicateId": "RHC04-P2", "text": "A later correction does not require regenerating unrelated approved state." }
+      ],
+      "correctionTrial": {
+        "instruction": "Change one number, its paired source and the final hold length while preserving all other approved state.",
+        "measurement": "MEASURED_HANDS_ON_REQUIRED"
+      }
+    }
+  ]
+}

@@ -5,10 +5,14 @@ import type { ScriptWriterInput, ScriptWriterResult } from '../agents/script-wri
 import type { ThinkForgeResolvedAuthoringContext } from '../context/resolved-authoring-context';
 import type { ThinkForgeWriterInvocationTraceV1 } from '../provenance/generation-trace';
 import type { ScriptChapterPlan } from '../schemas/script-chapter-plan';
+import {
+  assertVideoTreatmentReferences,
+  parseVideoTreatment,
+} from '../schemas/video-treatment';
 import type { ThinkForgeSignalTrace } from '../signals/signal-trace';
 import type { ScriptChapterSemanticValidationReceipt } from './script-chapter-semantic-validation';
 
-export const LONG_FORM_SCRIPT_JOB_VERSION = 1;
+export const LONG_FORM_SCRIPT_JOB_VERSION = 2;
 export const LONG_FORM_SCRIPT_JOB_COLLECTION = 'thinkforge_long_form_script_jobs';
 export const LONG_FORM_SCRIPT_JOB_LEASE_MS = 8 * 60_000;
 export const LONG_FORM_SCRIPT_JOB_MAX_STAGE_FAILURES = 3;
@@ -162,16 +166,104 @@ export class LongFormScriptJobTransitionError extends Error {
   }
 }
 
+export class LongFormScriptJobInputIntegrityError extends Error {
+  readonly code = 'LONG_FORM_SCRIPT_INPUT_INTEGRITY_INVALID';
+
+  constructor(readonly failures: readonly string[]) {
+    super(`Long-form script input integrity failed: ${failures.join(', ')}`);
+    this.name = 'LongFormScriptJobInputIntegrityError';
+  }
+}
+
 export function createLongFormScriptJobDedupeKey(input: LongFormScriptGenerationJobInput): string {
   return hashLongFormScriptJobValue({
     version: LONG_FORM_SCRIPT_JOB_VERSION,
-    userId: input.userId,
-    orgId: input.orgId,
-    sessionId: input.sessionId,
-    generationId: input.generationId,
-    scriptId: input.scriptId,
-    baseVersion: input.baseVersion,
+    immutableInput: input,
   });
+}
+
+/**
+ * A V3 long-form job must keep the exact treatment, approved audiovisual
+ * constraints, evidence boundary, and creative-reference scope it started with.
+ * The durable input hash catches mutation; the semantic checks catch a
+ * consistently persisted but internally contradictory contract.
+ */
+export function assertLongFormScriptJobInputIntegrity(
+  job: Pick<LongFormScriptGenerationJobSnapshot, 'version' | 'dedupeKey' | 'input'>,
+): void {
+  const treatmentInput = job.input.authoringInput.videoTreatment;
+  const failures: string[] = [];
+  const isCurrentVersion = job.version === LONG_FORM_SCRIPT_JOB_VERSION;
+  const isLegacyUntreatedJob = job.version === 1 && !treatmentInput;
+  if (!isCurrentVersion && !isLegacyUntreatedJob) {
+    failures.push(`job_version_mismatch:${job.version}/${LONG_FORM_SCRIPT_JOB_VERSION}`);
+  }
+  if (isCurrentVersion && job.dedupeKey !== createLongFormScriptJobDedupeKey(job.input)) {
+    failures.push('immutable_input_hash_mismatch');
+  }
+  if (!treatmentInput) {
+    if (failures.length > 0) throw new LongFormScriptJobInputIntegrityError(failures);
+    return;
+  }
+
+  const treatmentResult = (() => {
+    try {
+      return { treatment: parseVideoTreatment(treatmentInput), error: null } as const;
+    } catch (error) {
+      return { treatment: null, error } as const;
+    }
+  })();
+  if (!treatmentResult.treatment) {
+    const detail = treatmentResult.error instanceof Error ? treatmentResult.error.message : 'unknown';
+    failures.push(`video_treatment_invalid:${detail}`);
+    throw new LongFormScriptJobInputIntegrityError(failures);
+  }
+
+  const treatment = treatmentResult.treatment;
+  const editorialPlan = job.input.authoringInput.editorialPlan;
+  if (editorialPlan.writerKind !== 'script' || editorialPlan.execution.kind !== 'script') {
+    failures.push('script_editorial_plan_required');
+  } else if (
+    hashLongFormScriptJobValue(treatment.audiovisualIntent)
+    !== hashLongFormScriptJobValue(editorialPlan.execution.plan.audiovisualIntent)
+  ) {
+    failures.push('audiovisual_intent_mismatch');
+  }
+
+  const allowedSourceRefs = new Set(
+    job.input.authoringInput.sourceLedger.entries.map((entry) => entry.referenceId),
+  );
+  const treatmentSourceRefs = new Set([
+    ...treatment.decisionTrace.sourceRefs,
+    ...treatment.visualEvents.flatMap((event) => event.sourceRefs),
+    ...treatment.captureRequirements.flatMap((requirement) => requirement.sourceRefs),
+  ]);
+  treatmentSourceRefs.forEach((sourceRef) => {
+    if (!allowedSourceRefs.has(sourceRef)) failures.push(`unknown_source_ref:${sourceRef}`);
+  });
+
+  const creativeReferenceIds = new Set([
+    ...treatment.decisionTrace.creativeReferenceIds,
+    ...treatment.visualEvents.flatMap((event) => event.creativeReferenceIds),
+    ...treatment.captureRequirements.flatMap((requirement) => requirement.creativeReferenceIds),
+  ]);
+  if (creativeReferenceIds.size > 0) {
+    const referenceSet = job.input.authoringContext.creativeReferenceContext?.referenceSet;
+    if (!referenceSet) {
+      failures.push('creative_reference_context_missing');
+    } else {
+      try {
+        assertVideoTreatmentReferences(treatment, referenceSet);
+      } catch (error) {
+        const issues = error instanceof Error && 'issues' in error && Array.isArray(error.issues)
+          ? error.issues.filter((issue): issue is string => typeof issue === 'string')
+          : ['unknown'];
+        failures.push(...issues.map((issue) => `creative_reference_invalid:${issue}`));
+      }
+    }
+  }
+
+  if (failures.length > 0) throw new LongFormScriptJobInputIntegrityError(failures);
 }
 
 export function hashLongFormScriptJobValue(value: unknown): string {
@@ -255,9 +347,15 @@ function safeLongFormScriptJobErrorMessage(error: unknown): string {
 function stableStringify(value: unknown): string {
   if (value === undefined) return 'undefined';
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (Array.isArray(value)) {
+    return `[${Array.from(value, (entry) => (
+      entry === undefined ? 'null' : stableStringify(entry)
+    )).join(',')}]`;
+  }
   const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => (
-    `${JSON.stringify(key)}:${stableStringify(record[key])}`
-  )).join(',')}}`;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(',')}}`;
 }

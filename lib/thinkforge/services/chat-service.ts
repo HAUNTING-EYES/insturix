@@ -82,6 +82,18 @@ import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
 
+export class ScriptPromptUnderstandingError extends Error {
+  readonly code = 'SCRIPT_PROMPT_UNDERSTANDING_UNAVAILABLE' as const;
+
+  constructor() {
+    super(
+      'ThinkForge could not safely resolve the video production constraints in this request. '
+      + 'Please retry or state whether speech, an on-camera speaker, visible people, or new physical filming are required or forbidden.',
+    );
+    this.name = 'ScriptPromptUnderstandingError';
+  }
+}
+
 export async function resolveScriptPromptUnderstanding(
   userPrompt: string,
   abortSignal?: AbortSignal,
@@ -782,11 +794,19 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
         let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
 
+        // Resolve semantic authoring intent before optional evidence retrieval so trend activation
+        // is language-neutral and shared by post and script generation.
+        promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
+        if (contentPath !== 'post' && promptUnderstanding.status !== 'resolved') {
+          throw new ScriptPromptUnderstandingError();
+        }
+
         const hasCompletedSelectedTrend = sessionState.metadata.selectedTrend?.analysis?.status === 'completed';
         if (!hasCompletedSelectedTrend) {
           try {
             const trendContext = await resolveThinkForgeTrendContext({
               userPrompt: authoringPrompt,
+              publicTrendContextIntent: promptUnderstanding.publicTrendContextIntent,
               project: sessionState.metadata,
               brandId: sessionState.metadata.brandId,
               contentPath,
@@ -806,10 +826,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             }
             console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
           }
-        }
-
-        if (contentPath !== 'post') {
-          promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
         }
 
         let briefSnapshot = resolveThinkForgeProductionBrief({
@@ -858,6 +874,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             ...(contentPath === 'post' ? {} : {
               productionBrief: briefSnapshot,
               evidenceNarrativeIntent: promptUnderstanding?.evidenceNarrativeIntent,
+              audiovisualIntent: promptUnderstanding?.audiovisualIntent,
             }),
             authorizedFactIds: [
               ...authoringContextSnapshot.retrieval.projectFactIds,

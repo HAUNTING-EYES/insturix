@@ -1,13 +1,21 @@
 # Stage 1.5 Range and Concurrency: Current Truth V1
 
-**Status:** `CURRENT_TRUTH_GUARD_ONLY`
-**Scope:** current product behavior only; this document does not add a new writer, lock, receipt, or migration.
+**Status:** `PARTIAL_CUT_SPECIFIC_REBASE_AND_LOCK_SUBSTRATE`
+**Scope:** current product behavior only. ProjectService owns one ripple-cut,
+its durable effect receipt, receipt-chain safe rebase across one explicitly
+disjoint direct-overlay change, and short-lived locks for that cut's complete
+ripple tail. This is not range-level collaboration or a completed
+media/evidence invalidation migration.
 
 ## What exists today
 
 | Concern | Current producer / owner | Observed behavior | What it is not |
 | --- | --- | --- | --- |
-| Frame-range coordinate transform | `lib/editron/services/timeline-range-cut.ts` | The pure `EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1` transform uses `HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1`. | A durable project-range authority, operation receipt, or conflict policy. |
+| Frame-range coordinate transform | `lib/editron/services/timeline-range-cut.ts` | The pure `EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1` transform uses `HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1`. | A persistence layer or standalone project authority. |
+| Ripple-cut writer and chat caller | `ProjectService.cutTimelineRangeV1` in `lib/editron/services/project-service.ts`, called by `cut_section` in `lib/editron/agent/tools.ts` | One snapshot/CAS write applies the canonical pure cut, rejects an active Director lease, persists `overlays` and `durationInFrames`, and appends a bounded receipt containing complete pre-cut read/write ranges, full ripple tail, affected overlay references, split lineage and before/after writer revisions. The chat result reports the full pre-cut effect range separately from the post-cut preview range; it no longer reports a one-frame seam hint. | A generic operator effect ledger, migration of every timeline writer, rational/VFR timebase support, or materialized media/evidence invalidation. |
+| Direct single-overlay writers | `ProjectService.addOverlay`, `addOverlayIfAbsent`, `updateOverlay` and `deleteOverlay` | Every successful direct single-overlay CAS appends one writer-issued `ADD_OVERLAY`, `UPDATE_OVERLAY` or `DELETE_OVERLAY` receipt. Its occupied range is the exact inserted, changed, or removed half-open project-frame interval when the legacy timing is representable. Existing callers do not yet reliably provide actor provenance, so the receipt honestly records `UNKNOWN_LEGACY_CALLER`. Missing/invalid timing is stored as `UNKNOWN_LEGACY_OVERLAY_TIMING`, carries no fabricated range, and cannot authorize rebase. | A migration of full-family, bulk, audio-worker, manual-state or raw Mongo writers; a general collaboration ledger; or permission for add/delete to rebase a stale cut. |
+| Cut-specific locks | `ProjectService.acquireTimelineRangeCutLockV1`, `releaseTimelineRangeCutLockV1`, and `cutTimelineRangeV1` | A half-open lock is issued only under the exact project revision, blocks an overlapping cut, and must cover the full `[cutStart, beforeDuration)` ripple tail to authorize it. A matching lock is consumed by the cut; expiry never authorizes a cut. | A general `timelineRangeLocks` facility. No writer other than `cutTimelineRangeV1` honors these locks yet. |
+| Stale-cut safe rebase | `ProjectService.cutTimelineRangeV1` | A stale cut may re-run only across a contiguous history of exact, non-transforming `UPDATE_OVERLAY` receipts whose union ranges are disjoint from the full cut tail and whose overlay identity is not affected by the cut. Missing history, coordinate transforms, unknown timing, same-object edits, overlap, bad locks and final CAS loss fail without a cut write. | A general three-way merge, automatic rebase for other writers, or browser-visible selective conflict recovery. |
 | Manual and autosave persistence | `ProjectService.persistEditorState` in `lib/editron/services/project-service.ts` | A whole editor state (including merged overlays) is committed with the project revision compare-and-swap predicate. | A range-scoped command with declared reads, writes, object references, or invalidations. |
 | Conflict recovery | `components/editron/editor/version-7.0.0/hooks/use-autosave.ts` | A `409` reloads the client state through `loadStateRef.current()`. | Safe rebase, three-way merge, selective refresh, or a user conflict choice. |
 | Locking | `directorLock` in `ProjectService.persistEditorState` | An active Director lease can reject an autosave for the whole project. | A range lock, overlap detector, or disjoint-work scheduler. |
@@ -15,19 +23,50 @@
 
 ## Explicit non-claims
 
-The presence of frame-range math must not be described as range-level collaboration.
-Current product code has no durable range-scope receipt, range lock, overlap conflict decision, safe rebase for a disjoint change, range-level undo/proof, or dirty-range invalidation authority. A project revision conflict is a whole-project conflict from the browser's point of view.
+The presence of cut-specific receipts, one narrow safe-rebase rule and cut locks
+must not be described as range-level collaboration. Each receipt explicitly
+records `UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`; it does not claim that
+captions, media evidence, previews, proof or render work were invalidated.
+Current product code has no general overlap decision, rebase for other writers,
+range-level undo/proof or dirty-range invalidation authority. In particular,
+the current stale-cut policy accepts only exact disjoint `UPDATE_OVERLAY`
+receipts; an intervening direct add or delete is recorded truthfully but
+returns `UNKNOWN_OPERATION` rather than being guessed safe. A project revision
+conflict remains a whole-project conflict from the browser's point of view.
 
 The existing coordinate transform remains the correct owner of its pure cut-coordinate calculation. It must not be bypassed or recast as a persistence layer merely to make these gaps appear closed.
 
+## Stateful owner proof - 2026-08-26
+
+Commit `0956d6ee7` exercises the product `ProjectService` owner across
+sequential reads and writes with bounded, stateful in-process test persistence.
+Unlike the earlier one-call Mongo mocks, the trial lets `updateOverlay` create
+revision 8 and its exact effect receipt, then submits a cut against stale
+revision 7 and reloads revision 9 from the same stored record. The disjoint
+user edit survives, the cut reports `SAFE_REBASED`, and the persisted receipt
+chain is contiguous.
+
+The same trial proves that an overlapping stale update changes nothing; an
+overlapping lock is refused; the exact full-tail lock is consumed by a
+successful cut; forged and expired locks change nothing; and a final CAS loss
+publishes no cut receipt or cut state. The focused current-truth/cut/stateful
+cluster passes 20/20 with repository typecheck and quiet ESLint passing.
+
+This is `IN_PROCESS_PRODUCT_OWNER_WITH_STATEFUL_TEST_PERSISTENCE`, not live
+Atlas evidence. The helper implements only the Mongo surface exercised by
+these cut-specific paths. It does not establish generic range locks, safe
+rebase for other operations, multi-user browser behavior, durable artifact
+invalidation, user-visible conflict resolution or canonical production-data
+execution.
+
 ## Required implementation gate
 
-After the active Stage 2.5 / CAP2 evidence boundary is reissued, a real migration may introduce one ProjectService-owned command that binds:
-
-- a base project revision;
-- declared read and write ranges with an unambiguous coordinate domain;
-- affected object references and invalidation scope;
-- a durable receipt; and
-- deterministic dispositions for stale, overlapping, disjoint, and user-locked work.
-
-Only then may the UI replace global AI blocking with range-aware concurrent editing, and only after its displayed state is bound to the receipt revision actually committed by that command.
+The cut command now binds its base revision, numeric project-frame coordinate
+domain, declared ranges, affected references, exact ripple transform, cut lock
+and durable receipt, and `cut_section` reaches it through the live chat tool
+factory. The next implementation gate is extending truthful effect receipts and
+operation-specific rebase/lock enforcement to the remaining ProjectService and
+worker writers, then materializing real artifact invalidation owners. Only after
+those gates may the UI replace global AI blocking with range-aware concurrent
+editing, and only when its displayed state is bound to the receipt revision
+actually committed by that command.

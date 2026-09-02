@@ -1,0 +1,580 @@
+import { Client } from '@upstash/qstash';
+
+import { isInternalQStashDispatchConfigured } from '../security/internal-worker-auth';
+import {
+  claimMediaSourceQualificationV1,
+  completeMediaSourceQualificationV1,
+  type MediaSourceQualificationRecordV1,
+} from './media-source-qualification-v1';
+import {
+  probeMediaSourceV1,
+  type MediaSourceProbeResultV1,
+  unverifiableMediaSourceProbeResultV1,
+} from './media-source-probe-v1';
+import {
+  inspectMediaSourceStorageVersionV1,
+  sameMediaSourceStorageVersionV1,
+  type MediaSourceStorageVersionInspectionV1,
+  type MediaSourceStorageVersionV1,
+} from './media-source-storage-version-v1';
+import {
+  issueStoredMediaSourceContentIdentityV1,
+  type MediaSourceContentIdentityResultV1,
+} from './media-source-content-identity-v1';
+import {
+  assertMediaSourceVersionV1,
+  createMediaProxyMasterRelationV1,
+  createMediaSourceInvalidationPlanV1,
+  type MediaProxyMasterRelationV1,
+  type MediaSourceInvalidationPlanV1,
+  type MediaSourceOwnerV1,
+  type MediaSourceVersionV1,
+} from './media-source-version-v1';
+
+export const MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1 =
+  'media-source-qualification' as const;
+export const MEDIA_SOURCE_QUALIFICATION_WORKER_PATH_V1 =
+  '/api/internal/workers/media-source-qualification' as const;
+
+export type MediaSourceQualificationWorkerMessageV1 = {
+  assetId: string;
+  userId: string;
+  sourceBindingSha256: string;
+};
+
+export type MediaSourceQualificationDispatchResultV1 = {
+  dispatched: boolean;
+  messageId?: string;
+  error?: 'INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED' | 'MEDIA_SOURCE_PROBE_WORKER_URL_NOT_CONFIGURED' | 'MEDIA_SOURCE_PROBE_DISPATCH_FAILED';
+};
+
+export type MediaSourceQualificationWorkerResultV1 =
+  | {
+      disposition: 'COMPLETED';
+      status: 'MEASURED_TECHNICAL' | 'UNVERIFIABLE';
+      sourceIdentity: 'ISSUED' | 'UNVERIFIABLE';
+    }
+  | { disposition: 'SKIPPED'; reason: 'ASSET_NOT_FOUND' | 'QUALIFICATION_RECORD_INVALID' | 'SOURCE_BINDING_MISMATCH' | 'ACTIVE_CLAIM' | 'TERMINAL' }
+  | { disposition: 'RACE_LOST' };
+
+export type MediaSourceQualificationWorkerAssetV1 = {
+  sourceQualificationV1?: unknown;
+  orgId?: unknown;
+  type?: unknown;
+  r2Key?: unknown;
+  originalR2Key?: unknown;
+  isProxy?: unknown;
+  proxySourceVersionV1?: unknown;
+};
+
+export type MediaSourceQualificationWorkerPortsV1 = {
+  load(assetId: string, userId: string): Promise<MediaSourceQualificationWorkerAssetV1 | null>;
+  replace(input: {
+    assetId: string;
+    userId: string;
+    expected: MediaSourceQualificationRecordV1;
+    next: MediaSourceQualificationRecordV1;
+    sourceVersionV1: Readonly<MediaSourceVersionV1> | null;
+    sourcePtsCadenceMapV1: null;
+    sourcePtsCadenceMapStateSha256V1: null;
+    sourcePtsCadenceMapV2: null;
+    sourcePtsCadenceMapStateSha256V2: null;
+    sourcePtsCadenceMapV3: null;
+    sourcePtsCadenceMapStateSha256V3: null;
+    proxyMasterRelationV1: Readonly<MediaProxyMasterRelationV1> | null;
+    sourceInvalidationPlanV1: Readonly<MediaSourceInvalidationPlanV1> | null;
+  }): Promise<boolean>;
+  resolveVerifiedSourceUrl(record: MediaSourceQualificationRecordV1): Promise<
+    | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
+    | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }
+  >;
+  inspectStorageVersion(record: MediaSourceQualificationRecordV1): Promise<MediaSourceStorageVersionInspectionV1>;
+  openExactByteStream(sourceUrl: string): AsyncIterable<Uint8Array>;
+  probe(sourceUrl: string): Promise<MediaSourceProbeResultV1>;
+  now(): Date;
+};
+
+export function assertMediaSourceQualificationWorkerMessageV1(
+  value: unknown,
+): MediaSourceQualificationWorkerMessageV1 {
+  const record = asRecord(value);
+  const assetId = record && cleanText(record.assetId, 200);
+  const userId = record && cleanText(record.userId, 256);
+  const sourceBindingSha256 = record && cleanText(record.sourceBindingSha256, 64);
+  if (!assetId || !/^[A-Za-z0-9_-]{3,200}$/.test(assetId)) {
+    throw new Error('MEDIA_SOURCE_QUALIFICATION_ASSET_ID_INVALID');
+  }
+  if (!userId || !sourceBindingSha256 || !/^[a-f0-9]{64}$/.test(sourceBindingSha256)) {
+    throw new Error('MEDIA_SOURCE_QUALIFICATION_MESSAGE_INVALID');
+  }
+  return { assetId, userId, sourceBindingSha256 };
+}
+
+/**
+ * Queues only a signed worker. There is deliberately no direct fetch fallback:
+ * an unsigned source observation is not a production substitute for this job.
+ */
+export async function dispatchMediaSourceQualificationV1(
+  message: MediaSourceQualificationWorkerMessageV1,
+): Promise<MediaSourceQualificationDispatchResultV1> {
+  const url = getMediaSourceQualificationWorkerUrlV1();
+  if (!isInternalQStashDispatchConfigured()) {
+    return { dispatched: false, error: 'INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED' };
+  }
+  if (!url) return { dispatched: false, error: 'MEDIA_SOURCE_PROBE_WORKER_URL_NOT_CONFIGURED' };
+
+  try {
+    const qstash = new Client({
+      token: process.env.QSTASH_TOKEN!.trim(),
+      baseUrl: process.env.QSTASH_URL || undefined,
+    });
+    const published = await qstash.publishJSON({ url, body: message, retries: 2 });
+    const messageId = typeof (published as { messageId?: unknown }).messageId === 'string'
+      ? (published as { messageId: string }).messageId
+      : undefined;
+    return { dispatched: true, ...(messageId ? { messageId } : {}) };
+  } catch {
+    return { dispatched: false, error: 'MEDIA_SOURCE_PROBE_DISPATCH_FAILED' };
+  }
+}
+
+/** Runs one delivery against the existing MEDIA_ASSETS record, never a second registry. */
+export async function runMediaSourceQualificationWorkerV1(
+  message: MediaSourceQualificationWorkerMessageV1,
+): Promise<MediaSourceQualificationWorkerResultV1> {
+  const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
+  const db = await getDatabase();
+  return executeMediaSourceQualificationWorkerV1(message, {
+    load: async (assetId, userId) => {
+      const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+        { assetId, userId },
+        {
+          projection: {
+            sourceQualificationV1: 1,
+            orgId: 1,
+            type: 1,
+            r2Key: 1,
+            originalR2Key: 1,
+            isProxy: 1,
+            proxySourceVersionV1: 1,
+          },
+        },
+      );
+      return asset
+        ? {
+            sourceQualificationV1: (asset as { sourceQualificationV1?: unknown }).sourceQualificationV1,
+            orgId: (asset as { orgId?: unknown }).orgId,
+            type: (asset as { type?: unknown }).type,
+            r2Key: (asset as { r2Key?: unknown }).r2Key,
+            originalR2Key: (asset as { originalR2Key?: unknown }).originalR2Key,
+            isProxy: (asset as { isProxy?: unknown }).isProxy,
+            proxySourceVersionV1: (asset as { proxySourceVersionV1?: unknown }).proxySourceVersionV1,
+          }
+        : null;
+    },
+    replace: async ({
+      assetId,
+      userId,
+      expected,
+      next,
+      sourceVersionV1,
+      sourcePtsCadenceMapV1,
+      sourcePtsCadenceMapStateSha256V1,
+      sourcePtsCadenceMapV2,
+      sourcePtsCadenceMapStateSha256V2,
+      sourcePtsCadenceMapV3,
+      sourcePtsCadenceMapStateSha256V3,
+      proxyMasterRelationV1,
+      sourceInvalidationPlanV1,
+    }) => {
+      const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+        qualificationCompareAndSetFilter(assetId, userId, expected),
+        {
+          $set: {
+            sourceQualificationV1: next,
+            sourceVersionV1,
+            sourcePtsCadenceMapV1,
+            sourcePtsCadenceMapStateSha256V1,
+            sourcePtsCadenceMapV2,
+            sourcePtsCadenceMapStateSha256V2,
+            sourcePtsCadenceMapV3,
+            sourcePtsCadenceMapStateSha256V3,
+            proxyMasterRelationV1,
+            sourceInvalidationPlanV1,
+          },
+        },
+      );
+      return result.matchedCount === 1;
+    },
+    resolveVerifiedSourceUrl: resolveVerifiedMediaSourceUrlV1,
+    inspectStorageVersion: (record) => inspectMediaSourceStorageVersionV1(record.locator),
+    openExactByteStream: openMediaSourceByteStreamV1,
+    probe: probeMediaSourceV1,
+    now: () => new Date(),
+  });
+}
+
+export async function executeMediaSourceQualificationWorkerV1(
+  message: MediaSourceQualificationWorkerMessageV1,
+  ports: MediaSourceQualificationWorkerPortsV1,
+): Promise<MediaSourceQualificationWorkerResultV1> {
+  const asset = await ports.load(message.assetId, message.userId);
+  if (!asset) return { disposition: 'SKIPPED', reason: 'ASSET_NOT_FOUND' };
+
+  const record = asQualificationRecord(asset.sourceQualificationV1);
+  if (!record) return { disposition: 'SKIPPED', reason: 'QUALIFICATION_RECORD_INVALID' };
+
+  const claim = claimMediaSourceQualificationV1({
+    record,
+    sourceBindingSha256: message.sourceBindingSha256,
+    now: ports.now(),
+  });
+  if (claim.disposition !== 'CLAIMED') {
+    return { disposition: 'SKIPPED', reason: claim.reason };
+  }
+  if (!await ports.replace({
+    assetId: message.assetId,
+    userId: message.userId,
+    expected: record,
+    next: claim.record,
+    sourceVersionV1: null,
+    sourcePtsCadenceMapV1: null,
+    sourcePtsCadenceMapStateSha256V1: null,
+    sourcePtsCadenceMapV2: null,
+    sourcePtsCadenceMapStateSha256V2: null,
+    sourcePtsCadenceMapV3: null,
+    sourcePtsCadenceMapStateSha256V3: null,
+    proxyMasterRelationV1: null,
+    sourceInvalidationPlanV1: null,
+  })) {
+    return { disposition: 'RACE_LOST' };
+  }
+
+  let probeResult: MediaSourceProbeResultV1;
+  let storageVersion: MediaSourceStorageVersionV1 | null = null;
+  let sourceVersionV1: Readonly<MediaSourceVersionV1> | null = null;
+  let sourceIdentity: 'ISSUED' | 'UNVERIFIABLE' = 'UNVERIFIABLE';
+  try {
+    const source = await ports.resolveVerifiedSourceUrl(claim.record);
+    if (source.disposition !== 'AVAILABLE') {
+      probeResult = source.result;
+    } else {
+      const owner = sourceOwnerForAssetV1(message.userId, asset.orgId);
+      const mediaKind = mediaKindFromAssetV1(asset.type);
+      if (owner && mediaKind) {
+        let identity: MediaSourceContentIdentityResultV1;
+        try {
+          identity = await issueStoredMediaSourceContentIdentityV1({
+            owner,
+            assetId: message.assetId,
+            mediaKind,
+          }, {
+            inspectStorageVersionBeforeRead: async () => ({
+              disposition: 'OBSERVED',
+              storageVersion: source.storageVersion,
+            }),
+            openExactByteStream: () => ports.openExactByteStream(source.sourceUrl),
+            inspectStorageVersionAfterRead: () => ports.inspectStorageVersion(claim.record),
+          });
+        } catch {
+          identity = { disposition: 'UNVERIFIABLE', diagnostic: 'MEDIA_SOURCE_READ_FAILED' };
+        }
+        if (identity.disposition === 'ISSUED') {
+          sourceVersionV1 = identity.sourceVersion;
+          sourceIdentity = 'ISSUED';
+        }
+      }
+
+      probeResult = await ports.probe(source.sourceUrl);
+      let observedAfterProbe: MediaSourceStorageVersionInspectionV1;
+      try {
+        observedAfterProbe = await ports.inspectStorageVersion(claim.record);
+      } catch {
+        observedAfterProbe = {
+          disposition: 'UNVERIFIABLE',
+          diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+        };
+      }
+      if (observedAfterProbe.disposition !== 'OBSERVED') {
+        probeResult = unverifiableMediaSourceProbeResultV1(
+          'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+        );
+        sourceVersionV1 = null;
+        sourceIdentity = 'UNVERIFIABLE';
+      } else if (!sameMediaSourceStorageVersionV1(
+        source.storageVersion,
+        observedAfterProbe.storageVersion,
+      )) {
+        probeResult = unverifiableMediaSourceProbeResultV1(
+          'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
+        );
+        sourceVersionV1 = null;
+        sourceIdentity = 'UNVERIFIABLE';
+      } else {
+        storageVersion = source.storageVersion;
+        if (probeResult.disposition !== 'MEASURED') {
+          sourceVersionV1 = null;
+          sourceIdentity = 'UNVERIFIABLE';
+        }
+      }
+    }
+  } catch {
+    probeResult = unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE');
+    sourceVersionV1 = null;
+    sourceIdentity = 'UNVERIFIABLE';
+  }
+
+  const completion = completeMediaSourceQualificationV1({
+    record: claim.record,
+    sourceBindingSha256: message.sourceBindingSha256,
+    result: probeResult,
+    storageVersion,
+    now: ports.now(),
+  });
+  if (completion.disposition !== 'COMPLETED') return { disposition: 'RACE_LOST' };
+  const proxyMasterArtifacts = sourceVersionV1
+    && completion.record.status === 'MEASURED_TECHNICAL'
+    ? createProxyMasterPromotionArtifactsV1({
+        asset,
+        userId: message.userId,
+        assetId: message.assetId,
+        master: sourceVersionV1,
+        completion: completion.record,
+      })
+    : null;
+  if (!await ports.replace({
+    assetId: message.assetId,
+    userId: message.userId,
+    expected: claim.record,
+    next: completion.record,
+    sourceVersionV1,
+    sourcePtsCadenceMapV1: null,
+    sourcePtsCadenceMapStateSha256V1: null,
+    sourcePtsCadenceMapV2: null,
+    sourcePtsCadenceMapStateSha256V2: null,
+    sourcePtsCadenceMapV3: null,
+    sourcePtsCadenceMapStateSha256V3: null,
+    proxyMasterRelationV1: proxyMasterArtifacts?.relation ?? null,
+    sourceInvalidationPlanV1: proxyMasterArtifacts?.invalidationPlan ?? null,
+  })) {
+    return { disposition: 'RACE_LOST' };
+  }
+  if (completion.record.status !== 'MEASURED_TECHNICAL' && completion.record.status !== 'UNVERIFIABLE') {
+    return { disposition: 'RACE_LOST' };
+  }
+  return { disposition: 'COMPLETED', status: completion.record.status, sourceIdentity };
+}
+
+export function getMediaSourceQualificationWorkerUrlV1(): string | null {
+  const candidate = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : process.env.NEXT_PUBLIC_APP_URL;
+  if (!candidate) return null;
+  try {
+    const origin = new URL(candidate);
+    return origin.protocol === 'https:' ? `${origin.origin}${MEDIA_SOURCE_QUALIFICATION_WORKER_PATH_V1}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function qualificationCompareAndSetFilter(
+  assetId: string,
+  userId: string,
+  expected: MediaSourceQualificationRecordV1,
+): Record<string, unknown> {
+  return {
+    assetId,
+    userId,
+    'sourceQualificationV1.sourceBindingSha256': expected.sourceBindingSha256,
+    'sourceQualificationV1.status': expected.status,
+    'sourceQualificationV1.attemptCount': expected.attemptCount,
+    'sourceQualificationV1.startedAt': expected.startedAt,
+    'sourceQualificationV1.completedAt': expected.completedAt,
+  };
+}
+
+/** Issues a fresh server-only URL only after observing the current storage version. */
+export async function resolveVerifiedMediaSourceUrlV1(
+  record: MediaSourceQualificationRecordV1,
+): Promise<
+  | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
+  | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }
+> {
+  const storage = await inspectMediaSourceStorageVersionV1(record.locator);
+  if (storage.disposition !== 'OBSERVED') return unavailableStorageVersion();
+  try {
+    if (record.locator.provider === 'R2') {
+      const { getR2PresignedReadUrl } = await import('./r2-service');
+      return {
+        disposition: 'AVAILABLE',
+        sourceUrl: await getR2PresignedReadUrl(record.locator.objectKey, 900),
+        storageVersion: storage.storageVersion,
+      };
+    }
+    const { refreshSignedUrl } = await import('./gcs-service');
+    const signed = await refreshSignedUrl(record.locator.objectKey);
+    return {
+      disposition: 'AVAILABLE',
+      sourceUrl: signed.url,
+      storageVersion: storage.storageVersion,
+    };
+  } catch {
+    return unavailableSignedUrl();
+  }
+}
+
+function unavailableStorageVersion(): { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } {
+  return {
+    disposition: 'UNVERIFIABLE',
+    result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE'),
+  };
+}
+
+function unavailableSignedUrl(): { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } {
+  return {
+    disposition: 'UNVERIFIABLE',
+    result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE'),
+  };
+}
+
+async function* openMediaSourceByteStreamV1(sourceUrl: string): AsyncIterable<Uint8Array> {
+  const response = await fetch(sourceUrl, {
+    cache: 'no-store',
+    headers: { 'accept-encoding': 'identity' },
+    redirect: 'error',
+  });
+  const contentEncoding = response.headers.get('content-encoding')?.trim().toLowerCase();
+  if (!response.ok || !response.body || (contentEncoding && contentEncoding !== 'identity')) {
+    throw new Error('MEDIA_SOURCE_BYTE_STREAM_UNAVAILABLE');
+  }
+  const reader = response.body.getReader();
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function sourceOwnerForAssetV1(userId: string, orgId: unknown): MediaSourceOwnerV1 | null {
+  if (orgId === undefined || orgId === null) return { kind: 'USER', userId };
+  if (typeof orgId !== 'string' || !cleanText(orgId, 256)) return null;
+  return { kind: 'ORG', orgId: orgId.trim() };
+}
+
+function mediaKindFromAssetV1(value: unknown): MediaSourceVersionV1['mediaKind'] | null {
+  return value === 'video' || value === 'audio' || value === 'image'
+    ? value
+    : null;
+}
+
+type ProxyMasterPromotionArtifactsV1 = {
+  relation: Readonly<MediaProxyMasterRelationV1>;
+  invalidationPlan: Readonly<MediaSourceInvalidationPlanV1>;
+};
+
+/**
+ * Materializes only a validated historical proxy to newly measured master
+ * relationship. This records invalidation intent; it never clears derivatives
+ * or changes ProjectService state.
+ */
+function createProxyMasterPromotionArtifactsV1(input: {
+  asset: MediaSourceQualificationWorkerAssetV1;
+  userId: string;
+  assetId: string;
+  master: Readonly<MediaSourceVersionV1>;
+  completion: MediaSourceQualificationRecordV1;
+}): ProxyMasterPromotionArtifactsV1 | null {
+  if (input.asset.isProxy !== false || input.completion.status !== 'MEASURED_TECHNICAL') return null;
+
+  const owner = sourceOwnerForAssetV1(input.userId, input.asset.orgId);
+  const mediaKind = mediaKindFromAssetV1(input.asset.type);
+  const proxyObjectKey = storageObjectKeyV1(input.asset.r2Key);
+  const masterObjectKey = storageObjectKeyV1(input.asset.originalR2Key);
+  const measuredStorage = input.completion.storageVersion;
+  if (
+    !owner
+    || !mediaKind
+    || !proxyObjectKey
+    || !masterObjectKey
+    || proxyObjectKey === masterObjectKey
+    || !measuredStorage
+    || input.completion.locator.provider !== 'R2'
+    || input.completion.locator.objectKey !== masterObjectKey
+  ) return null;
+
+  try {
+    const proxy = assertMediaSourceVersionV1(input.asset.proxySourceVersionV1);
+    const master = assertMediaSourceVersionV1(input.master);
+    if (
+      !matchesAssetSourceScopeV1(proxy, owner, input.assetId, mediaKind)
+      || proxy.storageVersion.locator.provider !== 'R2'
+      || proxy.storageVersion.locator.objectKey !== proxyObjectKey
+      || !matchesAssetSourceScopeV1(master, owner, input.assetId, mediaKind)
+      || master.storageVersion.locator.provider !== 'R2'
+      || master.storageVersion.locator.objectKey !== masterObjectKey
+      || master.storageVersion.storageVersionSha256 !== measuredStorage.storageVersionSha256
+    ) return null;
+
+    const relation = createMediaProxyMasterRelationV1({ proxy, master });
+    const invalidationPlan = createMediaSourceInvalidationPlanV1({
+      previous: proxy,
+      next: master,
+      proxyMasterRelation: relation,
+    });
+    if (
+      invalidationPlan.disposition !== 'INVALIDATE_DERIVATIVES'
+      || invalidationPlan.reason !== 'PROXY_MASTER_PROMOTED'
+    ) return null;
+    return { relation, invalidationPlan };
+  } catch {
+    return null;
+  }
+}
+
+function matchesAssetSourceScopeV1(
+  source: Readonly<MediaSourceVersionV1>,
+  owner: MediaSourceOwnerV1,
+  assetId: string,
+  mediaKind: MediaSourceVersionV1['mediaKind'],
+): boolean {
+  return source.assetId === assetId
+    && source.mediaKind === mediaKind
+    && sameMediaSourceOwnerV1(source.owner, owner);
+}
+
+function sameMediaSourceOwnerV1(left: MediaSourceOwnerV1, right: MediaSourceOwnerV1): boolean {
+  return left.kind === right.kind && (left.kind === 'USER'
+    ? left.userId === (right as Extract<MediaSourceOwnerV1, { kind: 'USER' }>).userId
+    : left.orgId === (right as Extract<MediaSourceOwnerV1, { kind: 'ORG' }>).orgId);
+}
+
+function storageObjectKeyV1(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function asQualificationRecord(value: unknown): MediaSourceQualificationRecordV1 | null {
+  const record = asRecord(value);
+  if (!record || typeof record.assetId !== 'string' || typeof record.sourceBindingSha256 !== 'string') return null;
+  if (!['PENDING', 'PROBING', 'MEASURED_TECHNICAL', 'UNVERIFIABLE'].includes(String(record.status))) return null;
+  if (!Number.isInteger(record.attemptCount) || (record.attemptCount as number) < 0) return null;
+  const locator = asRecord(record.locator);
+  if (!locator || (locator.provider !== 'R2' && locator.provider !== 'GCS') || typeof locator.objectKey !== 'string') return null;
+  return record as unknown as MediaSourceQualificationRecordV1;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function cleanText(value: unknown, maxLength: number): string | null {
+  return typeof value === 'string' && value.trim() && value.trim().length <= maxLength
+    ? value.trim()
+    : null;
+}

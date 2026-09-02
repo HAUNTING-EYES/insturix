@@ -5,6 +5,7 @@ import { KNOB_CASES } from '@/lib/thinkforge/intake/knob-parser-cases';
 import { aggregateKnobEval, scoreKnobCases, tallyCase } from '@/lib/thinkforge/intake/knob-parser-eval';
 import {
   buildKnobParserPrompt,
+  buildKnobParserSystemInstruction,
   parseKnobResponse,
   parsePromptKnobs,
   parsePromptUnderstanding,
@@ -19,6 +20,21 @@ import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-
 import { assessScriptEvidenceSufficiency } from '@/lib/thinkforge/provenance/script-evidence-sufficiency';
 import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+
+const UNSPECIFIED_AUDIOVISUAL_INTENT = {
+  audibleSpeech: 'unspecified',
+  onCameraSpeech: 'unspecified',
+  visiblePerson: 'unspecified',
+  physicalCapture: 'unspecified',
+} as const;
+
+function resolvedPromptResponse(value: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    evidenceNarrativeIntent: 'creative',
+    audiovisualIntent: UNSPECIFIED_AUDIOVISUAL_INTENT,
+    ...value,
+  });
+}
 
 describe('buildKnobParserPrompt', () => {
   it('has the required XML sections with data (the request) LAST', () => {
@@ -39,14 +55,45 @@ describe('buildKnobParserPrompt', () => {
     const p = buildKnobParserPrompt('x');
     expect(p).toContain('tiktok');
     expect(p).toContain('youtube-shorts');
-    expect(p).not.toContain('unspecified');
+    expect(p).toContain('"platform"?: tiktok | instagram-reels | youtube-shorts');
+    expect(p).not.toContain('"platform"?: unspecified');
   });
 
   it('documents semantic self/avatar casting without forcing generic presenter requests', () => {
     const p = buildKnobParserPrompt('make me the on-camera host');
     expect(p).toContain('castingIntent');
-    expect(p).toContain('their own avatar');
-    expect(p).toContain('founder style');
+    expect(p).toContain('accepted avatar');
+    expect(p).toContain('identity');
+  });
+
+  it('requires a language-neutral public trend decision without keyword matching', () => {
+    const instruction = buildKnobParserSystemInstruction();
+
+    expect(instruction).toContain('publicTrendContextIntent');
+    expect(instruction).toContain('Resolve the user\'s meaning in any language');
+    expect(instruction).toContain('never depend on a fixed phrase, keyword');
+    expect(instruction).toContain('latest revision');
+  });
+
+  it('keeps trusted intake policy free of named-format classification anchors', () => {
+    const instruction = buildKnobParserSystemInstruction();
+
+    for (const label of [
+      'talking head',
+      'product film',
+      'documentary',
+      'explainer',
+      'brand film',
+      'educational video',
+      'promotional story',
+      'hosted video',
+      'founder style',
+    ]) {
+      expect(instruction.toLowerCase()).not.toContain(label);
+    }
+    expect(instruction).not.toMatch(/\b(?:ad|ugc)\b/i);
+    expect(instruction).toContain('controlling basis');
+    expect(instruction).toContain('non-authoritative metadata');
   });
 });
 
@@ -126,8 +173,40 @@ describe('parseKnobResponse - conservative / never-throws (the safety net)', () 
 
 
 describe('parsePromptUnderstandingResponse - semantic intake', () => {
+  it.each([
+    ['required', 'required'],
+    ['forbidden', 'forbidden'],
+    ['unspecified', 'unspecified'],
+  ] as const)('accepts the %s public trend decision', (_caseName, publicTrendContextIntent) => {
+    const result = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      publicTrendContextIntent,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'resolved',
+      publicTrendContextIntent,
+    });
+  });
+
+  it('leaves a missing or invalid trend decision for the compatibility resolver', () => {
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse())
+      .publicTrendContextIntent).toBeUndefined();
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      publicTrendContextIntent: 'sometimes',
+    })).publicTrendContextIntent).toBeUndefined();
+  });
+
   it('keeps output knobs and accepted self-casting intent', () => {
-    const r = parsePromptUnderstandingResponse('{"requested":{"platform":"youtube"},"castingIntent":{"requested":true,"target":"self","characterId":"founder","characterName":"Founder"}}');
+    const r = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      requested: { platform: 'youtube' },
+      castingIntent: {
+        requested: true,
+        target: 'self',
+        characterId: 'founder',
+        characterName: 'Founder',
+      },
+    }));
+    expect(r.status).toBe('resolved');
     expect(r.requested).toEqual({ platform: 'youtube' });
     expect(r.evidenceNarrativeIntent).toBe('creative');
     expect(r.castingIntent).toEqual({
@@ -139,23 +218,61 @@ describe('parsePromptUnderstandingResponse - semantic intake', () => {
   });
 
   it('defaults a valid self-casting intent to the host character', () => {
-    const r = parsePromptUnderstandingResponse('{"castingIntent":{"requested":true,"target":"self"}}');
+    const r = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      castingIntent: { requested: true, target: 'self' },
+    }));
     expect(r.castingIntent?.characterId).toBe('host');
     expect(r.castingIntent?.characterName).toBe('Host');
   });
 
   it('drops unrequested or non-self casting payloads', () => {
-    expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":false,"target":"self"}}').castingIntent).toBeUndefined();
-    expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":true,"target":"actor"}}').castingIntent).toBeUndefined();
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      castingIntent: { requested: false, target: 'self' },
+    })).castingIntent).toBeUndefined();
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      castingIntent: { requested: true, target: 'actor' },
+    })).castingIntent).toBeUndefined();
   });
 
-  it('accepts an explicit record-led treatment and safely defaults malformed responses to creative', () => {
-    expect(parsePromptUnderstandingResponse('{"evidenceNarrativeIntent":"record_led"}'))
-      .toMatchObject({ evidenceNarrativeIntent: 'record_led' });
-    expect(parsePromptUnderstandingResponse('{"evidenceNarrativeIntent":"unsupported"}'))
-      .toMatchObject({ evidenceNarrativeIntent: 'creative' });
+  it('accepts an explicit record-led treatment and marks malformed responses unavailable', () => {
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      evidenceNarrativeIntent: 'record_led',
+    }))).toMatchObject({ status: 'resolved', evidenceNarrativeIntent: 'record_led' });
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      evidenceNarrativeIntent: 'unsupported',
+    }))).toMatchObject({ status: 'unavailable' });
     expect(parsePromptUnderstandingResponse('not json at all'))
-      .toMatchObject({ evidenceNarrativeIntent: 'creative' });
+      .toMatchObject({ status: 'unavailable' });
+  });
+
+  it('keeps mixed audiovisual obligations independent and rejects contradictions', () => {
+    const resolved = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      audiovisualIntent: {
+        audibleSpeech: 'required',
+        onCameraSpeech: 'forbidden',
+        visiblePerson: 'unspecified',
+        physicalCapture: 'unspecified',
+      },
+    }));
+    expect(resolved).toMatchObject({
+      status: 'resolved',
+      audiovisualIntent: {
+        audibleSpeech: 'required',
+        onCameraSpeech: 'forbidden',
+        visiblePerson: 'unspecified',
+        physicalCapture: 'unspecified',
+      },
+    });
+
+    const contradictory = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      audiovisualIntent: {
+        audibleSpeech: 'forbidden',
+        onCameraSpeech: 'required',
+        visiblePerson: 'required',
+        physicalCapture: 'unspecified',
+      },
+    }));
+    expect(contradictory.status).toBe('unavailable');
   });
 
   it('does not turn a normal time-bounded brief into a record-led inquiry merely because it has factual material', () => {
@@ -206,6 +323,73 @@ describe('parsePromptUnderstandingResponse - semantic intake', () => {
       sourceLedger,
     }).status).toBe('requires_additional_evidence');
   });
+
+  it('turns an explicit no-speech constraint into a zero-word editorial contract', () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      publishingSurface: 'youtube_video',
+      targetDurationSec: 30,
+    });
+    const plan = buildThinkForgeEditorialPlan({
+      userPrompt: 'Create a silent visual piece with no spoken words.',
+      authoringRequest,
+      productionBrief: { output: { targetDurationSec: 30 } },
+      audiovisualIntent: {
+        version: 1,
+        audibleSpeech: 'forbidden',
+        onCameraSpeech: 'forbidden',
+        visiblePerson: 'unspecified',
+        physicalCapture: 'unspecified',
+      },
+    });
+    expect(plan.writerKind).toBe('script');
+    if (plan.writerKind !== 'script') throw new Error('Expected script editorial plan fixture');
+    expect(plan.execution.plan.audiovisualIntent.audibleSpeech).toBe('forbidden');
+    expect(plan.execution.plan.narration).toMatchObject({
+      mode: 'none',
+      fullRuntimeMinimumSpokenWords: 0,
+      fullRuntimeReferenceSpokenWords: 0,
+      fullRuntimeComfortableMaximumSpokenWords: 0,
+    });
+  });
+
+  it('does not require spoken-source evidence when a long record-led video forbids speech', () => {
+    const userPrompt = [
+      'Create a 7-minute record-led visual piece with no spoken words.',
+      'Keep music and natural ambience. Our 2025 programme reached 91 students.',
+    ].join(' ');
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      publishingSurface: 'youtube_video',
+      targetDurationSec: 420,
+    });
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const plan = buildThinkForgeEditorialPlan({
+      userPrompt,
+      authoringRequest,
+      productionBrief: { output: { targetDurationSec: 420 } },
+      sourceLedger,
+      evidenceNarrativeIntent: 'record_led',
+      audiovisualIntent: {
+        version: 1,
+        audibleSpeech: 'forbidden',
+        onCameraSpeech: 'forbidden',
+        visiblePerson: 'unspecified',
+        physicalCapture: 'unspecified',
+      },
+    });
+
+    expect(plan.writerKind).toBe('script');
+    if (plan.writerKind !== 'script') throw new Error('Expected script editorial plan fixture');
+    expect(plan.execution.plan.narration.mode).toBe('none');
+    expect(plan.execution.plan.evidenceNarrative.mode).toBe('source_bounded_inquiry');
+    expect(assessScriptEvidenceSufficiency({
+      editorialPlan: plan.execution.plan,
+      sourceLedger,
+    })).toEqual({ status: 'not_applicable' });
+  });
 });
 
 describe('parsePromptKnobs - impure edge with injected llm', () => {
@@ -241,7 +425,9 @@ describe('parsePromptKnobs - impure edge with injected llm', () => {
   it('lets mechanically proven values override a conflicting model extraction', async () => {
     const r = await parsePromptUnderstanding(
       'Create a 7-minute widescreen YouTube video.',
-      echo('{"requested":{"platform":"tiktok","targetDurationSec":30,"aspectRatio":"9:16","count":2}}'),
+      echo(resolvedPromptResponse({
+        requested: { platform: 'tiktok', targetDurationSec: 30, aspectRatio: '9:16', count: 2 },
+      })),
     );
     expect(r.requested).toEqual({
       platform: 'youtube',
@@ -252,11 +438,45 @@ describe('parsePromptKnobs - impure edge with injected llm', () => {
   });
 
   it('returns parsed prompt understanding from the llm response', async () => {
-    const r = await parsePromptUnderstanding('make me the host', echo('{"castingIntent":{"requested":true,"target":"self"}}'));
+    const r = await parsePromptUnderstanding('make me the host', echo(resolvedPromptResponse({
+      castingIntent: { requested: true, target: 'self' },
+    })));
     expect(r).toEqual({
+      status: 'resolved',
       requested: {},
       evidenceNarrativeIntent: 'creative',
+      audiovisualIntent: { version: 1, ...UNSPECIFIED_AUDIOVISUAL_INTENT },
       castingIntent: { requested: true, target: 'self', characterId: 'host', characterName: 'Host' },
+    });
+  });
+
+  it('preserves deterministic knobs but fails semantic understanding closed when the llm fails', async () => {
+    const r = await parsePromptUnderstanding('Create a 30-second vertical video.', async () => {
+      throw new Error('model unavailable');
+    });
+    expect(r).toMatchObject({
+      status: 'unavailable',
+      requested: { targetDurationSec: 30, aspectRatio: '9:16' },
+      audiovisualIntent: { version: 1, ...UNSPECIFIED_AUDIOVISUAL_INTENT },
+    });
+  });
+
+  it.each([
+    ['Spanish label', 'Quiero un documental experimental sobre nuestra marca.'],
+    ['Hindi label', 'हमारे उत्पाद के लिए एक सिनेमाई विज्ञापन बनाओ।'],
+    ['Japanese label', 'これはプロダクトフィルムです。'],
+    ['unusual invented form', 'Create a chlorophyll opera for our launch.'],
+  ])('does not post-classify a label-only %s request', async (_caseName, userPrompt) => {
+    const result = await parsePromptUnderstanding(
+      userPrompt,
+      async () => resolvedPromptResponse(),
+    );
+
+    expect(result).toEqual({
+      status: 'resolved',
+      requested: {},
+      evidenceNarrativeIntent: 'creative',
+      audiovisualIntent: { version: 1, ...UNSPECIFIED_AUDIOVISUAL_INTENT },
     });
   });
 });

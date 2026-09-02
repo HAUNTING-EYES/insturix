@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import {
   buildDirectorDeliveryFailureAudit,
   parseDirectorDeliveryFailure,
 } from '@/lib/editron/services/director-delivery-failure';
+import { projectService } from '@/lib/editron/services/project-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -13,71 +14,40 @@ export const maxDuration = 30;
 async function handler(request: NextRequest) {
   try {
     const failure = parseDirectorDeliveryFailure(await request.json());
-    const db = await getDatabase();
-    const project = await db.collection(COLLECTIONS.PROJECTS).findOne(
-      { projectId: failure.projectId, userId: failure.userId },
-      {
-        projection: {
-          _id: 0,
-          autoEditStatus: 1,
-          directorMessageId: 1,
-          sourceUploadBatchId: 1,
-        },
-      },
-    );
-
-    if (!project) {
-      console.warn(`[DirectorFailure] Project not found: ${failure.projectId}`);
-      return NextResponse.json({ success: true, skipped: 'project_not_found' });
-    }
-
-    if (
-      typeof project.directorMessageId === 'string'
-      && project.directorMessageId !== failure.sourceMessageId
-    ) {
-      console.warn(
-        `[DirectorFailure] Ignoring stale callback ${failure.sourceMessageId} for ${failure.projectId}; current message is ${project.directorMessageId}`,
-      );
-      return NextResponse.json({ success: true, skipped: 'stale_message' });
-    }
-
-    if (!['directing_queued', 'directing', 'analysis_complete'].includes(project.autoEditStatus)) {
-      return NextResponse.json({ success: true, skipped: 'project_already_terminal' });
-    }
-
     const failedAt = new Date();
     const audit = buildDirectorDeliveryFailureAudit(failure, failedAt);
-    const projectFilter: Record<string, unknown> = {
-      projectId: failure.projectId,
-      userId: failure.userId,
-      autoEditStatus: { $in: ['directing_queued', 'directing', 'analysis_complete'] },
-    };
-    if (project.directorMessageId) {
-      projectFilter.directorMessageId = failure.sourceMessageId;
-    }
-
-    const projectUpdate = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      projectFilter,
+    const outcome = await projectService.recordDirectorDeliveryFailureV1(
+      failure.userId,
+      failure.projectId,
       {
-        $set: {
-          autoEditStatus: 'failed',
-          autoEditError: failure.errorMessage,
-          autoEditFailedAt: failedAt,
-          autoEditStageDesc: 'Director delivery failed',
-          'intelligence.directorDeliveryFailure': audit,
-          updatedAt: failedAt,
-        },
+        sourceMessageId: failure.sourceMessageId,
+        pipelineDirectorDispatchToken: failure.pipelineDirectorDispatchToken,
+        errorMessage: failure.errorMessage,
+        audit,
       },
     );
 
-    if (projectUpdate.modifiedCount === 0) {
-      return NextResponse.json({ success: true, skipped: 'project_state_changed' });
+    if (outcome.disposition !== 'RECORDED') {
+      return NextResponse.json({
+        success: true,
+        skipped: {
+          PROJECT_NOT_FOUND: 'project_not_found',
+          STALE_SOURCE_MESSAGE: 'stale_message',
+          PROJECT_ALREADY_TERMINAL: 'project_already_terminal',
+          PROJECT_STATE_CHANGED: 'project_state_changed',
+        }[outcome.disposition],
+      });
     }
 
-    if (typeof project.sourceUploadBatchId === 'string' && project.sourceUploadBatchId) {
+    if (!outcome.receipt || !outcome.beforeRevision) {
+      throw new Error('Director delivery failure owner returned a recorded outcome without a receipt.');
+    }
+
+    if (outcome.sourceUploadBatchId) {
+      const db = await getDatabase();
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         {
-          uploadBatchId: project.sourceUploadBatchId,
+          uploadBatchId: outcome.sourceUploadBatchId,
           userId: failure.userId,
           projectId: failure.projectId,
           orchestrationStatus: 'director_queued',
@@ -94,7 +64,12 @@ async function handler(request: NextRequest) {
     }
 
     console.error(`[DirectorFailure] ${failure.projectId}: ${failure.errorMessage}`);
-    return NextResponse.json({ success: true, projectId: failure.projectId });
+    return NextResponse.json({
+      success: true,
+      projectId: failure.projectId,
+      beforeProjectRevision: outcome.beforeRevision,
+      mutationReceipt: outcome.receipt,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[DirectorFailure] Invalid callback: ${message}`);
@@ -102,6 +77,4 @@ async function handler(request: NextRequest) {
   }
 }
 
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
-  ? verifySignatureAppRouter(handler)
-  : handler;
+export const POST = withInternalQStashWorkerAuth(handler, 'director-failure');

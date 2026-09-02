@@ -3,13 +3,18 @@ import { z } from 'zod';
 
 import { RenderExpectedDurationMsSchema } from '@/lib/editron/schemas/render-job';
 import { isRenderFinalizerConfigured } from '@/lib/editron/services/render-finalizer-client';
+import { projectService } from '@/lib/editron/services/project-service';
 import {
   claimJobFinalization,
+  ProjectRenderJobAuthorizationSchema,
   releaseJobFinalizationClaim,
   type ClaimedRenderFinalization,
+  type ProjectRenderFinalizationClaimV1,
+  type ProjectRenderJobNotCurrentResultV1,
 } from '@/lib/editron/services/render-job-service';
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
+const CHAPTER_AGGREGATE_JOB_ID = /^chr_[A-Za-z0-9_-]{12}$/;
 
 export const RenderFinalizationJobMessageSchema = z.object({
   version: z.literal('editron-render-finalization-job-v1'),
@@ -18,7 +23,19 @@ export const RenderFinalizationJobMessageSchema = z.object({
   sourceOutputUrl: z.string().url().refine((value) => value.startsWith('https://')),
   sourceOutputSize: z.number().int().nonnegative(),
   expectedDurationMs: RenderExpectedDurationMsSchema,
-}).strict();
+  projectRenderAuthorization: ProjectRenderJobAuthorizationSchema.optional(),
+}).strict().superRefine((message, context) => {
+  if (
+    message.projectRenderAuthorization
+    && message.projectRenderAuthorization.jobId !== message.jobId
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['projectRenderAuthorization', 'jobId'],
+      message: 'Project render authorization belongs to a different finalization job.',
+    });
+  }
+});
 
 export type RenderFinalizationJobMessage = z.infer<typeof RenderFinalizationJobMessageSchema>;
 
@@ -97,7 +114,7 @@ export function isRenderFinalizationPipelineConfigured(
 }
 
 export async function enqueueRenderFinalization(
-  claim: ClaimedRenderFinalization,
+  claim: ClaimedRenderFinalization | ProjectRenderFinalizationClaimV1,
   options: { env?: RenderFinalizationPipelineEnvironment } = {},
 ): Promise<{ messageId: string | null }> {
   const env = options.env ?? processEnvironment();
@@ -113,6 +130,9 @@ export async function enqueueRenderFinalization(
     sourceOutputUrl: claim.sourceOutputUrl,
     sourceOutputSize: claim.sourceOutputSize,
     expectedDurationMs: claim.expectedDurationMs,
+    ...('authorization' in claim
+      ? { projectRenderAuthorization: claim.authorization }
+      : {}),
   });
   const qstash = new Client({
     token: env.QSTASH_TOKEN as string,
@@ -167,6 +187,92 @@ export async function beginRenderFinalization(input: {
       );
     }
     throw dispatchError;
+  }
+}
+
+export type BeginProjectRenderFinalizationResultV1 =
+  | { state: 'enqueued'; claim: ProjectRenderFinalizationClaimV1; messageId: string | null }
+  | ProjectRenderJobNotCurrentResultV1;
+
+type ProviderBoundProjectRenderFinalizationInputV1 = {
+  authorization: unknown;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+};
+
+type ProviderFreeProjectRenderFinalizationInputV1 = {
+  authorization: unknown;
+  providerRenderId?: never;
+  bucketName?: never;
+  region?: never;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+};
+
+export type BeginProjectRenderFinalizationInputV1 =
+  | ProviderBoundProjectRenderFinalizationInputV1
+  | ProviderFreeProjectRenderFinalizationInputV1;
+
+/**
+ * Lease a strict project render through its full authorization tuple before
+ * handing it to the durable finalizer queue. The queue payload intentionally
+ * remains signed and carries the strict authorization only to the internal
+ * worker; it is never returned to a browser.
+ */
+export async function beginProjectRenderFinalizationV1(
+  input: BeginProjectRenderFinalizationInputV1,
+): Promise<BeginProjectRenderFinalizationResultV1> {
+  assertProjectRenderFinalizationInput(input);
+  const claim = await projectService.claimProjectRenderJobFinalizationTransactionV1(input);
+  if (!claim.ok) return claim;
+
+  try {
+    const dispatch = await enqueueRenderFinalization(claim);
+    return { state: 'enqueued', claim, messageId: dispatch.messageId };
+  } catch (dispatchError) {
+    try {
+      const released = await projectService.releaseProjectRenderJobFinalizationClaimTransactionV1({
+        authorization: claim.authorization,
+        claimToken: claim.claimToken,
+      });
+      if (!released.ok) {
+        throw new Error('The active strict finalization claim could not be released.');
+      }
+    } catch (releaseError) {
+      throw new AggregateError(
+        [dispatchError, releaseError],
+        'Strict render finalization dispatch failed and its claim could not be released.',
+      );
+    }
+    throw dispatchError;
+  }
+}
+
+/**
+ * ProjectService owns provider-value validation. This boundary only rejects a
+ * mixed tuple so provider-free aggregate claims cannot gain partial identity.
+ */
+function assertProjectRenderFinalizationInput(
+  input: BeginProjectRenderFinalizationInputV1,
+): void {
+  const supplied = [
+    input.providerRenderId,
+    input.bucketName,
+    input.region,
+  ].filter((value) => value !== undefined).length;
+  if (supplied !== 0 && supplied !== 3) {
+    throw new Error('Strict render finalization requires a complete provider identity tuple.');
+  }
+  if (supplied === 0) {
+    const authorization = ProjectRenderJobAuthorizationSchema.parse(input.authorization);
+    if (!CHAPTER_AGGREGATE_JOB_ID.test(authorization.jobId)) {
+      throw new Error(
+        'Provider-free render finalization requires a chapter aggregate authorization.',
+      );
+    }
   }
 }
 

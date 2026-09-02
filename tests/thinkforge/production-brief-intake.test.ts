@@ -163,6 +163,25 @@ describe('resolveThinkForgeProductionBrief', () => {
     );
   });
 
+  it('preserves an explicit general-video destination as a confirmed neutral platform', () => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Create the selected general video.',
+      authoringRequest: {
+        version: 1,
+        contentContract: createThinkForgeWriterContract('video_script'),
+        platformSurface: { id: 'generic' },
+        publishingSurface: 'generic_video',
+        targetDurationSec: 15,
+      },
+    });
+
+    expect(brief.output.platform).toBe('unspecified');
+    expect(brief.output.targetDurationSec).toBe(15);
+    expect(brief.resolution.confirmed).toEqual(
+      expect.arrayContaining(['platform', 'targetDurationSec']),
+    );
+  });
+
   it('rejects competing typed requests and keeps chat wiring on the same authority', () => {
     const scriptRequest = {
       version: 1 as const,

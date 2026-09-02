@@ -14,6 +14,7 @@ import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/ed
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
+import { readProjectRevisionV1 } from '@/lib/editron/services/project-revision-v1';
 import type { EditDNA } from '@/lib/editron/services/style-transfer-service';
 
 export const CHAT_REFERENCE_STYLE_JOB_VERSION = 'editron-chat-reference-style-job-v1' as const;
@@ -338,6 +339,7 @@ export async function runChatReferenceStyleJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId, {
         projectId: job.projectId,
         expectedRevision: rollbackReceipt.expectedRevision,
+        actorKind: 'SYSTEM',
       });
       if (!restored?.restored) {
         const failure = `reference-style-interrupted-attempt-rollback-failed:${restored?.reason ?? 'rollback-revision-receipt-missing'}`;
@@ -364,6 +366,8 @@ export async function runChatReferenceStyleJob(
 
     const beforeProject = await deps.loadProject(job.userId, job.projectId);
     if (!beforeProject) throw new Error('project-not-found-before-style-application');
+    const beforeProjectRevision = readProjectRevisionV1(beforeProject);
+    if (!beforeProjectRevision) throw new Error('project-revision-missing-before-style-application');
     attemptOperationId = attemptOperationKey(job);
     const beforeCheckpointId = checkpointId(job, 'before');
     const claim = await deps.checkpointService.claimChatEditOperation({
@@ -375,6 +379,7 @@ export async function runChatReferenceStyleJob(
       userId: job.userId,
       overlays: Array.isArray(beforeProject.overlays) ? beforeProject.overlays as any[] : [],
       projectState: deps.captureProjectState(beforeProject),
+      capturedProjectRevision: beforeProjectRevision,
       description: `Before durable reference-style application ${job.operationId}`,
       type: 'before-llm',
       force: true,
@@ -535,6 +540,7 @@ export async function runChatReferenceStyleJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(checkpoint.checkpointId, job.userId, {
         projectId: job.projectId,
         expectedRevision: rollbackReceipt.expectedRevision,
+        actorKind: 'SYSTEM',
       });
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(

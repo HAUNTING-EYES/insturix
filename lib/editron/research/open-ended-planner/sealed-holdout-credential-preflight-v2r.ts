@@ -93,6 +93,23 @@ export interface SealedHoldoutCredentialPreflightReceiptV2R {
   receiptSha256: string;
 }
 
+/**
+ * A zero-inference observation of one frozen provider route.  This is kept
+ * separate from a dispatch decision so callers can report an unavailable
+ * provider honestly without interpreting it as an editorial-model result.
+ */
+export interface SealedHoldoutRouteModelMetadataObservationV2R {
+  routeId: ProviderNativeRouteV2R['routeId'];
+  provider: ProviderNativeRouteV2R['provider'];
+  requestedModel: ProviderNativeRouteV2R['model'];
+  returnedModelIdentity: string | null;
+  responseStatus: number | null;
+  responseSha256: string | null;
+  networkRequestSha256: string;
+  transportError: 'NONE' | 'NETWORK_FAILURE';
+  assessment: 'MODEL_IDENTITY_ACCESS_PASS' | 'MODEL_IDENTITY_ACCESS_FAIL';
+}
+
 export function assertSealedHoldoutCredentialPreflightReceiptV2R(
   value: unknown,
 ): Readonly<SealedHoldoutCredentialPreflightReceiptV2R> {
@@ -365,29 +382,65 @@ export function buildSealedHoldoutPresentationOrderV2R(
   return result;
 }
 
-async function verifyModel(
-  route: Readonly<ProviderNativeRouteV2R>, key: string, fetchImpl: typeof fetch,
-): Promise<Readonly<JsonRecord>> {
+export async function inspectSealedHoldoutRouteModelMetadataV2R(input: {
+  route: Readonly<ProviderNativeRouteV2R>;
+  credential: string;
+  fetchImpl?: typeof fetch;
+}): Promise<Readonly<SealedHoldoutRouteModelMetadataObservationV2R>> {
+  const { route } = input;
   const openAi = route.provider === 'openai';
   const endpoint = openAi ? `https://api.openai.com/v1/models/${route.model}`
     : `https://generativelanguage.googleapis.com/v1beta/models/${route.model}`;
-  const response = await fetchImpl(endpoint, {
-    method: 'GET', headers: openAi
-      ? { authorization: `Bearer ${key}` } : { 'x-goog-api-key': key },
+  const networkRequestSha256 = hashCanonicalJsonV1({
+    method: 'GET', endpoint, provider: route.provider,
   });
-  const body = await safeJson(response);
-  const identity = openAi ? text(record(body).id) : text(record(body).name);
-  const expected = openAi ? route.model : `models/${route.model}`;
-  if (!response.ok || identity !== expected) {
-    fail(`SEALED_CREDENTIAL_PREFLIGHT_MODEL_ACCESS_FAILED:${route.routeId}:${response.status}`);
+  try {
+    const response = await (input.fetchImpl ?? fetch)(endpoint, {
+      method: 'GET', headers: openAi
+        ? { authorization: `Bearer ${input.credential}` }
+        : { 'x-goog-api-key': input.credential },
+    });
+    const body = await safeJson(response);
+    const identity = openAi ? text(record(body).id) : text(record(body).name);
+    const expected = openAi ? route.model : `models/${route.model}`;
+    return deepFreezeV1({
+      routeId: route.routeId,
+      provider: route.provider,
+      requestedModel: route.model,
+      returnedModelIdentity: identity || null,
+      responseStatus: response.status,
+      responseSha256: hashCanonicalJsonV1(body),
+      networkRequestSha256,
+      transportError: 'NONE' as const,
+      assessment: response.ok && identity === expected
+        ? 'MODEL_IDENTITY_ACCESS_PASS' as const
+        : 'MODEL_IDENTITY_ACCESS_FAIL' as const,
+    });
+  } catch {
+    return deepFreezeV1({
+      routeId: route.routeId,
+      provider: route.provider,
+      requestedModel: route.model,
+      returnedModelIdentity: null,
+      responseStatus: null,
+      responseSha256: null,
+      networkRequestSha256,
+      transportError: 'NETWORK_FAILURE' as const,
+      assessment: 'MODEL_IDENTITY_ACCESS_FAIL' as const,
+    });
   }
-  return deepFreezeV1({
-    routeId: route.routeId, provider: route.provider, requestedModel: route.model,
-    returnedModelIdentity: identity, responseStatus: response.status,
-    responseSha256: hashCanonicalJsonV1(body),
-    networkRequestSha256: hashCanonicalJsonV1({ method: 'GET', endpoint, provider: route.provider }),
-    assessment: 'MODEL_IDENTITY_ACCESS_PASS',
+}
+
+async function verifyModel(
+  route: Readonly<ProviderNativeRouteV2R>, key: string, fetchImpl: typeof fetch,
+): Promise<Readonly<JsonRecord>> {
+  const observation = await inspectSealedHoldoutRouteModelMetadataV2R({
+    route, credential: key, fetchImpl,
   });
+  if (observation.assessment !== 'MODEL_IDENTITY_ACCESS_PASS') {
+    fail(`SEALED_CREDENTIAL_PREFLIGHT_MODEL_ACCESS_FAILED:${route.routeId}:${observation.responseStatus ?? 'NETWORK'}`);
+  }
+  return observation;
 }
 
 async function countGoogleRequest(

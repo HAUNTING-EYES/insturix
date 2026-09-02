@@ -2,6 +2,8 @@ import type {
   AudioRightsContract,
   MusicRightsContract,
 } from "@/lib/editron/shared/render-request-payload";
+import type { ProjectVideoSourceVersionPinV1 }
+  from "@/lib/editron/services/project-video-source-version-pin-v1";
 import type { GeneratedVideoReceipt } from "@/lib/pipeline/video-generation-service";
 
 // Define overlay types enum
@@ -147,6 +149,12 @@ export type ClipOverlay = BaseOverlay & {
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
   posterUrl?: string; // Storyboard image used as thumbnail fallback (avoids CORS)
+  /** Inclusive source-frame start for exact source/timeline mapping. */
+  sourceStartFrame?: number;
+  /** Exclusive source-frame end for exact retime handle accounting. */
+  sourceEndFrame?: number;
+  /** ProjectService-owned proof of the exact proxy or master bytes addressed. */
+  sourceVersionPinV1?: ProjectVideoSourceVersionPinV1;
   videoStartTime?: number;
   speed?: number;
   /** True if the video file contains embedded audio (e.g., Seedance 1.5 Pro).

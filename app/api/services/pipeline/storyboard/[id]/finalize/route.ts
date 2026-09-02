@@ -25,6 +25,8 @@ import {
   resolveRuntimeMusicCoveragePlan,
 } from '@/lib/editron/services/music-coverage-runtime';
 import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
+import { projectPipelineAudioTimelineBindingHashV1 } from '@/lib/editron/services/pipeline-audio-project-delivery-v1';
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -42,6 +44,34 @@ type PipelineWarningSink = {
 };
 
 const BGM_BILLING_PROVIDER = 'cassetteai';
+
+/**
+ * A synchronous beat-sync attempt has no QStash payload to carry the worker
+ * delivery identity. Derive the same replay-safe identity from immutable
+ * planning and generated-audio material instead of creating another registry.
+ */
+function createSynchronousBgmDeliveryId(input: {
+  projectId: string;
+  storyboardId: string;
+  audioAssetId: string;
+  planningTimelineBindingHash: string;
+  musicCoveragePlan: unknown;
+  totalFrames: number;
+  fps: number;
+}): string {
+  const materialHash = hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    source: 'pipeline-finalize-sync-bgm-v1',
+    projectId: input.projectId,
+    storyboardId: input.storyboardId,
+    audioAssetId: input.audioAssetId,
+    planningTimelineBindingHash: input.planningTimelineBindingHash,
+    musicCoveragePlan: input.musicCoveragePlan,
+    totalFrames: input.totalFrames,
+    fps: input.fps,
+  });
+  return `audio-delivery_${materialHash.slice(0, 18)}`;
+}
 
 function getBillableBgmDurationSeconds(totalDurationSec: number): number {
   const rounded = Math.round(totalDurationSec);
@@ -359,7 +389,6 @@ export async function POST(
         (s: any) => s.independentGeneration && (s.videoUrl || s.imageUrl)
       );
       if (!hasIndependentSubShotsForCap && videoDurationSec && videoDurationSec > 0 && sceneDurationSec > videoDurationSec) {
-        console.log(`[Finalize] Scene ${scene.sceneIndex}: capping duration from ${sceneDurationSec.toFixed(1)}s to ${videoDurationSec.toFixed(1)}s (video shorter than script)`);
         sceneDurationSec = videoDurationSec;
       }
       const durationFrames = Math.round(sceneDurationSec * fps);
@@ -843,7 +872,7 @@ export async function POST(
       if (!globalDirs.defaultTransition) {
         globalDirs.defaultTransition = { type: 'soft-cut', durationMs: 500 };
       }
-      const result = await applyEditDirections(
+      await applyEditDirections(
         overlays,
         scenesWithDirections,
         sceneFrameMap,
@@ -852,7 +881,6 @@ export async function POST(
         height,
         fps,
       );
-      console.log(`[Finalize] Edit directions applied: ${overlays.length} overlays (${result.totalFrameShift} frame shift)`);
     } catch (editErr: any) {
       // Bundle 4 Toyota B.silent.1 fix: was swallowed before, now LOUDLY surfaced.
       // Previous behavior: caught the error, logged a warning, returned success:true
@@ -904,7 +932,6 @@ export async function POST(
       // Update total duration after closing gaps
       const maxEnd = overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0);
       currentFrame = maxEnd;
-      console.log(`[Finalize] Closed ${gapsClosed} gaps between scenes. New duration: ${(currentFrame / fps).toFixed(1)}s`);
     }
 
     // ─── Create Editron project FIRST, then dispatch audio workers ─────
@@ -961,52 +988,62 @@ export async function POST(
         { value: projectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
       ],
     });
-    if (!musicGenerationPolicy.allowed) {
-      console.log(`[Finalize] BGM disabled by ${musicGenerationPolicy.reason}`);
-    }
     const authoredMusicPrompt = nonEmptyString(storyboard.overallMusicPrompt);
-    const musicCoveragePlan = musicGenerationPolicy.allowed
-      ? resolveRuntimeMusicCoveragePlan({
-          totalFrames: currentFrame,
-          fps,
-          project: projectRecord,
-          overlays,
-          contentType: nonEmptyString((briefSnapshot as any)?.contentType),
-          musicPreference: musicGenerationPolicy.musicPreference,
-          authoredMusicIntent: authoredMusicPrompt
-            ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
-            : null,
-          storyboardScenes: storyboard.scenes,
-          sceneFrameMap,
-        })
-      : null;
-    if (musicCoveragePlan?.mode === 'none') {
-      console.log(`[Finalize] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+    let musicCoveragePlan = null;
+    if (!musicGenerationPolicy.allowed) {
+      musicCoveragePlan = null;
+    } else {
+      musicCoveragePlan = resolveRuntimeMusicCoveragePlan({
+        totalFrames: currentFrame,
+        fps,
+        project: projectRecord,
+        overlays,
+        contentType: nonEmptyString((briefSnapshot as any)?.contentType),
+        musicPreference: musicGenerationPolicy.musicPreference,
+        authoredMusicIntent: authoredMusicPrompt
+          ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
+          : null,
+        storyboardScenes: storyboard.scenes,
+        sceneFrameMap,
+      });
     }
 
-    // Update name + stage on reused project (it was created with a possibly-different title)
-    if (existingProject) {
-      const db2 = await getDatabase();
-      await db2.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: project.projectId },
-        {
-          $set: {
-            name: projectName,
-            pipelineStage: 'edit',
-            ...(brandId ? { brandId } : {}),
-            ...(storyboardSourceSessionId ? { sourceSessionId: storyboardSourceSessionId } : {}),
-            updatedAt: new Date(),
-          },
-        },
-      );
-    }
-
-    await projectService.saveProject(userId, project.projectId, {
+    const finalizeSnapshot = await projectService.loadProjectForMutation(userId, project.projectId);
+    await projectService.saveProjectWithReceipt(userId, project.projectId, {
       overlays,
       aspectRatio: aspectRatio as any,
       playerDimensions: { width, height },
       fps,
       durationInFrames: currentFrame,
+    }, {
+      expectedRevision: finalizeSnapshot.revision,
+      projectUpdates: {
+        name: projectName,
+        pipelineStage: 'edit',
+        sourceStoryboardId: id,
+        musicGenerationPolicy,
+        ...(brandId ? { brandId } : {}),
+        ...(storyboardSourceSessionId ? { sourceSessionId: storyboardSourceSessionId } : {}),
+        ...(musicCoveragePlan ? {
+          musicCoveragePlan,
+          'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+        } : {}),
+        ...(musicGenerationPolicy.musicPreference
+          ? { musicPreference: musicGenerationPolicy.musicPreference }
+          : {}),
+        ...(musicGenerationPolicy.editorialPreferences
+          ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
+          : {}),
+        // A successful retry must remove a stale banner left by an earlier
+        // finalize attempt; a failed attempt records its exact surfaced error.
+        ...(editDirectionsFailed ? {
+          editDirectionsFailed: true,
+          editDirectionsError: editDirectionsError || 'Unknown error',
+        } : {}),
+      },
+      projectUnsets: editDirectionsFailed
+        ? []
+        : ['editDirectionsFailed', 'editDirectionsError'],
     });
 
     // ─── Link storyboard ↔ project bidirectionally ────────────────
@@ -1017,41 +1054,11 @@ export async function POST(
       { storyboardId: id },
       { $set: { projectId: project.projectId, updatedAt: new Date() } },
     );
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: project.projectId },
-      {
-        $set: {
-          sourceStoryboardId: id,
-          musicGenerationPolicy,
-          ...(musicCoveragePlan ? {
-            musicCoveragePlan,
-            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-          } : {}),
-          ...(musicGenerationPolicy.musicPreference
-            ? { musicPreference: musicGenerationPolicy.musicPreference }
-            : {}),
-          ...(musicGenerationPolicy.editorialPreferences
-            ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
-            : {}),
-          updatedAt: new Date(),
-          // Bundle 4 Toyota B.silent.1 fix: if applyEditDirections failed,
-          // persist that flag on the project so the editor UI can show a
-          // "Edit directions failed — filters/transitions/pacing missing"
-          // banner. Previously this was completely invisible.
-          ...(editDirectionsFailed && {
-            editDirectionsFailed: true,
-            editDirectionsError: editDirectionsError || 'Unknown error',
-          }),
-        },
-      },
-    );
 
     // ─── Update project link with new projectId (fail-open) ────────
     try {
       const linked = await addProjectToLink(userId, id, project.projectId);
-      if (linked) {
-        console.log(`[finalize] Project link updated: storyboard ${id} → project ${project.projectId}`);
-      } else {
+      if (!linked) {
         console.warn(`[finalize] No project link found for storyboard ${id} — link may not have been created at generate time`);
       }
     } catch (linkErr: any) {
@@ -1104,8 +1111,6 @@ export async function POST(
           },
           retries: 3,
         });
-
-        console.log(`[Finalize] Graph sync dispatched: project + ${sceneInputs.length} scenes`);
       }
     } catch (graphErr: any) {
       console.warn(`[Finalize] Graph sync dispatch failed: ${graphErr.message}`);
@@ -1163,8 +1168,14 @@ export async function POST(
 
       if (bgmCreditCharge) {
         try {
-          console.log(
-            `[Finalize] Beat-sync ACTIVE — generating BGM synchronously for beat detection (${totalDurationSec}s, "${musicPrompt.substring(0, 60)}")`
+          // Bind the generated BGM to the exact visual timeline it was planned
+          // against. ProjectService may later rebase only audio-only drift.
+          const syncBgmPlanningSnapshot = await projectService.loadProjectForMutation(
+            userId,
+            project.projectId,
+          );
+          const syncBgmPlanningTimelineBindingHash = projectPipelineAudioTimelineBindingHashV1(
+            syncBgmPlanningSnapshot.project,
           );
           const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
           const bgm = await Promise.race([
@@ -1188,11 +1199,6 @@ export async function POST(
               fps,
               totalFrames: currentFrame,
             });
-            console.log(
-              `[Finalize] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
-              + `${beatEvidence.beatGrid.beats.length} beats, `
-              + `${beatEvidence.beatGrid.downbeats.length} downbeats`,
-            );
           } catch (beatErr: any) {
             console.warn(`[Finalize] Beat analysis failed without discarding conditioned BGM: ${beatErr.message}`);
             pipelineWarnings.degraded(
@@ -1287,25 +1293,63 @@ export async function POST(
             { upsert: true },
           );
 
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: project.projectId },
+          const bgmDelivery = await projectService.commitPipelineAudioDeliveryV1(
+            userId,
+            project.projectId,
             {
-              $push: { overlays: { $each: bgmOverlays } } as any,
-              $set: {
+              expectedRevision: syncBgmPlanningSnapshot.revision,
+              planningTimelineBindingHash: syncBgmPlanningTimelineBindingHash,
+              deliveryId: createSynchronousBgmDeliveryId({
+                projectId: project.projectId,
+                storyboardId: id,
+                audioAssetId: bgm.audioAssetId,
+                planningTimelineBindingHash: syncBgmPlanningTimelineBindingHash,
                 musicCoveragePlan,
-                'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-                updatedAt: new Date(),
-              },
+                totalFrames: currentFrame,
+                fps,
+              }),
+              kind: 'BGM',
+              outcome: 'ATTACHED',
+              overlays: bgmOverlays,
+              musicCoveragePlan,
             },
           );
           overlays.push(...bgmOverlays);
-
           bgmSyncCompleted = true;
-          console.log(
-            beatEvidence
-              ? '[Finalize] Sync BGM + analyzed beat grid ready for Director'
-              : '[Finalize] Sync BGM ready; beat alignment unavailable and reported',
-          );
+
+          if (beatEvidence && bgmOverlays.length > 0) {
+            try {
+              const beatSync = await projectService.alignCutsToBeatsAtRevisionV1(
+                userId,
+                project.projectId,
+                {
+                  expectedRevision: bgmDelivery.deliveryReceipt.afterRevision,
+                  actorKind: 'SYSTEM',
+                  audioOverlayId: bgmOverlays[0].id,
+                  beatFilter: 'all',
+                  strengthThreshold: 0,
+                  evidenceSource: 'persisted-beat-grid',
+                },
+              );
+              if (beatSync.disposition !== 'APPLIED') {
+                pipelineWarnings.degraded(
+                  'bgm',
+                  'beat-sync-project-owner',
+                  `Conditioned BGM was attached, but authoritative beat-sync did not change cuts: ${beatSync.reason}.`,
+                );
+              }
+            } catch (beatSyncError: unknown) {
+              const message = beatSyncError instanceof Error
+                ? beatSyncError.message
+                : String(beatSyncError);
+              console.warn(`[Finalize] Authoritative beat-sync failed after BGM attachment: ${message}`);
+              pipelineWarnings.degraded(
+                'bgm',
+                'beat-sync-project-owner',
+                `Conditioned BGM was attached, but authoritative beat-sync failed: ${message}.`,
+              );
+            }
+          }
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
           pipelineWarnings.degraded(
@@ -1348,7 +1392,6 @@ export async function POST(
         });
       }
       if (bgmCreditCharge) {
-        console.log(`[Finalize] Dispatching BGM worker: "${musicPrompt.substring(0, 80)}", ${totalDurationSec}s`);
         const bgmDispatch = await dispatchAudioJob({
           type: 'bgm',
           projectId: project.projectId,
@@ -1432,12 +1475,6 @@ export async function POST(
           };
         });
 
-      const hasSfxIntent = storyboard.scenes.filter(s => {
-        const desc = s.descriptor as any;
-        return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim());
-      }).length;
-      const nativeAudioSceneCount = storyboard.scenes.filter(s => (s as any).hasNativeAudio).length;
-
       if (sfxInputs.length > 0) {
         const sfxCreditCharge = await deductPipelineAudioCredits({
           userId,
@@ -1449,10 +1486,6 @@ export async function POST(
           pipelineWarnings,
         });
         if (sfxCreditCharge) {
-          console.log(
-            `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes ` +
-            `(from ${hasSfxIntent} with sfxDescription/sfxCue; ${nativeAudioSceneCount} skipped due to hasNativeAudio — those rely on the clip's own audio)`,
-          );
           const sfxDispatch = await dispatchAudioJob({
             type: 'sfx',
             projectId: project.projectId,
@@ -1467,56 +1500,81 @@ export async function POST(
             audioGenerationQueued = true;
           }
         }
-      } else if (hasSfxIntent > 0 && nativeAudioSceneCount > 0) {
-        console.log(
-          `[Finalize] SFX worker NOT dispatched — all ${hasSfxIntent} scene(s) with SFX intent have hasNativeAudio=true ` +
-          `(clip's own audio is the ambient bed; layering Freesound on top would over-mix). ` +
-          `If native audio is unreliable, fix that at the video-gen gate (C2 dialogue-intent work), not here.`,
-        );
-      } else {
-        console.log('[Finalize] SFX worker NOT dispatched — no scene has sfxDescription or sfxCue');
       }
     }
 
-    // D-016: Profile detection removed — signal system + Utility AI drive all editing decisions.
-    // Store G-01 (universal default) for Director. Director uses standard actions + overlay scoring.
-    try {
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: project.projectId },
-        { $set: { pendingDirectorProfileId: 'G-01', pendingDirectorUserId: userId } },
-      );
-      console.log(`[Finalize] Director profile: G-01 (signal-driven, D-016)`);
-    } catch (dirErr: any) {
-      console.warn(`[Finalize] Failed to store Director profile: ${dirErr.message}`);
-      warnings.push(`Director profile storage failed: ${dirErr.message}`);
-    }
-
-    // Log pipeline warning summary
-    if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
-      console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
-    }
-
     // ─── Brand Intelligence: emit project_created + set status to generating ───
+    let projectStatusTracking: 'committed' | 'already_current' | 'recovery_required' = 'recovery_required';
     try {
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
 
-      await transitionProjectStatus(project.projectId, userId, 'generating', 'pipeline_finalize');
-
-      emitBrandEvent({
+      const statusResult = await transitionProjectStatus(
+        project.projectId,
         userId,
-        projectId: project.projectId,
-        service: 'pipeline',
-        type: 'project_created',
-        payload: {
-          overlayCount: overlays.length,
-          durationFrames: currentFrame,
-          sceneCount: storyboard.scenes?.length ?? 0,
-          warningCount: warnings.length,
-        },
-      }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+        'generating',
+        'pipeline_finalize',
+      );
+      if (!statusResult.success) {
+        const message = `Project lifecycle transition requires recovery: ${statusResult.error ?? 'unknown reason'}`;
+        warnings.push(message);
+        console.warn(`[Finalize] ${message}`);
+      } else {
+        projectStatusTracking = statusResult.disposition === 'ALREADY_CURRENT'
+          ? 'already_current'
+          : 'committed';
+        emitBrandEvent({
+          userId,
+          projectId: project.projectId,
+          service: 'pipeline',
+          type: 'project_created',
+          payload: {
+            overlayCount: overlays.length,
+            durationFrames: currentFrame,
+            sceneCount: storyboard.scenes?.length ?? 0,
+            warningCount: warnings.length,
+          },
+        }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+      }
     } catch (brandErr: any) {
-      console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
+      const message = `Project lifecycle transition requires recovery: ${brandErr.message}`;
+      warnings.push(message);
+      console.warn(`[Finalize] ${message}`);
+    }
+
+    // D-016: Profile detection removed — signal system + Utility AI drive all
+    // editing decisions. This records an intent only; the later signed
+    // pipeline-video completion prepares the batch-bound Director dispatch.
+    let directorIntentQueued = false;
+    let directorQueueState: 'PENDING_PIPELINE_VIDEO_COMPLETION' | 'NOT_RECORDED' = 'NOT_RECORDED';
+    try {
+      const directorIntentSnapshot = await projectService.loadProjectForMutation(
+        userId,
+        project.projectId,
+      );
+      const directorIntent = await projectService.recordPipelineDirectorIntentV1(
+        userId,
+        project.projectId,
+        {
+          expectedRevision: directorIntentSnapshot.revision,
+          profileId: 'G-01',
+        },
+      );
+      if (
+        directorIntent.disposition === 'RECORDED'
+        || directorIntent.disposition === 'ALREADY_RECORDED'
+      ) {
+        directorIntentQueued = true;
+        directorQueueState = 'PENDING_PIPELINE_VIDEO_COMPLETION';
+      } else {
+        const message = `Director intent was not recorded: ${directorIntent.disposition}.`;
+        console.warn(`[Finalize] ${message}`);
+        warnings.push(message);
+      }
+    } catch (dirErr: unknown) {
+      const message = dirErr instanceof Error ? dirErr.message : String(dirErr);
+      console.warn(`[Finalize] Director intent persistence failed: ${message}`);
+      warnings.push(`Director intent persistence failed: ${message}`);
     }
 
     return NextResponse.json({
@@ -1526,7 +1584,9 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: audioGenerationQueued,
-      directorQueued: true,
+      projectStatusTracking,
+      directorQueued: directorIntentQueued,
+      directorQueueState,
       ...(warnings.length > 0 && { warnings }),
       pipelineHealth: pipelineWarnings.count(),
     });

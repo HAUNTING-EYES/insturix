@@ -16,7 +16,9 @@ import {
   type SealedHoldoutCohortManifestV2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
 import {
+  bindProviderNativeRuntimeInputTokenBoundV2R,
   bindSealedHoldoutInputTokenBoundV2R,
+  ProviderNativeRuntimeBudgetControllerV2R,
   SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
   type SealedHoldoutRuntimeAuthorizationV2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r';
@@ -301,7 +303,115 @@ describe('sealed holdout fail-closed runtime budget V2R', () => {
       spentNanoUsd: 255_750,
     });
   });
+
+  it('separates the visible response cap from the billable generated-token bound', async () => {
+    const { guard, request } = googleAccountingFixture();
+
+    expect(await guard.beforeTurn({ turn: 1, configuredMaxOutputTokens: 1_000 }))
+      .toMatchObject({ status: 'ALLOW', maxOutputTokens: 1_000 });
+    const before = await guard.beforeInvoke({
+      turn: 1, request, maxOutputTokens: 1_000,
+    });
+    expect(before).toMatchObject({
+      status: 'ALLOW',
+      audit: {
+        maxOutputTokens: 1_000,
+        maxBillableGeneratedTokens: 9_000,
+        reservedWorstCaseNanoUsd: 33_825_000,
+      },
+    });
+    const after = guard.afterInvoke({
+      turn: 1,
+      request,
+      maxOutputTokens: 1_000,
+      response: {
+        status: 200,
+        body: {
+          usage: {
+            total_input_tokens: 100,
+            total_cached_tokens: 0,
+            total_output_tokens: 900,
+            total_thought_tokens: 8_000,
+            total_tokens: 9_000,
+          },
+        },
+      },
+    });
+    expect(after).toMatchObject({ status: 'ALLOW' });
+  });
+
+  it('rejects visible response overflow independently of hidden thought usage', async () => {
+    const { guard, request } = googleAccountingFixture();
+    await guard.beforeTurn({ turn: 1, configuredMaxOutputTokens: 1_000 });
+    await guard.beforeInvoke({ turn: 1, request, maxOutputTokens: 1_000 });
+    expect(guard.afterInvoke({
+      turn: 1, request, maxOutputTokens: 1_000,
+      response: { status: 200, body: { usage: {
+        total_input_tokens: 100, total_cached_tokens: 0,
+        total_output_tokens: 1_001, total_thought_tokens: 0,
+        total_tokens: 1_101,
+      } } },
+    })).toMatchObject({
+      status: 'DENY', reasonCode: 'ACTUAL_RESPONSE_EXCEEDS_REQUEST_LIMIT',
+    });
+  });
+
+  it('rejects total billable generation above its separately authorized bound', async () => {
+    const { guard, request } = googleAccountingFixture();
+    await guard.beforeTurn({ turn: 1, configuredMaxOutputTokens: 1_000 });
+    await guard.beforeInvoke({ turn: 1, request, maxOutputTokens: 1_000 });
+    expect(guard.afterInvoke({
+      turn: 1, request, maxOutputTokens: 1_000,
+      response: { status: 200, body: { usage: {
+        total_input_tokens: 100, total_cached_tokens: 0,
+        total_output_tokens: 900, total_thought_tokens: 8_101,
+        total_tokens: 9_101,
+      } } },
+    })).toMatchObject({
+      status: 'DENY',
+      reasonCode: 'ACTUAL_GENERATED_TOKENS_EXCEED_AUTHORIZED_BOUND',
+    });
+  });
 });
+
+function googleAccountingFixture() {
+  const request = {
+    provider: 'google' as const,
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/interactions',
+    authMode: 'X_GOOG_API_KEY' as const,
+    body: { model: 'gemini-3.7-flash' },
+    requestHash: 'a'.repeat(64),
+  };
+  const guard = new ProviderNativeRuntimeBudgetControllerV2R({
+    guardKind: 'TEST_GOOGLE_GENERATED_TOKEN_ACCOUNTING_V1',
+    guardIdentitySha256: 'b'.repeat(64),
+    authorizationSha256: 'c'.repeat(64),
+    inputTokenBoundVersion: 'TEST_GOOGLE_INPUT_BOUND_V1',
+    limits: {
+      maxProviderTurns: 1,
+      maxSelectedOperations: 1,
+      maxCandidatesPerOperation: 1,
+      maxCumulativeOutputTokens: 9_000,
+      maxBillableGeneratedTokensPerInvoke: 9_000,
+      maxInputTokensPerTurn: 1_000,
+      absoluteMaxSpendNanoUsd: 40_000_000,
+    },
+    pricing: {
+      normalInputNanoUsdPerToken: 750,
+      cachedInputNanoUsdPerToken: 75,
+      cacheWriteNanoUsdPerToken: 750,
+      outputNanoUsdPerToken: 3_750,
+    },
+    countInputTokens: async (candidate) =>
+      bindProviderNativeRuntimeInputTokenBoundV2R({
+        version: 'TEST_GOOGLE_INPUT_BOUND_V1',
+        request: candidate,
+        inputTokensUpperBound: 100,
+        method: 'TEST_EXACT_INPUT_BOUND',
+      }),
+  });
+  return { guard, request };
+}
 
 function openAiCall(
   id: string,

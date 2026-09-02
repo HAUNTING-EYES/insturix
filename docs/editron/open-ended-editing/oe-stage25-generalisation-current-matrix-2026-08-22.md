@@ -1,4 +1,4 @@
-# Stage 2.5 generalisation current matrix — 2026-08-22
+# Stage 2.5 generalisation current matrix — updated 2026-08-26
 
 ## Authoritative resume point
 
@@ -12,7 +12,8 @@ The executed current-context identity is
 `EDITRON_OE_SEALED_HOLDOUT_GENERALISATION_COHORT_V4R_1`:
 
 - base V3R2 manifest: `a468c2f4...`;
-- CAP-2A V6 manifest: `2549623e...`;
+- historical CAP-2A V6 manifest used by V4R: `2549623e...`;
+- current CAP-2A V7 manifest: `939ec670...` at `3703c0815`;
 - historical interpretation receipt: `20b5e1c2...` (96 rows);
 - H03-C1 V3R4 receipt: `47a57bf2...` (18 separate rows);
 - proof-eligibility fix: commit `ccbe5fc2d`;
@@ -29,6 +30,67 @@ The executed current-context identity is
 - cohort receipt:
   `fe4a3420356675d040c62c4f77f6fa6e98321c99c29eb9e767736f248b186787`;
 - authority: research only, no real-project reads, writes or state effects.
+
+## Final generalisation zero-spend checkpoint
+
+The next cohort is no longer an unspecified future holdout set. Commit
+`713685408` freezes exactly eight genuinely new tasks across Luna, Terra and
+Gemini 3.7 Flash:
+
+- `HOLD-DEP-01` through `HOLD-DEP-04` test four public dependency and
+  invalidation contracts;
+- `RHC-01` through `RHC-04` test route qualification across native,
+  generated-composition and hybrid execution;
+- each provider receives the same task material and complete relevant CAP-2A
+  operation records;
+- provider submission is control-only, so the model cannot call an editing
+  tool or mutate a project;
+- the evaluator accepts equivalent valid DAGs and does not require a hidden
+  task-specific topology;
+- each row permits one initial response and at most one schema/protocol
+  correction, with no transport retry.
+
+Commit `0802842cc` binds that exact 24-row protocol to the clean Editron source
+closure. Accepted execution
+`stage25-final-generalisation-0802842cc-v1` passes its exact 52/52 zero-spend
+cohort under receipt
+`6c5c743081ec37b4d4d531103127feb3e1b19c9b5bed1ce566e7ede6050885d5`.
+The receipt captures all 24 initial requests, replays the scorecard and owner
+sentinels, and binds the accepted HREF-01, RHC-01, resume and long-form
+receipts. It records zero provider inference, zero paid dispatch and zero
+canonical project mutation.
+
+Its promotion was deliberately narrow:
+`READY_FOR_PROVIDER_ACCESS_METADATA_AND_OFFICIAL_TOKEN_PREFLIGHT_NOT_INFERENCE`.
+
+## Final generalisation provider-access checkpoint
+
+Commits `c1cf9e336` and `f2fac0c62` add the exact provider-access/pricing/token
+preflight and source-bound operator. The cached `.env.local.prod` production
+Google key was stale and the first `v1` attempt failed closed before inference.
+A fresh Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY` returned exact model
+identity `models/gemini-3.7-flash`. Accepted execution
+`stage25-final-provider-preflight-f2fac0c62-v2` then passed 62/62 and records:
+
+- source commit `f2fac0c6218aa71eee16783d0fcebf0ee2f93667` with a clean
+  1,925-file Editron scope;
+- three exact provider model-metadata GETs;
+- eight Google official `countTokens` POSTs and 24 unique request captures;
+- zero inference calls, automatic retries, project reads, project mutations or
+  state effects;
+- readiness receipt
+  `5c3c1b185d4cbd751e8cf476d5332187b3e490c9c88831037bb354ac970bc212`;
+- provider receipt
+  `a41bb976d29219805ca379299ad70183b751cdcfc2f8f79351be7bd30ebb6295`;
+- request-capture set
+  `8106d1dff9c4adb24e5a91db32d93c7ad57c48856e6dc2fff71ca1f76eb8e241`;
+- `$1.86795795` initial-attempt upper bound and `$5.8056704` absolute
+  two-attempt ceiling.
+
+The exact promotion is
+`READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE`. No paid
+24-row execution is yet authorized, and this receipt does not establish model
+competence, route quality or product execution.
 
 ## Code-grounded evidence classification
 
@@ -87,15 +149,36 @@ Stage 2.5 remains `MODIFY_AND_PROCEED_RESEARCH`. The current run supports
 continuing the orchestration bet; it does not show reliable unattended editing,
 authorise production mutation or establish a provider rank.
 
-1. Force native, generated and hybrid alternatives on held-out targets.
-2. Exercise dependency/invalidation shapes beyond beat-sync then shake.
-3. Test stale edits, overlap conflicts, safe disjoint rebase and locked ranges.
-4. Resume mid-episode after context compaction without losing plan or result IDs.
-5. Run long-form sequence/range planning under bounded evidence/context limits.
-6. Close HREF-01 with the sole project owner's usable review receipt. The
-   complete source, one requested 180-frame dense motion window and separate
-   WAV already exist under public pack `4431c08b...`; no further technical
-   materialization is pending. Independent agreement stays `UNVERIFIABLE`
-   without a real second reviewer.
-7. Collect blind-editor quality, correction-time, latency and cost receipts,
-   then publish the frozen `GO`, `MODIFY` or `NO-GO` decision.
+| Gate | Verified current truth | What still blocks closure |
+| --- | --- | --- |
+| Forced route alternatives | Four route-neutral targets (`RHC-01` through `RHC-04`) are frozen across free-choice and forced native/generated/hybrid arms. RHC-01 has three real blinded research previews. | The new 12 paid route rows have not executed. RHC-02 through RHC-04 lack materialized rendered candidates, and no correction-time or editor-quality conclusion exists. |
+| Dependency/invalidation diversity | Four genuinely new public tasks (`HOLD-DEP-01` through `HOLD-DEP-04`) now have exact owner/safe-stop sentinels and are part of the source-bound 24-row cohort. | The new 12 paid dependency rows have not executed; source-bound fixture/owner proof is not evidence that a model can plan them. |
+| User edits and locks | Commit `0956d6ee7` exercises the real `ProjectService` cut owner through stateful in-process persistence: a disjoint stale cut safely rebases across a writer-issued overlay receipt and survives reload, while overlap, invalid locks and final CAS loss leave state unchanged. | This covers one cut-specific owner in test persistence. Live Atlas, hosted multi-user editing, generic range effects/locks/rebase and remaining writers are not proved. |
+| Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. Commit `a1a09d481` adds the source-bound no-retry operator; execution `stage25-resume-zero-spend-a1a09d481-v1` passes its exact 36/36 cohort under receipt `38a05470...`, with provider credentials scrubbed and zero dispatch/project mutation. | The receipt authorizes only a separately approved paid-resume trial. Paid resumed inference, live Atlas/QStash recovery, authenticated hosted ingress, canonical ProjectService apply/reload and audiovisual acceptance remain open. |
+| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Fresh manifest `975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds commit `5a38d08318aae445395c66cb432a94835f6db198`, ten source files and nine Luna/Terra/Gemini 3.7 rows. Clean credential-split preflight receipt `f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` bind the local OpenAI credential and Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY`. Paid authorization `86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and receipt `ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3` record nine unique dispatches and terminal rows, one observed HTTP 200 response per row, zero retries/unknown dispatches/provider-infrastructure failures, zero project effects and `$0.341221800` receipt-accounted spend under the `$1.505126400` ceiling. Structural result: Terra P1/P3 and all Gemini Flash rows are `PASS_STRUCTURAL_ONLY`; Luna P1/P2 and Terra P2 fail `STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`; Luna P3 fails `STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`. Five current focused suites pass 26/26 with repository typecheck and lint. | This is structural planning evidence only: every product outcome is `NOT_EVALUATED_ADAPTER_ONLY`, and editorial taste, range-semantic accuracy and rendered audiovisual quality remain unverified. The durable receipt emits no latency/elapsed-time field, and runtime-accounted spend is not a provider-billing invoice. Do not repeat this cohort. The next row closes only local synthetic actual-container/window mechanics; real semantic retrieval, live storage/index consumption and rendered editorial quality remain open before `GO`/`MODIFY`/`NO-GO`. |
+| Long-form media/evidence mechanics | Commits `36787a55a`, `66daa05cf`, `575e75a46` and `a9c93a084` add the local actual-container trial. Accepted execution `stage25-long-form-real-media-a9c93a084-v1` and receipt `59d943354a3a286b986b5b3df2d8cb2de2bb4038d0611b52681e511a34e03336` bind a nominal 4.5-hour H.264/AAC source, 485,515/485,515 verified frames in ten existing-owner PTS batches, three distinct exact 60-frame audiovisual windows, full-context `PASS` and constrained-context `UNVERIFIABLE`. Provider/network/project-mutation counts are zero. | This proves local synthetic container, presentation-time index, exact-window extraction and honest context omission only. Real creative/client media, semantic retrieval quality, live Mongo/R2/Qdrant, discontinuities/epochs, mixed-rate ProjectService consumption and production playback/render/delivery remain open. |
+| HREF-01 | Full source, one requested 180-frame dense motion window and WAV exist under pack `4431c08b...`; receipt `f6993480...` binds the sole project-owner all-nine-requirement `PASS`, no observed hard failure and a zero-minute correction estimate. | Independent agreement remains `UNVERIFIABLE_SINGLE_REVIEWER`; the receipt is research evidence only and does not authorize product execution. |
+| Final quality/decision | Prior technical and user ordinal evidence remains useful but bounded. | Obtain hash-bound blind quality, correction-time, latency and cost receipts, then publish frozen `GO`, `MODIFY` or `NO-GO`. |
+
+The old twelve P2/P3 rows are closed by V3R4's bounded 18/18 handoff/order
+result, and `HOLD-01` through `HOLD-08` are not unseen work. The nine
+source-bound long-form rows have completed under receipt `ad64ab8d...`; they
+must not be replayed. Their structural evaluation is complete, but must not be
+mistaken for editorial-quality validation.
+
+The provider-access step is closed. Stage 2.5 now requires, in this order:
+
+1. obtain a separate capped authorization before running the exact 24 paid
+   rows once, with no automatic transport retry;
+2. audit every returned success/failure and replay the evaluator at zero spend;
+3. turn successful route plans into bounded previews, including real
+   RHC-02/RHC-03/RHC-04 candidates, then collect blind quality,
+   correction-time, latency and cost receipts;
+4. broaden the cut-specific ProjectService conflict/rebase/lock proof to other
+   writers and live-store/multi-user conditions, and run separately authorized
+   paid resume evidence only if the final decision requires it;
+5. continue the production-foundation work for real creative long-form media,
+   semantic retrieval, live storage/index owners, mixed-rate consumers and
+   production playback/render; and
+6. publish the frozen `GO`, `MODIFY` or `NO-GO` decision. A structural cohort
+   pass cannot authorize canonical ProjectService mutation by itself.

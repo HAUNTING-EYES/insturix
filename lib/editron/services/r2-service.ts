@@ -32,6 +32,11 @@ import { nanoid } from 'nanoid';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
+import {
+  R2_MAX_OBJECT_BYTES,
+  R2_MAX_PART_BYTES as R2_MULTIPART_MAX_PART_BYTES,
+} from './r2-upload-limits';
+
 // ─── Configuration ────────────────────────────────────────────────
 
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
@@ -41,9 +46,7 @@ const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
 const CDN_WORKER_URL = normalizeCdnWorkerUrl(process.env.CDN_WORKER_URL);
 const R2_FILE_SINGLE_PUT_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const R2_MULTIPART_MIN_PART_BYTES = 64 * 1024 * 1024;
-const R2_MULTIPART_MAX_PART_BYTES = 5 * 1024 ** 3;
 const R2_MULTIPART_MAX_PARTS = 10_000;
-const R2_MAX_OBJECT_BYTES = 5 * 1024 ** 4;
 
 function normalizeCdnWorkerUrl(value: string | undefined): string | undefined {
   const normalized = value
@@ -352,15 +355,37 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
  * Returns null if the object is missing or the size can't be read — callers fail open on null.
  */
 export async function getR2ObjectSize(r2Key: string): Promise<number | null> {
+  return (await readR2ObjectVersionObservationV1(r2Key))?.byteLength ?? null;
+}
+
+/**
+ * Reads the provider's current object observation directly from R2. The ETag
+ * is an opaque storage-version token, not a byte digest or a canonical media
+ * identity. Callers must treat null as unavailable rather than use client
+ * metadata as a substitute.
+ */
+export async function readR2ObjectVersionObservationV1(
+  r2Key: string,
+): Promise<{ byteLength: number; eTag: string } | null> {
   try {
     const client = getS3Client();
-    const res = await client.send(new HeadObjectCommand({
+    const response = await client.send(new HeadObjectCommand({
       Bucket: R2_BUCKET_NAME,
       Key: r2Key,
     }));
-    return typeof res.ContentLength === 'number' ? res.ContentLength : null;
+    const byteLength = response.ContentLength;
+    const eTag = typeof response.ETag === 'string'
+      ? response.ETag.trim().replace(/^"|"$/g, '')
+      : '';
+    if (
+      typeof byteLength !== 'number'
+      || !Number.isSafeInteger(byteLength)
+      || byteLength <= 0
+      || !eTag
+    ) return null;
+    return { byteLength, eTag };
   } catch (err: unknown) {
-    console.warn('[R2] getR2ObjectSize failed:', err instanceof Error ? err.message : err);
+    console.warn('[R2] object-version observation failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }

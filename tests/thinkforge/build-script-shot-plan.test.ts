@@ -22,6 +22,7 @@ function profile(maxSetupChanges = 4) {
         kind: 'phone',
         availability: 'owned',
         preferred: true,
+        focalLengthEquivalentMm: { min: 24, max: 28 },
       },
       {
         id: 'tripod',
@@ -37,6 +38,13 @@ function profile(maxSetupChanges = 4) {
       cameraOperatorsAvailable: 0,
       assistantsAvailable: 0,
       selfShoot: true,
+      subjectCalibration: {
+        source: 'user-measured',
+        eyeHeightMByStance: {
+          seated: 1.24,
+          standing: 1.61,
+        },
+      },
     },
     constraints: {
       currency: 'INR',
@@ -163,10 +171,34 @@ function sidecar(): ScriptSidecar {
   };
 }
 
+function sidecarWithExplicitPhysicalSubjects(): ScriptSidecar {
+  const input = sidecar();
+  const secondScene = input.scenes[1]!;
+  const hostPerformance = baseScene().shotIntent.performance[0]!;
+  secondScene.visualDescription = 'Founder stands beside the approval board and indicates the empty owner column.';
+  secondScene.charactersPresent = ['host'];
+  secondScene.shotIntent = {
+    ...secondScene.shotIntent!,
+    narrativePurpose: 'Make the workflow failure visible with a confirmed physical subject.',
+    action: 'demonstrating',
+    simultaneousPerformers: 1,
+    performance: [{
+      ...hostPerformance,
+      stance: 'standing',
+      emotion: 'focused recognition',
+      gaze: 'toward the approval board',
+      posture: 'upright beside the board',
+      gesture: 'indicate the empty owner column',
+      movement: 'remain on the confirmed subject mark',
+    }],
+  };
+  return input;
+}
+
 describe('buildScriptShotPlan', () => {
-  it('builds one optimized plan for talking-head and performer-free B-roll scenes', () => {
+  it('builds one optimized plan when every legacy physical scene has explicit subject evidence', () => {
     const result = buildScriptShotPlan({
-      sidecar: sidecar(),
+      sidecar: sidecarWithExplicitPhysicalSubjects(),
       profile: profile(),
       aspectRatio: '9:16',
     });
@@ -174,26 +206,38 @@ describe('buildScriptShotPlan', () => {
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error('Expected a ready shot plan');
     expect(result.plan.scenes).toHaveLength(2);
-    expect(result.plan.scenes[1]?.performance).toEqual([]);
-    expect(result.plan.setupGroups.find((setup) => setup.sceneIds.includes('scene_2'))?.performerMarks).toEqual([]);
+    expect(result.plan.scenes[1]?.performance).toEqual([
+      expect.objectContaining({ characterId: 'host', performerMarkId: 'performer_scene_2_host' }),
+    ]);
     expect(result.plan.scenes[1]?.continuity.previousSceneIds).toEqual(['scene_1']);
   });
 
+  it('blocks performer-free legacy object capture without measured subject evidence', () => {
+    const result = buildScriptShotPlan({ sidecar: sidecar(), profile: profile(), aspectRatio: '9:16' });
+
+    expect(result.status).toBe('needs-user-input');
+    if (result.status !== 'needs-user-input') throw new Error('Expected a subject calibration blocker');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'subject_calibration', sceneId: 'scene_2' }),
+    ]));
+  });
+
   it('blocks legacy scenes that have no same-pass shot intent', () => {
-    const legacy = sidecar();
+    const legacy = sidecarWithExplicitPhysicalSubjects();
     legacy.scenes[0] = { ...legacy.scenes[0]!, shotIntent: undefined };
 
     const result = buildScriptShotPlan({ sidecar: legacy, profile: profile(), aspectRatio: '9:16' });
 
-    expect(result).toMatchObject({
-      status: 'needs-user-input',
-      plan: null,
-      issues: [expect.objectContaining({ code: 'missing_shot_intent', sceneId: 'scene_1' })],
-    });
+    expect(result.status).toBe('needs-user-input');
+    if (result.status !== 'needs-user-input') throw new Error('Expected a missing shot-intent blocker');
+    expect(result.plan).toBeNull();
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'missing_shot_intent', sceneId: 'scene_1' }),
+    ]));
   });
 
   it('enforces the approved setup-change limit after whole-script optimization', () => {
-    const input = sidecar();
+    const input = sidecarWithExplicitPhysicalSubjects();
     input.scenes[1] = {
       ...input.scenes[1]!,
       shotIntent: {
@@ -208,15 +252,16 @@ describe('buildScriptShotPlan', () => {
       aspectRatio: '9:16',
     });
 
-    expect(result).toMatchObject({
-      status: 'needs-user-input',
-      plan: null,
-      issues: [expect.objectContaining({ code: 'setup_change_limit' })],
-    });
+    expect(result.status).toBe('needs-user-input');
+    if (result.status !== 'needs-user-input') throw new Error('Expected a setup-change blocker');
+    expect(result.plan).toBeNull();
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'setup_change_limit' }),
+    ]));
   });
 
   it('rejects forward continuity references instead of silently rewiring them', () => {
-    const input = sidecar();
+    const input = sidecarWithExplicitPhysicalSubjects();
     input.scenes[0] = {
       ...input.scenes[0]!,
       shotIntent: {
@@ -230,9 +275,10 @@ describe('buildScriptShotPlan', () => {
 
     const result = buildScriptShotPlan({ sidecar: input, profile: profile(), aspectRatio: '9:16' });
 
-    expect(result).toMatchObject({
-      status: 'needs-user-input',
-      issues: [expect.objectContaining({ code: 'forward_continuity_scene', sceneId: 'scene_1' })],
-    });
+    expect(result.status).toBe('needs-user-input');
+    if (result.status !== 'needs-user-input') throw new Error('Expected a continuity blocker');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'forward_continuity_scene', sceneId: 'scene_1' }),
+    ]));
   });
 });

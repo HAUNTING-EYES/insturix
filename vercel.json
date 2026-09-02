@@ -25,6 +25,58 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/recover-media-source-pts-cadence-v3",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-media-proxy-master-transcode",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-editron-render-sources",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-editron-chapter-concat",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/retire-editron-render-chapters",
+      "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/cron/migrate-editron-render-chapters",
+      "schedule": "23 * * * *"
+    },
+    {
+      "path": "/api/cron/migrate-editron-project-renders",
+      "schedule": "29 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-editron-render-dispatch",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-editron-project-render-invalidations",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/recover-editron-render-billing",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-media-source-audio",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-media-source-audio-evidence-backfill",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-media-source-pts-cadence-version-evidence-backfill",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },
@@ -90,7 +142,7 @@
     },
     {
       "path": "/api/cron/process-thinkforge-long-form-scripts",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

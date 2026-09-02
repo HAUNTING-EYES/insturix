@@ -1,9 +1,11 @@
 import { CREDITS_PER_USD } from '@/lib/config/creditCosts';
 
-export const PROVIDER_COST_PRICING_VERSION = '2026-07-06.gemini-rates';
+export const PROVIDER_COST_PRICING_VERSION = '2026-08-30.gemini-rates';
 
 const GB = 1024 * 1024 * 1024;
 const GEMINI_PRICING_SOURCE = 'https://ai.google.dev/gemini-api/docs/pricing';
+const GEMINI_3_6_FLASH_INPUT_USD_PER_TOKEN = 0.75 / 1_000_000;
+const GEMINI_3_6_FLASH_OUTPUT_USD_PER_TOKEN = 3.75 / 1_000_000;
 const GEMINI_2_5_FLASH_INPUT_USD_PER_TOKEN = 0.3 / 1_000_000;
 const GEMINI_2_5_FLASH_OUTPUT_USD_PER_TOKEN = 2.5 / 1_000_000;
 const GEMINI_2_5_FLASH_LITE_INPUT_USD_PER_TOKEN = 0.1 / 1_000_000;
@@ -22,6 +24,14 @@ const GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS = [
   'image_analysis',
   'llm_completion_cached_context',
   'llm_completion_inline_context',
+  'llm_search_grounded_direct',
+  'llm_stream',
+  'llm_stream_direct',
+  'llm_structured',
+  'llm_structured_cached_context',
+  'llm_structured_direct',
+  'llm_structured_fallback',
+  'llm_structured_inline_context',
   'llm_text_direct',
   'summary_generation',
   'trend_search_grounded',
@@ -103,6 +113,15 @@ export interface ProviderCostEstimateOptions {
 }
 
 export const PROVIDER_COST_RATES: readonly ProviderCostRate[] = [
+  ...GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS.flatMap((operation) =>
+    geminiInputOutputTokenRates({
+      operation,
+      model: 'gemini-3.6-flash',
+      inputUsdPerToken: GEMINI_3_6_FLASH_INPUT_USD_PER_TOKEN,
+      outputUsdPerToken: GEMINI_3_6_FLASH_OUTPUT_USD_PER_TOKEN,
+      source: `${GEMINI_PRICING_SOURCE}: Gemini 3.6 Flash Standard introductory pricing through 2026-12-31, $0.75/M input tokens and $3.75/M output tokens`,
+    }),
+  ),
   ...GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS.flatMap((operation) =>
     geminiInputOutputTokenRates({
       operation,

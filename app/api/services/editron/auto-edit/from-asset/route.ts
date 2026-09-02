@@ -26,9 +26,24 @@ import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMidd
 import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
-import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
+import {
+  admitAssistScanCharge,
+  isAssistIntakeEnabled,
+  parseEditMode,
+  settleAssistScanFailure,
+} from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
-import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
+import { activateProjectAnalysisDirectorInlineV1 } from '@/lib/editron/services/project-analysis-director-publication';
+import {
+  activateProjectAnalysisIntakeInlineV1,
+  ProjectAnalysisIntakePublicationError,
+  publishProjectAnalysisIntakeDispatchV1,
+} from '@/lib/editron/services/project-analysis-intake-publication';
+import {
+  isInternalQStashDispatchConfigured,
+  isInternalQStashWorkerAuthConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+} from '@/lib/editron/security/internal-worker-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -62,6 +77,10 @@ export async function POST(request: NextRequest) {
   let autoEditAnalysisStarted = false;
   let autoEditCreditTransactionId: string | undefined;
   let autoEditChargedCredits: number | undefined;
+  let analysisRunId: string | undefined;
+  let assistRun: { projectId: string; userId: string; creditTransactionId: string } | null = null;
+  let assistSettlementDb: Parameters<typeof settleAssistScanFailure>[0] | null = null;
+  let assistReadyCommitted = false;
 
   try {
     const { userId, orgId } = await auth();
@@ -124,8 +143,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Asset must be a video' }, { status: 400 });
     }
 
-    console.log(`[auto-edit/from-asset] Starting for asset ${assetId} (${asset.filename}, ${asset.duration}s)`);
-
     // 2. Get playable URL for the video overlay (Worker URL for browser)
     const videoUrl = await assetResolver.resolveAssetUrl(assetId, userId);
     if (!videoUrl) {
@@ -156,7 +173,6 @@ export async function POST(request: NextRequest) {
         const parsedDuration = await extractMP4Duration(serverVideoUrl);
         if (parsedDuration && parsedDuration > 0) {
           durationSec = parsedDuration;
-          console.log(`[auto-edit/from-asset] Recovered duration via MP4 parser: ${parsedDuration.toFixed(1)}s`);
         }
       } catch (durErr: any) {
         console.error(`[auto-edit/from-asset] MP4 duration extraction failed: ${durErr.message}`);
@@ -173,6 +189,12 @@ export async function POST(request: NextRequest) {
     if (qstashToken && !isInternalQStashWorkerAuthConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Auto-edit queue is unavailable because its signing keys are not configured.' },
+        { status: 503 },
+      );
+    }
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Auto-edit queue is unavailable because its publisher token or signing keys are not configured.' },
         { status: 503 },
       );
     }
@@ -215,8 +237,10 @@ export async function POST(request: NextRequest) {
     const projectName = title || `Auto-Edit: ${asset.filename}`;
     const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? null });
     const projectId = project.projectId;
-
-    console.log(`[auto-edit/from-asset] Created project ${projectId}`);
+    const initialProjectRevision = await projectService.getProjectRevision(
+      userId,
+      projectId,
+    );
 
     // 5. Add the video as a single overlay spanning the full duration
     // Use CDN Worker URL for overlay src (never expires, has CORS).
@@ -256,13 +280,15 @@ export async function POST(request: NextRequest) {
       styles: { opacity: 1, objectFit: 'cover' as const },
     };
 
-    await projectService.saveProject(userId, projectId, {
+    const projectSaveReceipt = await projectService.saveProjectWithReceipt(userId, projectId, {
       overlays: [videoOverlay],
       aspectRatio,
       playerDimensions: { width: w, height: h },
       fps,
       durationInFrames,
-    } as Parameters<typeof projectService.saveProject>[2]);
+    } as Parameters<typeof projectService.saveProjectWithReceipt>[2], {
+      expectedRevision: initialProjectRevision,
+    });
 
     // 5b. Pre-warm Modal GPU containers (fire-and-forget).
     // V-JEPA + Wav2Vec run at worker Step 3.5, ~150s after QStash dispatch.
@@ -284,132 +310,183 @@ export async function POST(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
-    // Persist the lane BEFORE any worker dispatch — the video-analysis worker
-    // consults project.editMode at its director-invocation site and must never
-    // race an unset flag.
-    if (requestedEditMode === 'assist') {
-      await db.collection('projects').updateOne(
-        { projectId },
-        {
-          $set: {
-            editMode: 'assist',
-            // Persisted so the worker (and any future cancel flow) can refund by
-            // transaction if the scan fails — from-asset deducted at intake.
-            assistCreditTransactionId: autoEditCreditTransactionId ?? null,
-            assistChargedCredits: autoEditChargedCredits ?? null,
-          },
-        },
-      );
-      console.log(`[DirectorMode] Assist intake accepted for project ${projectId} (asset ${assetId}).`);
+    assistSettlementDb = db;
+    if (!autoEditCreditTransactionId || autoEditChargedCredits === undefined) {
+      throw new Error('Auto-edit analysis deduction identity is missing after charge.');
     }
 
-    await db.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          autoEditMode: 'asset',
-          autoEditStatus: 'queued',
-          sourceAssetId: assetId,
-          ...(referenceAssetId && { referenceAssetId }),
-          ...(referenceVideoUrlMetadata && {
-            referenceVideoSource: referenceVideoUrlMetadata,
-          }),
-          ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
-          ...(editorialPreferences && { editorialPreferences }),
-          updatedAt: new Date(),
-        },
-      },
-    );
+    // Establish lane + paid-run identity in one CAS BEFORE any status or worker
+    // dispatch. A stale/pre-used project cannot be silently repurposed.
+    if (requestedEditMode === 'assist') {
+      const admission = await admitAssistScanCharge(db, {
+        projectId,
+        userId,
+        creditTransactionId: autoEditCreditTransactionId,
+        chargedCredits: autoEditChargedCredits,
+      });
+      if (admission.disposition !== 'admitted' && admission.disposition !== 'already-admitted') {
+        throw new Error(`Assist scan admission was rejected: ${admission.disposition}`);
+      }
+      assistRun = { projectId, userId, creditTransactionId: autoEditCreditTransactionId };
+    }
 
-    // Dispatch to video-analysis worker via QStash
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-    const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
+    const analysisAdmission = await projectService.admitProjectAnalysisRunV1(userId, projectId, {
+      expectedRevision: projectSaveReceipt.revision,
+      sourceAssetId: assetId,
+      creditTransactionId: autoEditCreditTransactionId,
+      chargedCredits: autoEditChargedCredits,
+      lane: requestedEditMode,
+      queueFacts: {
+        ...(referenceAssetId && { referenceAssetId }),
+        ...(referenceVideoUrlMetadata && { referenceVideoSource: referenceVideoUrlMetadata }),
+        ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
+        ...(editorialPreferences && { editorialPreferences: { ...editorialPreferences } }),
+      },
+    });
+    if (
+      analysisAdmission.disposition !== 'ADMITTED'
+      && analysisAdmission.disposition !== 'ALREADY_ADMITTED'
+    ) {
+      throw new Error(`Auto-edit analysis admission was rejected: ${analysisAdmission.disposition}`);
+    }
+    const admittedAnalysisRunId = analysisAdmission.run.runId;
+    analysisRunId = admittedAnalysisRunId;
+    const intakeDispatch = analysisAdmission.run.intakeDispatch;
+    if (!intakeDispatch) {
+      throw new Error('Auto-edit analysis admission returned no intake dispatch identity.');
+    }
 
     if (qstashToken) {
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${workerUrl}`;
-      console.log(`[auto-edit/from-asset] QStash dispatch: URL=${qstashUrl}, workerUrl=${workerUrl}`);
-
-      const qstashRes = await fetch(qstashUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${qstashToken}`,
-          'Content-Type': 'application/json',
-          'Upstash-Retries': '0',
-        },
-        body: JSON.stringify({
+      try {
+        await publishProjectAnalysisIntakeDispatchV1({
           projectId,
           userId,
-          orgId: orgId || undefined,
-          assetId,
-          videoUrl: serverVideoUrl,
-          durationSec,
-          title: projectName,
-          profileId: 'A-01',
-          userIntent,
-          referenceAssetId,
-          referenceVideoUrl: normalizedReferenceVideoUrl,
-          script,
-          platform,
-          captionStyle,
-          transitionPreference,
-          zoomBehavior,
-          motionGraphics,
-          pacingFeel,
-          musicPreference,
-          editorialPreferences,
-          creditTransactionId: autoEditCreditTransactionId,
-          chargedCredits: autoEditChargedCredits,
-        }),
-      });
-
-      if (!qstashRes.ok) {
-        const errBody = await qstashRes.text().catch(() => 'no body');
-        const errMsg = `QStash dispatch failed: HTTP ${qstashRes.status} — ${errBody}`;
+          analysisRunId: admittedAnalysisRunId,
+          sourceAssetId: assetId,
+          dispatch: intakeDispatch,
+          onProviderAccepted: () => { autoEditAnalysisStarted = true; },
+          workerPayload: {
+            orgId: orgId || undefined,
+            videoUrl: serverVideoUrl,
+            durationSec,
+            title: projectName,
+            profileId: 'A-01',
+            userIntent,
+            referenceAssetId,
+            referenceVideoUrl: normalizedReferenceVideoUrl,
+            script,
+            platform,
+            captionStyle,
+            transitionPreference,
+            zoomBehavior,
+            motionGraphics,
+            pacingFeel,
+            musicPreference,
+            editorialPreferences,
+            creditTransactionId: autoEditCreditTransactionId,
+            chargedCredits: autoEditChargedCredits,
+          },
+        });
+      } catch (error: unknown) {
+        const providerAccepted = error instanceof ProjectAnalysisIntakePublicationError
+          && error.providerAccepted;
+        const errMsg = error instanceof Error ? error.message : String(error);
         console.error(`[auto-edit/from-asset] ${errMsg}`);
-        // Mark project as failed so dashboard shows error instead of infinite polling
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: errMsg } },
-        );
-        if (autoEditCreditCheck) {
+        if (providerAccepted) {
+          return NextResponse.json({
+            success: true,
+            projectId,
+            status: 'processing',
+            publicationReceipt: 'reconciliation_pending',
+            message: 'Video analysis was queued; its local provider receipt is awaiting reconciliation.',
+          }, { status: 202 });
+        }
+        if (assistRun) {
+          await settleAssistScanFailure(db, {
+            ...assistRun,
+            reason: errMsg,
+          });
+        } else {
+          await failAdmittedAutoAnalysisRun({
+            projectId,
+            userId,
+            analysisRunId: admittedAnalysisRunId,
+            sourceAssetId: assetId,
+            errorMessage: errMsg,
+          });
+        }
+        if (!assistRun && autoEditCreditCheck) {
           await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis dispatch failed before worker queueing');
         }
         return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
       }
-
-      autoEditAnalysisStarted = true;
-      const qstashData = await qstashRes.json().catch(() => ({}));
-      console.log(`[auto-edit/from-asset] QStash dispatched: messageId=${qstashData.messageId || 'unknown'}`);
     } else {
       // No QStash → run inline (dev mode)
-      console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      await activateProjectAnalysisIntakeInlineV1({
+        projectId,
+        userId,
+        analysisRunId: admittedAnalysisRunId,
+        sourceAssetId: assetId,
+        dispatch: intakeDispatch,
+      });
       autoEditAnalysisStarted = true;
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
-      if (ssb) {
-        await db.collection('projects').updateOne(
-          // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-          { projectId, ...(requestedEditMode === 'assist' ? { autoEditStatus: { $ne: 'scan_failed' } } : {}) },
-          { $set: { syntheticStoryboard: ssb, autoEditStatus: requestedEditMode === 'assist' ? ASSIST_STATUS_READY : 'editing' } },
-        );
-      }
+      await commitInlineAssetAnalysisPhase1({
+        projectId,
+        userId,
+        analysisRunId: admittedAnalysisRunId,
+        sourceAssetId: assetId,
+        syntheticStoryboard: ssb,
+      });
+      const directorPayload = {
+        projectId,
+        userId,
+        analysisRunId: admittedAnalysisRunId,
+        profileId: 'A-01',
+        platform,
+        userIntent,
+        captionStyle,
+        transitionPreference,
+        zoomBehavior,
+        motionGraphics,
+        pacingFeel,
+        musicPreference,
+        editorialPreferences,
+      };
+      const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
       if (requestedEditMode === 'assist') {
-        // Director Mode: the single clip already IS the timeline (saved at create).
-        // Scans persisted above — hand the pen to the user, never run the Director.
-        await db.collection('projects').updateOne(
-          { projectId, autoEditStatus: { $ne: 'scan_failed' } },
-          { $set: { autoEditStatus: ASSIST_STATUS_READY } },
-        );
-        console.log(`[DirectorMode] Assist scan complete inline — director skipped (project ${projectId}).`);
+        const completion = await runCanonicalDirectorV1(directorPayload);
+        if (completion.disposition !== 'ASSIST_READY') {
+          throw new Error(`Assist completion was rejected: ${completion.disposition}.`);
+        }
+        assistReadyCommitted = true;
       } else {
-        const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-        await executeDirectorPlan(projectId, userId, 'A-01');
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'complete' } },
-        );
+        const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+        const prepared = await projectService.prepareProjectAnalysisDirectorDispatchV1(userId, projectId, {
+          expectedRevision: snapshot.revision,
+          runId: admittedAnalysisRunId,
+          sourceAssetId: assetId,
+        });
+        if (prepared.disposition !== 'ADVANCED' && prepared.disposition !== 'ALREADY_ADVANCED') {
+          throw new Error(`Inline Director dispatch preparation was rejected: ${prepared.disposition}.`);
+        }
+        const dispatch = prepared.run.directorDispatch;
+        if (!dispatch) throw new Error('Inline Director dispatch preparation returned no identity.');
+        await activateProjectAnalysisDirectorInlineV1({
+          projectId,
+          userId,
+          analysisRunId: admittedAnalysisRunId,
+          sourceAssetId: assetId,
+          dispatch,
+        });
+        const completion = await runCanonicalDirectorV1({
+          ...directorPayload,
+          analysisDirectorDispatchId: dispatch.deduplicationId,
+        });
+        if (completion.disposition !== 'COMPLETED') {
+          throw new Error(`Inline Director execution did not complete: ${completion.disposition}.`);
+        }
       }
     }
 
@@ -424,12 +501,81 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: unknown) {
-    if (autoEditCreditCheck && !autoEditAnalysisStarted) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (assistRun && !assistReadyCommitted) {
+      try {
+        const db = assistSettlementDb ?? await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        await settleAssistScanFailure(db, { ...assistRun, reason: msg });
+      } catch (settlementError: unknown) {
+        console.error('[auto-edit/from-asset] Assist failure settlement could not be started:', settlementError);
+      }
+    } else if (autoEditCreditCheck && !autoEditAnalysisStarted) {
       await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis failed before analysis start');
     }
-    const msg = error instanceof Error ? error.message : String(error);
     console.error(`[auto-edit/from-asset] Failed: ${msg}`);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+
+async function commitInlineAssetAnalysisPhase1(input: {
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  syntheticStoryboard: unknown;
+}): Promise<void> {
+  const transitions = [
+    { fromState: 'queued', toState: 'analyzing' },
+    { fromState: 'analyzing', toState: 'transcribing' },
+  ] as const;
+  for (const transition of transitions) {
+    const snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+    const advanced = await projectService.advanceProjectAnalysisRunV1(input.userId, input.projectId, {
+      expectedRevision: snapshot.revision,
+      runId: input.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+      ...transition,
+    });
+    if (advanced.disposition !== 'ADVANCED' && advanced.disposition !== 'ALREADY_ADVANCED') {
+      throw new Error(
+        `Inline analysis transition ${transition.fromState} → ${transition.toState} was rejected: ${advanced.disposition}.`,
+      );
+    }
+  }
+
+  const phase1Snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+  const committed = await projectService.commitProjectAnalysisPhase1V1(input.userId, input.projectId, {
+    expectedRevision: phase1Snapshot.revision,
+    runId: input.analysisRunId,
+    sourceAssetId: input.sourceAssetId,
+    fromState: 'transcribing',
+    evidence: {
+      ...(input.syntheticStoryboard != null
+        ? { syntheticStoryboard: input.syntheticStoryboard }
+        : {}),
+    },
+  });
+  if (committed.disposition !== 'ADVANCED' && committed.disposition !== 'ALREADY_ADVANCED') {
+    throw new Error(`Inline Phase-1 evidence commit was rejected: ${committed.disposition}.`);
+  }
+}
+
+async function failAdmittedAutoAnalysisRun(input: {
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  errorMessage: string;
+}): Promise<void> {
+  const snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+  const failed = await projectService.failProjectAnalysisRunV1(input.userId, input.projectId, {
+    expectedRevision: snapshot.revision,
+    runId: input.analysisRunId,
+    sourceAssetId: input.sourceAssetId,
+    errorMessage: input.errorMessage,
+  });
+  if (failed.disposition !== 'RECORDED' && failed.disposition !== 'ALREADY_RECORDED') {
+    throw new Error(`Auto-edit analysis failure lost run ownership: ${failed.disposition}.`);
   }
 }
 

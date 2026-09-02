@@ -102,6 +102,27 @@ export class DurableWorkflowJobStoreV1 {
     return record ? toSnapshot(record) : null;
   }
 
+  /**
+   * Read-only composition lookup for an already-authenticated internal worker.
+   * A job id alone is not cross-family authority, so every caller must bind the
+   * exact operation family and input schema before it can inspect or claim work.
+   */
+  async getForWorkerExecution(input: Readonly<{
+    jobId: string;
+    operationOwner: string;
+    operationKind: string;
+    inputSchemaId: string;
+  }>): Promise<Readonly<DurableWorkflowJobSnapshotV1> | null> {
+    const scope = {
+      _id: requireIdentity(input.jobId, 'JOB_ID'),
+      operationOwner: requireIdentity(input.operationOwner, 'OPERATION_OWNER'),
+      operationKind: requireIdentity(input.operationKind, 'OPERATION_KIND'),
+      'input.schemaId': requireIdentity(input.inputSchemaId, 'INPUT_SCHEMA_ID'),
+    };
+    const record = await (await this.collectionProvider()).findOne(scope);
+    return record ? toSnapshot(record) : null;
+  }
+
   async recordDispatch(input: Readonly<{
     jobId: string;
     transport: string;
@@ -413,6 +434,47 @@ export class DurableWorkflowJobStoreV1 {
     const current = await collection.findOne({ _id: input.jobId });
     if (current?.status === 'completed' && sameJson(current.terminalReceipt, receipt)) return;
     throw new DurableWorkflowJobLeaseLostErrorV1('DURABLE_JOB_COMPLETE_LEASE_LOST');
+  }
+
+  /**
+   * Releases a healthy externally waiting job without spending a failure
+   * attempt. The current delivery was claimed, so exactly that decrement is
+   * restored; transport or execution failures must use retryOrDeadLetter.
+   */
+  async deferUntil(input: Readonly<{
+    jobId: string;
+    leaseToken: string;
+    resumeCursor: Readonly<Record<string, unknown>>;
+    resumeAt: Date;
+    now?: Date;
+  }>): Promise<void> {
+    const now = input.now ?? new Date();
+    const collection = await this.collectionProvider();
+    const current = await requireActiveLease(
+      collection, input.jobId, input.leaseToken, now,
+    );
+    if (current.cancelRequestedAt) {
+      throw new DurableWorkflowJobTransitionErrorV1('DURABLE_JOB_CANCEL_REQUESTED');
+    }
+    const update = await collection.updateOne(
+      activeLeaseFilter(input.jobId, input.leaseToken, now),
+      {
+        $set: {
+          status: 'retry_wait',
+          retryCursor: cloneJsonRecord(input.resumeCursor),
+          nextAttemptAt: requireFutureDate(input.resumeAt, now, 'RESUME_AT'),
+          error: null,
+          leaseToken: null,
+          leaseOwnerId: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        },
+        $inc: { remainingAttempts: 1 },
+      },
+    );
+    if (update.matchedCount !== 1) {
+      throw new DurableWorkflowJobLeaseLostErrorV1('DURABLE_JOB_DEFER_LEASE_LOST');
+    }
   }
 
   async retryOrDeadLetter(input: Readonly<{

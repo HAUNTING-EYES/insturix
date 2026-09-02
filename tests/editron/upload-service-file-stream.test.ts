@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+import { R2_MAX_OBJECT_BYTES } from '@/lib/editron/services/r2-upload-limits';
 import { uploadFileToR2 } from '@/lib/editron/services/r2-service';
 import { uploadMediaFromFile } from '@/lib/editron/services/upload-service';
 
@@ -81,6 +82,21 @@ describe('file-backed media upload', () => {
     expect(commands).toEqual([
       'CreateMultipartUploadCommand', 'UploadPartCommand', 'AbortMultipartUploadCommand',
     ]);
+  });
+
+  it('rejects provider-invalid object size before issuing an R2 command', async () => {
+    const send = vi.fn(async () => ({}));
+    await expect(uploadFileToR2(
+      'oversize.mp4', 'user_1', 'oversize.mp4', 'video/mp4', 'ref_oversize', {
+        client: { send },
+        statFile: async () => ({
+          size: R2_MAX_OBJECT_BYTES + 1,
+          isFile: () => true,
+        }),
+        createFileReadStream: stream,
+      },
+    )).rejects.toThrow('R2_FILE_UPLOAD_OBJECT_TOO_LARGE');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('preserves the existing R2-primary and GCS-availability policy', async () => {

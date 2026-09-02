@@ -4,7 +4,9 @@ import { toast } from "@/hooks/use-toast";
 import {
   resolveCompletedGenerationDelivery,
   resolveThinkForgeGenerationFailureMessage,
+  shouldHandoffThinkForgeStreamToPolling,
   shouldReconcileThinkForgeCompletedDocument,
+  shouldRecoverThinkForgeGenerationStream,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from "@/lib/thinkforge/client-generation-lifecycle";
@@ -96,6 +98,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
   const [currentIntent, setCurrentIntent] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<number | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
+  const [streamRecoveryEpoch, setStreamRecoveryEpoch] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const generationIdRef = useRef<string | null>(null);
   const activeStreamGenerationIdRef = useRef<string | null>(null);
@@ -353,6 +356,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       let assistantContent = '';
       let pendingDelta = '';
       let buffer = '';
+      let streamReadFailed = false;
 
       const doneReceivedRef = { current: false } as { current: boolean };
       let receivedGeneratedDocumentEvent = false;
@@ -496,7 +500,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             const payload = evt?.data ? { ...evt.data, type: evt.event } : { type: evt.event };
             applyEventPayload(payload, typeof evt?.id === 'number' ? evt.id : null);
           });
-          return true;
+          return events.length > 0;
         } catch (e) {
           console.warn('[useThinkForgeChat] Failed to parse SSE event:', e);
           return false;
@@ -550,12 +554,15 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           }
         }
       } catch (readError) {
-        if (ownsLiveStream() && !(readError instanceof DOMException && readError.name === 'AbortError')) {
-          console.error('[useThinkForgeChat] Error reading stream:', readError);
+        if (shouldRecoverThinkForgeGenerationStream({
+          ownsLiveStream: ownsLiveStream(),
+          errorName: readError instanceof Error ? readError.name : null,
+        })) {
+          streamReadFailed = true;
         }
       }
 
-      if (ownsLiveStream()) setMessages(prev => {
+      if (ownsLiveStream() && !streamReadFailed) setMessages(prev => {
         const updated = prev.map(m =>
           m.id === assistantId ? { ...m, content: assistantContent || '[No response received]', streaming: false } : m
         );
@@ -568,9 +575,23 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       let reconciledPersistedDocument = false;
       if (ownsLiveStream() && !doneReceivedRef.current) {
         const replayed = await replayEvents();
-        if (!replayed) {
+        if (!replayed && !streamReadFailed) {
           reconciledPersistedDocument = await fallbackResync();
         }
+      }
+
+      if (shouldHandoffThinkForgeStreamToPolling({
+        streamReadFailed,
+        doneReceived: doneReceivedRef.current,
+        hasDocumentEvent: receivedGeneratedDocumentEvent,
+      }) && ownsLiveStream()) {
+        activeStreamGenerationIdRef.current = null;
+        lastGenerationKeyRef.current = null;
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+        setGenerationMessage('Connection interrupted. Reconnecting to your saved draft...');
+        setStreamRecoveryEpoch(value => value + 1);
       }
 
       if (ownsLiveStream() && !reconciledPersistedDocument && shouldReconcileThinkForgeCompletedDocument({
@@ -801,7 +822,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         generationPollRef.current = null;
       }
     };
-  }, [sessionId, threadId, pollGenerationStatus, isStreaming]);
+  }, [sessionId, threadId, pollGenerationStatus, isStreaming, streamRecoveryEpoch]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);

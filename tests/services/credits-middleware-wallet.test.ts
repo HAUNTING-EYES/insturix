@@ -54,6 +54,17 @@ describe('checkCredits — routes every op to the effective wallet (P2.2)', () =
     );
   });
 
+  it('rejects when the wallet reports that the refund did not complete', async () => {
+    const check = await checkCredits('user_9', 'editron', 'render_export', { durationMinutes: 1 }, orgWallet);
+    await check.deduct();
+    (CreditsService.refundForWallet as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      success: false,
+      error: 'wallet ledger unavailable',
+    });
+
+    await expect(check.refund('render failed')).rejects.toThrow('wallet ledger unavailable');
+  });
+
   it('with NO wallet, defaults to the personal wallet — today\'s behavior exactly', async () => {
     const check = await checkCredits('user_9', 'editron', 'render_export', { durationMinutes: 1 });
     await check.deduct();

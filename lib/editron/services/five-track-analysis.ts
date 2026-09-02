@@ -18,9 +18,17 @@
  * Edit Decision Lists.
  */
 
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { TokenTracker, type TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
+import {
+  assertAssetAnalysisSourceBindingV2,
+  FIVE_TRACK_ANALYSIS_VERSION_V2,
+  getSourceBoundAnalysisV2,
+  hashAssetAnalysisInputV2,
+  saveSourceBoundAnalysisV2,
+  type AssetAnalysisSourceBindingV2,
+} from './asset-analysis-source-cache-v2';
 import type { PipelineWarningCollector } from './pipeline-warnings';
 import { waitForGeminiFileActive } from './gemini-file-active';
 
@@ -47,7 +55,7 @@ async function withRetry<T>(
   throw new Error('unreachable');
 }
 
-export interface GeminiUsageCapture {
+interface GeminiUsageCapture {
   tracker: TokenTracker;
   requestCount: number;
   missingUsageCount: number;
@@ -329,7 +337,7 @@ export async function getAnalysis(assetId: string): Promise<AssetAnalysis | null
   return db.collection(ANALYSIS_COLLECTION).findOne({ assetId }) as any;
 }
 
-export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
+async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
   const db = await getDatabase();
   await db.collection(ANALYSIS_COLLECTION).updateOne(
     { assetId: analysis.assetId },
@@ -350,7 +358,6 @@ const GEMINI_EXTERNAL_URL_LIMIT = 100 * 1024 * 1024; // 100MB — Gemini fetches
 async function uploadToGeminiFiles(
   videoUrl: string,
   assetId: string,
-  durationMs: number,
 ): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
@@ -888,7 +895,7 @@ Return JSON:
 
 // ─── Track A: Speech Semantic Classification ─────────────────────
 
-export async function classifySpeech(
+async function classifySpeech(
   transcript: string,
   words: Array<{ word: string; startMs: number; endMs: number }>,
   usageCapture?: GeminiUsageCapture,
@@ -946,7 +953,7 @@ ${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.l
 
 // ─── Track C: Music Structure ────────────────────────────────────
 
-export async function analyzeMusicStructure(
+async function analyzeMusicStructure(
   audioUrl: string,
   beats: number[],
   bpm: number,
@@ -1113,26 +1120,62 @@ export interface StoryboardMetadata {
   };
 }
 
+export type FullAnalysisOptions = Readonly<{
+  videoUrl?: string;
+  audioUrl?: string;
+  durationMs: number;
+  transcript?: string;
+  words?: Array<{ word: string; startMs: number; endMs: number }>;
+  /** For AI videos from ThinkForge — pre-classified scene data */
+  storyboardScene?: StoryboardMetadata;
+  /** 'ai-generated' skips shot detection, uses storyboard metadata.
+   *  'real-footage' runs full pipeline including clip matching. */
+  sourceType?: 'ai-generated' | 'real-footage';
+  /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
+  geminiFileUri?: string;
+  /** Exact ProjectService-authenticated source bytes and analysis-input identity. */
+  sourceBindingV2?: AssetAnalysisSourceBindingV2;
+}>;
+
+export function createFiveTrackAnalysisInputSha256V2(
+  options: FullAnalysisOptions,
+): string {
+  return hashAssetAnalysisInputV2({
+    schemaVersion: 2,
+    kind: 'EDITRON_FIVE_TRACK_ANALYSIS_INPUT_V2',
+    durationMs: options.durationMs,
+    sourceType: options.sourceType ?? 'ai-generated',
+    transcript: options.transcript ?? null,
+    words: options.words ?? null,
+    storyboardScene: options.storyboardScene ?? null,
+    videoUrlAvailable: typeof options.videoUrl === 'string'
+      && options.videoUrl.length > 0,
+    audioUrlAvailable: typeof options.audioUrl === 'string'
+      && options.audioUrl.length > 0,
+    geminiFileUriAvailable: typeof options.geminiFileUri === 'string'
+      && options.geminiFileUri.length > 0,
+  });
+}
+
 export async function runFullAnalysis(
   assetId: string,
   userId: string,
-  options: {
-    videoUrl?: string;
-    audioUrl?: string;
-    durationMs: number;
-    transcript?: string;
-    words?: Array<{ word: string; startMs: number; endMs: number }>;
-    /** For AI videos from ThinkForge — pre-classified scene data */
-    storyboardScene?: StoryboardMetadata;
-    /** 'ai-generated' skips shot detection, uses storyboard metadata.
-     *  'real-footage' runs full pipeline including clip matching. */
-    sourceType?: 'ai-generated' | 'real-footage';
-    /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
-    geminiFileUri?: string;
-  },
+  options: FullAnalysisOptions,
   pipelineWarnings?: PipelineWarningCollector,
 ): Promise<AssetAnalysis> {
   const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
+  const sourceBindingV2 = options.sourceBindingV2
+    ? assertAssetAnalysisSourceBindingV2(options.sourceBindingV2)
+    : null;
+  if (sourceBindingV2
+    && (sourceBindingV2.assetId !== assetId || sourceBindingV2.userId !== userId)) {
+    throw new Error('FIVE_TRACK_ANALYSIS_SOURCE_BINDING_SCOPE_MISMATCH');
+  }
+  if (sourceBindingV2
+    && sourceBindingV2.analysisInputSha256
+      !== createFiveTrackAnalysisInputSha256V2(options)) {
+    throw new Error('FIVE_TRACK_ANALYSIS_SOURCE_BINDING_INPUT_MISMATCH');
+  }
 
   const isAIVideo = sourceType === 'ai-generated';
   const analysisStartMs = Date.now();
@@ -1140,19 +1183,27 @@ export async function runFullAnalysis(
   const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
   console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
-  // Check cache — 7 day TTL. Also version-check: if analysis code updated, re-analyze.
-  // ANALYSIS_VERSION should be bumped whenever the analysis logic changes significantly
-  // (e.g., dense frame sampling, new prompt, new fields) so old cached data gets refreshed.
-  const ANALYSIS_VERSION = 2; // v1=original 3-keyframe, v2=dense 1-per-second + confidence
-  const cached = await getAnalysis(assetId);
-  if (cached && cached.status === 'complete' &&
-      Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
-    const cachedVersion = (cached as any).analysisVersion || 1;
+  // Bound V2 entries are immutable and include exact source + material input identity.
+  // Only unbound legacy callers retain the historical 7-day/version cache policy.
+  const ANALYSIS_VERSION = FIVE_TRACK_ANALYSIS_VERSION_V2; // v1=original 3-keyframe, v2=dense 1-per-second + confidence
+  const sourceBoundCached = sourceBindingV2
+    ? await getSourceBoundAnalysisV2<AssetAnalysis>(sourceBindingV2)
+    : null;
+  if (sourceBoundCached) {
+    const quality = (sourceBoundCached as any).analysisQuality || 'unknown';
+    console.log(`[Analysis] Using exact source-bound cache v${ANALYSIS_VERSION} for ${assetId} (quality=${quality})`);
+    (sourceBoundCached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
+    return sourceBoundCached;
+  }
+  const legacyCached = sourceBindingV2 ? null : await getAnalysis(assetId);
+  if (legacyCached && legacyCached.status === 'complete' &&
+      Date.now() - new Date(legacyCached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
+    const cachedVersion = (legacyCached as any).analysisVersion || 1;
     if (cachedVersion >= ANALYSIS_VERSION) {
-      const quality = (cached as any).analysisQuality || 'unknown';
+      const quality = (legacyCached as any).analysisQuality || 'unknown';
       console.log(`[Analysis] Using cached analysis v${cachedVersion} for ${assetId} (quality=${quality})`);
-      (cached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
-      return cached;
+      (legacyCached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
+      return legacyCached;
     }
     console.log(`[Analysis] Cache STALE for ${assetId}: v${cachedVersion} < v${ANALYSIS_VERSION}, re-analyzing with updated logic`);
   }
@@ -1202,7 +1253,7 @@ export async function runFullAnalysis(
           t1.ok(`reused VU uri=${geminiFileUri.substring(0, 60)}...`);
         } else {
           try {
-            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId);
             if (geminiFileUri) {
               t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
             } else {
@@ -1271,9 +1322,6 @@ export async function runFullAnalysis(
   } else {
     trace.push({ step: 'video_url', status: 'skipped: no videoUrl provided', durationMs: 0 });
   }
-
-  // Log full trace for debugging
-  console.log(`[Analysis] TRACE for ${assetId}:`, JSON.stringify(trace));
 
   // Enrich with storyboard metadata if available (supplements Vision, doesn't replace)
   // Even with Vision analysis, storyboard data adds intent context (what was MEANT to happen)
@@ -1526,7 +1574,10 @@ export async function runFullAnalysis(
   (analysis as any).analysisVersion = ANALYSIS_VERSION;
   (analysis as any)._diagnosticTrace = trace;
 
-  await saveAnalysis(analysis);
+  const persistedAnalysis = sourceBindingV2
+    ? await saveSourceBoundAnalysisV2<AssetAnalysis>(sourceBindingV2, analysis)
+    : analysis;
+  if (!sourceBindingV2) await saveAnalysis(analysis);
 
   const layerResults = [
     shots.length > 0 ? `L1:${shots.length}shots` : null,
@@ -1539,59 +1590,7 @@ export async function runFullAnalysis(
   ].filter(Boolean);
 
   console.log(`[Analysis] Complete: ${layerResults.join(', ')}`);
-  return analysis;
-}
-
-/**
- * Analyze all video assets in a project.
- */
-export async function analyzeProjectAssets(
-  projectId: string,
-  userId: string,
-  /** Max time budget in ms. Analysis stops when exceeded. Default 120s. */
-  timeBudgetMs: number = 120_000,
-  pipelineWarnings?: PipelineWarningCollector,
-): Promise<{ analyzed: number; cached: number; failed: number; timedOut: boolean }> {
-  const startMs = Date.now();
-  const db = await getDatabase();
-  const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId }) as any;
-  if (!project) throw new Error('Project not found');
-
-  const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
-  let analyzed = 0, cached = 0, failed = 0;
-  let timedOut = false;
-
-  for (const overlay of videoOverlays) {
-    // F10.2: Check time budget before each analysis
-    const elapsed = Date.now() - startMs;
-    if (elapsed > timeBudgetMs) {
-      console.warn(`[Analysis] Time budget exceeded (${Math.round(elapsed / 1000)}s > ${Math.round(timeBudgetMs / 1000)}s). ${videoOverlays.length - analyzed - cached - failed} assets skipped.`);
-      timedOut = true;
-      break;
-    }
-
-    const assetId = overlay.assetId;
-    if (!assetId) continue;
-
-    try {
-      const existing = await getAnalysis(assetId);
-      if (existing?.status === 'complete') { cached++; continue; }
-
-      const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId }) as any;
-      const videoUrl = asset?.cachedUrl || overlay.src || overlay.content;
-      if (!videoUrl) { failed++; continue; }
-
-      const durationMs = (overlay.durationInFrames / 30) * 1000;
-      await runFullAnalysis(assetId, userId, { videoUrl, durationMs }, pipelineWarnings);
-      analyzed++;
-    } catch (err: any) {
-      console.error(`[Analysis] Failed ${assetId}:`, err.message);
-      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), `asset analysis ${assetId}`);
-      failed++;
-    }
-  }
-
-  return { analyzed, cached, failed, timedOut };
+  return persistedAnalysis;
 }
 
 // ─── Smart Clip Selection ──────────────────────────────────────────

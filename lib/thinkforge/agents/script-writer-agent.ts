@@ -32,6 +32,10 @@ import {
   type ScriptSidecarV3,
 } from '../schemas/script-sidecar-v3';
 import type { VideoTreatment } from '../schemas/video-treatment';
+import {
+  findScriptSidecarV3AudiovisualEventIssues,
+  findVideoTreatmentScriptReadinessIssues,
+} from '../schemas/script-sidecar-v3-audiovisual-validation';
 import { assertUsableScriptChapterPlan } from '../schemas/script-chapter-plan';
 import {
   findDirectlySupportingSourceReferenceIds,
@@ -204,6 +208,44 @@ interface ResolvedScriptEditorialContext {
   chapterExecution: ResolvedScriptChapterExecution | null;
 }
 
+function projectApprovedEditorialPlanForChapter(
+  plan: ScriptEditorialPlan,
+  targetDurationSeconds: number,
+): ScriptEditorialPlan {
+  if (!Number.isFinite(targetDurationSeconds) || targetDurationSeconds <= 0) {
+    throw new Error('Script chapter editorial projection requires an exact positive runtime.');
+  }
+  const narration = plan.narration;
+  if (plan.runtime.policy !== 'exact' || narration.wordBudgetPolicy !== 'guided') {
+    throw new Error('Script chapter execution requires an exact approved full-script editorial plan.');
+  }
+
+  const projected = structuredClone(plan);
+  const projectedNarration = structuredClone(narration);
+  return {
+    ...projected,
+    runtime: {
+      policy: 'exact',
+      targetDurationSeconds,
+      minimumDurationSeconds: targetDurationSeconds,
+      maximumDurationSeconds: targetDurationSeconds,
+    },
+    narration: {
+      ...projectedNarration,
+      wordBudgetPolicy: 'guided',
+      fullRuntimeMinimumSpokenWords: Math.ceil(
+        (targetDurationSeconds / 60) * projectedNarration.minimumModeWordsPerMinute,
+      ),
+      fullRuntimeReferenceSpokenWords: Math.round(
+        (targetDurationSeconds / 60) * projectedNarration.targetWordsPerMinute,
+      ),
+      fullRuntimeComfortableMaximumSpokenWords: Math.round(
+        (targetDurationSeconds / 60) * projectedNarration.comfortableMaximumWordsPerMinute,
+      ),
+    },
+  };
+}
+
 function scriptWriterIdentityPolicy(
   chapterExecution: ResolvedScriptChapterExecution | null,
 ): ScriptWriterModelSidecarIdentityPolicy {
@@ -264,6 +306,7 @@ function projectVideoTreatmentForWriter(
     continuityStrategy: treatment.continuityStrategy,
     audioVoiceStrategy: treatment.audioVoiceStrategy,
     userConstraints: treatment.userConstraints,
+    resolvedAudiovisualDecision: treatment.resolvedAudiovisualDecision,
     visualEvents,
     captureRequirements: treatment.captureRequirements.filter((requirement) => (
       captureRequirementIds.has(requirement.id)
@@ -357,11 +400,10 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
     );
     return {
       executionPlan: chapterExecution
-        ? buildScriptEditorialPlan({
-            productionBrief,
-            contentSignalProfile: input.contentSignalProfile,
-            sourceLedger: input.sourceLedger,
-          })
+        ? projectApprovedEditorialPlanForChapter(
+            artifact.execution.plan,
+            chapterExecution.assignment.targetDurationSeconds,
+          )
         : artifact.execution.plan,
       creativeIntent: artifact.creativeIntent,
       evidencePolicy: artifact.evidence,
@@ -852,6 +894,19 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'beat_kind_speech_mismatch',
   'beat_kind_missing_speech',
   'narration_mode_missing_speech',
+  'audiovisual_speech_forbidden',
+  'audiovisual_speech_required',
+  'audiovisual_on_camera_speech_forbidden',
+  'audiovisual_on_camera_speech_required',
+  'audiovisual_visible_person_forbidden',
+  'audiovisual_visible_person_required',
+  'audiovisual_speech_source_forbidden',
+  'audiovisual_speech_source_required',
+  'audiovisual_voiceover_marked_on_camera',
+  'audiovisual_on_camera_event_missing',
+  'audiovisual_on_camera_event_forbids_person',
+  'audiovisual_visible_person_event_cast_missing',
+  'audiovisual_treatment_intent_mismatch',
   'missing_cast_character',
   'unused_cast_character',
   'cast_character_has_no_voice',
@@ -897,6 +952,9 @@ function buildScriptContractRepairSystemInstruction(
     : `- Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
 - For invalid_model_identity, never try to repair opaque act, scene, beat, or line IDs: the server issues them. Express continuity only through shotIntent.continuity.previousBeatIndexes, using one-based global positions of earlier beats. Do not send previousSceneIds for new writer output, mix both reference forms, or point at the current/later beat.`;
+  const audiovisualRepairRule = usesSemanticVideoTreatment
+    ? '- Execute tf_untrusted_data.videoTreatment.resolvedAudiovisualDecision exactly. Repair audible speech presence and source, on-camera speech, visible-person presence, and treatment-event binding without re-deciding them from the brief or video conventions.'
+    : '- Execute tf_untrusted_data.editorialPlan.audiovisualIntent as four independent hard constraints. Repair speech, on-camera speech, visible-person presence, and physical-capture contradictions directly; never substitute a named video format or silently relax the request.';
   return `<writer_contract_repair>
 The previous structured output failed a production writer contract:
 ${failure.failures.map((item) => `- ${item}`).join('\n')}
@@ -906,6 +964,7 @@ Return a complete replacement object using the same JSON schema. Preserve the br
 Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 ${sidecarRepairRules}
+${audiovisualRepairRule}
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - For chapter_act_count_mismatch, chapter_act_id_mismatch, chapter_scene_count_mismatch, chapter_scene_id_mismatch, chapter_scene_duration_mismatch, chapter_required_character_missing, or chapter_required_source_missing, execute tf_untrusted_data.chapterExecution exactly. Repair the assigned chapter only; do not add other chapters or change the master plan.
 - When the failure includes runtime_duration_mismatch or narration_mode_missing_speech, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget to preserve the exact total runtime and selected narration mode. Develop the supported argument or story with non-redundant substantive beats. Mode-specific narration density is editorial guidance, never a reason to manufacture story units, repeat claims, add filler, invent evidence, inflate durations, or append an unrelated monologue.
@@ -1033,7 +1092,7 @@ interface ScriptSidecarCastingCarrier {
       beats: Array<{
         lines: Array<{
           speakerId?: string;
-          delivery: 'voiceover' | 'sync-dialogue' | 'on-screen-text';
+          delivery: 'voiceover' | 'sync-dialogue' | 'diegetic-speech' | 'on-screen-text';
         }>;
       }>;
     }>;
@@ -1102,6 +1161,10 @@ export function resolveScriptRuntimeContract(
     productionBrief: brief as Pick<ProductionBrief, 'output'> | null | undefined,
     contentSignalProfile,
   });
+  return resolveScriptRuntimeContractFromPlan(plan);
+}
+
+function resolveScriptRuntimeContractFromPlan(plan: ScriptEditorialPlan): ScriptRuntimeContract | null {
   if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') return null;
   return {
     targetDurationSeconds: plan.runtime.targetDurationSeconds,
@@ -1278,6 +1341,34 @@ function duplicatesSpokenText(visibleText: string, spokenLines: readonly string[
   });
 }
 
+function appendAudiovisualIntentFailures(input: {
+  editorialPlan: ScriptEditorialPlan;
+  spokenLineCount: number;
+  onCameraSpokenLineCount: number;
+  visibleCharacterCount: number;
+  failures: string[];
+}): void {
+  const intent = input.editorialPlan.audiovisualIntent;
+  if (intent.audibleSpeech === 'forbidden' && input.spokenLineCount > 0) {
+    input.failures.push(`audiovisual_speech_forbidden:${input.spokenLineCount}`);
+  }
+  if (intent.audibleSpeech === 'required' && input.spokenLineCount === 0) {
+    input.failures.push('audiovisual_speech_required');
+  }
+  if (intent.onCameraSpeech === 'forbidden' && input.onCameraSpokenLineCount > 0) {
+    input.failures.push(`audiovisual_on_camera_speech_forbidden:${input.onCameraSpokenLineCount}`);
+  }
+  if (intent.onCameraSpeech === 'required' && input.onCameraSpokenLineCount === 0) {
+    input.failures.push('audiovisual_on_camera_speech_required');
+  }
+  if (intent.visiblePerson === 'forbidden' && input.visibleCharacterCount > 0) {
+    input.failures.push(`audiovisual_visible_person_forbidden:${input.visibleCharacterCount}`);
+  }
+  if (intent.visiblePerson === 'required' && input.visibleCharacterCount === 0) {
+    input.failures.push('audiovisual_visible_person_required');
+  }
+}
+
 export interface ScriptWriterValidationReport {
   editorialWarnings: string[];
 }
@@ -1305,12 +1396,16 @@ function assertUsableScriptWriterV3Result(
   if (!treatment) {
     failures.push('missing_video_treatment_for_v3');
   } else {
+    if (JSON.stringify(treatment.audiovisualIntent) !== JSON.stringify(editorialPlan.audiovisualIntent)) {
+      failures.push('audiovisual_treatment_intent_mismatch');
+    }
     try {
       assertMaterializedScriptSidecarV3Treatment({
         sidecar,
         treatment,
         treatmentEventIds: options.treatmentEventIds,
       });
+      failures.push(...findScriptSidecarV3AudiovisualEventIssues({ sidecar, treatment }));
     } catch (error) {
       if (error instanceof ScriptSidecarV3TreatmentError) failures.push(...error.issues);
       else throw error;
@@ -1337,9 +1432,13 @@ function assertUsableScriptWriterV3Result(
 
   const requestedLanguages = options.productionBrief?.output.voiceLanguages ?? [];
   const spokenBeatWordCounts: number[] = [];
+  let spokenLineCount = 0;
+  let onCameraSpokenLineCount = 0;
+  const visibleCharacterIds = new Set<string>();
   sidecar.acts.forEach((act, actIndex) => act.narrativeScenes.forEach((scene, sceneIndex) => {
     const sceneLabel = `act_${actIndex + 1}.scene_${sceneIndex + 1}`;
     if (scene.durationIntentSeconds === undefined) failures.push(`missing_scene_duration:${sceneLabel}`);
+    scene.charactersPresent.forEach((characterId) => visibleCharacterIds.add(characterId));
 
     let completeBeatDuration = true;
     const beatDurationTotal = scene.beats.reduce((sum, beat, beatIndex) => {
@@ -1352,6 +1451,10 @@ function assertUsableScriptWriterV3Result(
         if (line.delivery === 'on-screen-text') return;
         const lineLabel = `${beatLabel}.line_${lineIndex + 1}`;
         if (!line.text.trim()) failures.push(`empty_spoken_line:${lineLabel}`);
+        else {
+          spokenLineCount += 1;
+          if (line.onCamera) onCameraSpokenLineCount += 1;
+        }
         if (!line.languageCode) {
           failures.push(`missing_spoken_line_language:${lineLabel}`);
           return;
@@ -1390,6 +1493,16 @@ function assertUsableScriptWriterV3Result(
     }
   }));
 
+  if (treatment?.resolvedAudiovisualDecision.origin !== 'model') {
+    appendAudiovisualIntentFailures({
+      editorialPlan,
+      spokenLineCount,
+      onCameraSpokenLineCount,
+      visibleCharacterCount: visibleCharacterIds.size,
+      failures,
+    });
+  }
+
   validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
   if (options.chapterExecution) {
     failures.push(...findScriptChapterExecutionOutputIssues(options.chapterExecution, result));
@@ -1401,12 +1514,17 @@ function assertUsableScriptWriterV3Result(
   }
   const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
   if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
-    const contract = resolveScriptRuntimeContract(options.productionBrief, options.contentSignalProfile);
+    const contract = resolveScriptRuntimeContractFromPlan(editorialPlan);
     if (!contract) throw new ScriptWriterContractError(['runtime_contract_unavailable']);
     if (expectedDuration < contract.minimumDurationSeconds || expectedDuration > contract.maximumDurationSeconds) {
       failures.push(`runtime_duration_mismatch:${expectedDuration}s/${runtimeTargetSec}s`);
     }
-    if (spokenBeatWordCounts.length === 0 && contract.narrationMode !== 'minimal') {
+    if (
+      spokenBeatWordCounts.length === 0
+      && contract.narrationMode !== 'minimal'
+      && contract.narrationMode !== 'none'
+      && contract.narrationMode !== 'open'
+    ) {
       failures.push(`narration_mode_missing_speech:${contract.narrationMode}`);
     }
     const totalSpokenWords = spokenBeatWordCounts.reduce((total, wordCount) => total + wordCount, 0);
@@ -1483,9 +1601,13 @@ export function assertUsableScriptWriterResult(
 
   if (sidecar.renderPlan) failures.push('writer_render_plan_forbidden');
   const requestedLanguages = options.productionBrief?.output.voiceLanguages ?? [];
+  let spokenLineCount = 0;
+  let onCameraSpokenLineCount = 0;
+  const visibleCharacterIds = new Set<string>();
   sidecar.acts.forEach((act, actIndex) => act.narrativeScenes.forEach((scene, sceneIndex) => {
     const sceneLabel = `act_${actIndex + 1}.scene_${sceneIndex + 1}`;
     if (scene.durationIntentSeconds === undefined) failures.push(`missing_scene_duration:${sceneLabel}`);
+    scene.charactersPresent.forEach((characterId) => visibleCharacterIds.add(characterId));
 
     let completeBeatDuration = true;
     const beatDurationTotal = scene.beats.reduce((sum, beat, beatIndex) => {
@@ -1501,6 +1623,10 @@ export function assertUsableScriptWriterResult(
         if (line.delivery === 'on-screen-text') return;
         const lineLabel = `${beatLabel}.line_${lineIndex + 1}`;
         if (!line.text.trim()) failures.push(`empty_spoken_line:${lineLabel}`);
+        else {
+          spokenLineCount += 1;
+          if (line.onCamera) onCameraSpokenLineCount += 1;
+        }
         if (!line.languageCode) {
           failures.push(`missing_spoken_line_language:${lineLabel}`);
           return;
@@ -1548,6 +1674,14 @@ export function assertUsableScriptWriterResult(
     }
   }));
 
+  appendAudiovisualIntentFailures({
+    editorialPlan,
+    spokenLineCount,
+    onCameraSpokenLineCount,
+    visibleCharacterCount: visibleCharacterIds.size,
+    failures,
+  });
+
   if (
     editorialPlan.visualVerbal.onScreenTextRole === 'selective_complement'
     && narratedBeatTextUsage.length > 1
@@ -1565,14 +1699,19 @@ export function assertUsableScriptWriterResult(
 
   const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
   if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
-    const contract = resolveScriptRuntimeContract(options.productionBrief, options.contentSignalProfile);
+    const contract = resolveScriptRuntimeContractFromPlan(editorialPlan);
     if (!contract) {
       throw new ScriptWriterContractError(['runtime_contract_unavailable']);
     }
     if (expectedDuration < contract.minimumDurationSeconds || expectedDuration > contract.maximumDurationSeconds) {
       failures.push(`runtime_duration_mismatch:${expectedDuration}s/${runtimeTargetSec}s`);
     }
-    if (spokenBeatWordCounts.length === 0 && contract.narrationMode !== 'minimal') {
+    if (
+      spokenBeatWordCounts.length === 0
+      && contract.narrationMode !== 'minimal'
+      && contract.narrationMode !== 'none'
+      && contract.narrationMode !== 'open'
+    ) {
       failures.push(`narration_mode_missing_speech:${contract.narrationMode}`);
     }
     const totalSpokenWords = spokenBeatWordCounts.reduce((total, wordCount) => total + wordCount, 0);
@@ -1628,8 +1767,8 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     super({
       ...config,
       agentType: 'script_writer',
-      // Default to flash for core creative thinking
-      modelName: config?.modelName ?? 'gemini-2.5-flash',
+      // Default to the previous-generation GA Flash model for core creative thinking.
+      modelName: config?.modelName ?? 'gemini-3.6-flash',
       maxTokens: config?.maxTokens ?? 8192,
       temperature: config?.temperature ?? 0.7,
     });
@@ -1642,6 +1781,12 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     const castingBriefBlock = formatCastingBriefForPrompt(productionBrief);
     const antiAiConstraints = getAntiAiConstraintBundle().promptGuidance;
     const usesSemanticVideoTreatment = Boolean(input.videoTreatment);
+    const audiovisualAuthorityRule = usesSemanticVideoTreatment
+      ? '**Resolved audiovisual authority:** tf_untrusted_data.editorialPlan.audiovisualIntent records the user boundaries that constrained planning. tf_untrusted_data.videoTreatment.resolvedAudiovisualDecision is the sole approved authoring choice. Execute its exact audible-speech presence and sources, on-camera speech, visible-person presence, physical-capture need, and material needs. Do not re-decide any dimension from the brief, a format convention, or your own preference. Preserve material and capture decisions through the approved treatment-event bindings; do not invent final execution form.'
+      : '**Independent audiovisual constraints:** Execute tf_untrusted_data.editorialPlan.audiovisualIntent exactly. audibleSpeech governs all voice-over and dialogue; onCameraSpeech governs only visible synchronous speakers; visiblePerson governs every character shown whether speaking or silent; physicalCapture governs only newly filmed physical material. A required field must appear, a forbidden field must not appear, and an unspecified field remains a creative decision. Never infer or replace these constraints with a video-type label.';
+    const openNarrationAuthorityRule = usesSemanticVideoTreatment
+      ? 'When narration.mode is "open", do not choose a speech mode: execute tf_untrusted_data.videoTreatment.resolvedAudiovisualDecision.audibleSpeech exactly.'
+      : 'When narration.mode is "open", speech remains a treatment-level creative decision: use the user brief, references, Brand Vault boundaries, and narrative need to choose silence, sparse speech, voice-over, or synchronous dialogue without treating voice-over as the default.';
     const sidecarVersion = usesSemanticVideoTreatment
       ? SCRIPT_SIDECAR_V3_VERSION
       : SCRIPT_SIDECAR_V2_VERSION;
@@ -1720,8 +1865,9 @@ Your task is to write a high-retention, engaging video script.
     prompt += `## Generation Requirements
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${sidecarVersion} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy and creative intent:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. tf_untrusted_data.creativeIntent is the server-resolved binding creative direction. When its source is selected_angle, execute its title, strategic purpose, and creative treatment as one coherent angle; the broad user brief and project summary are background and must not replace it. Depart only when the current edit instruction explicitly asks to replace that direction. Creative intent is framing, not evidence, and cannot override Brand Vault constraints, factual provenance, compliance, or the output contract. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
-3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line declares its actual languageCode, speakerId, delivery, and camera presence. Add sourceRefs only when that line makes a factual claim directly supported by the Source Ledger; creative narration keeps an empty sourceRefs array. ${canonicalSpeechRule}
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, use the full-runtime density values as planning guidance, not as a quota or a reason to invent story. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a whole-work editorial signal, never a per-beat quota: anchor/standard voiceover commonly carry more speech, complement/counterpoint deliberately leave room for visuals, and minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum and low-density guidance are warnings, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover only for an editorial voice outside the represented scene world. Use sync-dialogue only when the visible speaker is captured saying the line. Use diegetic-speech only when the audible speaker belongs to the represented scene world but is not captured speaking on camera; set onCamera to false. Use on-screen-text only for visible text. Never substitute one speech source for another because it is a familiar format default. Every spoken line declares its actual languageCode, speakerId, delivery, and camera presence. Add sourceRefs only when that line makes a factual claim directly supported by the Source Ledger; creative narration keeps an empty sourceRefs array. ${canonicalSpeechRule}
+3a. ${audiovisualAuthorityRule}
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. ${openNarrationAuthorityRule} When narration.wordBudgetPolicy is "guided" and the mode is a resolved non-minimal speech mode, use the full-runtime density values as planning guidance, not as a quota or a reason to invent story. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a whole-work editorial signal, never a per-beat quota: anchor/standard voiceover commonly carry more speech, complement/counterpoint deliberately leave room for visuals, and minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum and low-density guidance are warnings, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 4a. **Source-bounded narrative:** When tf_untrusted_data.editorialPlan.evidenceNarrative.mode is "source_bounded_inquiry", build a record-led inquiry: progress through what the authorised record establishes, its explicit scope, and clearly framed questions it leaves open. Do not fill runtime with generic sector context, technical explanations, challenges, causes, benefits, forecasts, roadmaps, or comparisons absent from the record. This rule overrides any generic invitation to add examples or implications.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Execute tf_untrusted_data.evidencePolicy as binding. Under source_only, state only what authorised evidence directly establishes; do not add causal, benefit, outcome, market, or future claims. Under bounded_implication, an implication must remain inside the cited evidence and explicitly state its scope with language such as "in the measured period", "in the pilot", "within this sample", "limited to", or "not a forecast". Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
@@ -1783,7 +1929,7 @@ Return your response strictly adhering to the JSON schema.`;
         : undefined,
     };
     const treatmentRuntimeDataRule = executionInput.videoTreatment
-      ? '- Read the approved semantic audiovisual treatment only from tf_untrusted_data.videoTreatment. Select each visualEvents[].id exactly once through treatmentVisualEvents. It binds semantic intent and provenance, but never grants authority to invent final camera, asset, layout, typography, keyframe, or provider form.'
+      ? '- Read the approved semantic audiovisual treatment only from tf_untrusted_data.videoTreatment. resolvedAudiovisualDecision is the sole authoring choice for speech, people, capture, and materials. Select each visualEvents[].id exactly once through treatmentVisualEvents. The treatment binds semantic intent and provenance, but never grants authority to invent final camera, asset, layout, typography, keyframe, or provider form.'
       : '';
     const runtimeDataRules = `## Runtime Data Map
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
@@ -1903,6 +2049,14 @@ ${treatmentRuntimeDataRule}`;
         resolvedEditorial.chapterExecution,
       )
       : undefined;
+    if (executionInput.videoTreatment) {
+      const treatmentReadinessIssues = findVideoTreatmentScriptReadinessIssues(
+        executionInput.videoTreatment,
+      );
+      if (treatmentReadinessIssues.length > 0) {
+        throw new ScriptWriterContractError(treatmentReadinessIssues);
+      }
+    }
     assertScriptEvidenceSufficiency({
       editorialPlan,
       sourceLedger: executionInput.sourceLedger,
@@ -1928,6 +2082,10 @@ ${treatmentRuntimeDataRule}`;
     const modelSchema = usesSemanticVideoTreatment
       ? ScriptWriterV3ModelOutputSchema
       : ScriptWriterModelOutputSchema;
+    const writerTelemetry = {
+      projectId: executionInput.brandId,
+      taskId: executionInput.sessionId,
+    };
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
       cacheSystemInstruction: promptParts.systemInstruction,
@@ -1936,7 +2094,9 @@ ${treatmentRuntimeDataRule}`;
       temperature: gen.temperature,
       maxTokens: gen.maxTokens,
       thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
+      thinkingLevel: 'medium',
       abortSignal,
+      telemetry: writerTelemetry,
     });
 
     const identityPolicy = scriptWriterIdentityPolicy(resolvedEditorial.chapterExecution);
@@ -1951,24 +2111,33 @@ ${treatmentRuntimeDataRule}`;
         ?? executionInput.retrievedContext?.brandSignalProfile,
     );
     const materialize = (candidate: AnyScriptWriterModelOutput): ScriptWriterResult => {
+      const canonicalCandidate: AnyScriptWriterModelOutput = executionInput.productionBrief?.output.platform
+        ? {
+            ...candidate,
+            metadata: {
+              ...candidate.metadata,
+              platform: executionInput.productionBrief.output.platform,
+            },
+          }
+        : candidate;
       if (usesSemanticVideoTreatment) {
         const treatment = executionInput.videoTreatment;
-        if (!treatment || !isScriptWriterV3ModelOutput(candidate)) {
+        if (!treatment || !isScriptWriterV3ModelOutput(canonicalCandidate)) {
           throw new ScriptWriterContractError(['missing_video_treatment_for_v3']);
         }
         return materializeScriptWriterV3Result(
-          candidate,
+          canonicalCandidate,
           treatment,
           identityPolicy,
           executionInput.sourceLedger,
           treatmentEventIds,
         );
       }
-      if (isScriptWriterV3ModelOutput(candidate)) {
+      if (isScriptWriterV3ModelOutput(canonicalCandidate)) {
         throw new ScriptWriterContractError(['unexpected_v3_writer_output_without_treatment']);
       }
       return materializeScriptWriterResult(
-        withCanonicalModelOwnedSidecarIds(candidate, identityPolicy),
+        withCanonicalModelOwnedSidecarIds(canonicalCandidate, identityPolicy),
         executionInput.sourceLedger,
       );
     };
@@ -2015,7 +2184,9 @@ ${treatmentRuntimeDataRule}`;
         temperature: Math.min(gen.temperature, 0.25),
         maxTokens: gen.maxTokens,
         thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
+        thinkingLevel: 'low',
         abortSignal,
+        telemetry: writerTelemetry,
       });
       repairCacheStatus = repairedGeneration.cacheStatus;
       modelOutput = repairedGeneration.result as AnyScriptWriterModelOutput;

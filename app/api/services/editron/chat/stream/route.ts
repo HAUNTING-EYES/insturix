@@ -4,6 +4,7 @@ import { createAgent } from '@/lib/editron/agent/agent-graph';
 import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import { chatService } from '@/lib/editron/services/chat-service';
 import {
+  ProjectNotFoundOrForbiddenError,
   projectService,
   type ProjectMutationReceiptV1,
 } from '@/lib/editron/services/project-service';
@@ -265,10 +266,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Authorize the project before touching any chat session state.
-    const project = await projectService.loadProject(userId, projectId);
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    let projectSnapshot;
+    try {
+      projectSnapshot = await projectService.loadProjectForMutation(userId, projectId);
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+      throw error;
     }
+    const { project } = projectSnapshot;
     // Director Mode (assist lane): a refunded scan_failed project must never open
     // into chat — the user was refunded because they never received the product
     // (CEO plan REV 4 #5, cancel-refund loophole).
@@ -381,6 +388,7 @@ export async function POST(req: NextRequest) {
       projectId,
       userId,
       project: project as unknown as Record<string, unknown>,
+      projectRevision: projectSnapshot.revision,
     });
     if (preparedTransaction.status === 'duplicate') {
       return NextResponse.json(

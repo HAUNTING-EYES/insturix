@@ -9,7 +9,10 @@
 
 import { getDatabase, COLLECTIONS } from '../../db/mongodb';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
+import type { AssetTranscriptionTimingEvidenceV2 } from '../asset-transcription-source-cache-v2';
 import type { MediaAsset } from '../asset-resolver';
+import type { SourceTranscriptionProviderIdV1 }
+  from '../source-transcription-egress-authorization-v1';
 import type { 
   TranscriptionData, 
   TranscriptionWord, 
@@ -36,6 +39,19 @@ type TranscriptionProviderCostInput = {
   preferWordLevel?: boolean;
   error?: unknown;
 };
+
+export type GeneratedTranscriptionV2 = Readonly<{
+  transcription: TranscriptionData;
+  timingEvidence: AssetTranscriptionTimingEvidenceV2;
+}>;
+
+type TranscriptionGenerationOptionsV2 = Readonly<{
+  preferWordLevel?: boolean;
+  userId?: string;
+  exactMediaUrl?: string;
+  allowSyntheticNarration?: boolean;
+  allowedProviderIds?: readonly SourceTranscriptionProviderIdV1[];
+}>;
 
 export function hasUsableWordTimings(transcription: unknown): transcription is TranscriptionData {
   if (!transcription || typeof transcription !== 'object') return false;
@@ -129,8 +145,6 @@ export async function getTranscription(
     .collection(COLLECTIONS.MEDIA_ASSETS)
     .findOne({ assetId, userId }) as unknown as MediaAsset | null;
 
-  console.log(`[Transcription] Lookup: assetId=${assetId}, userId=${userId}, found=${!!asset}, type=${asset?.type || 'N/A'}, hasCached=${!!(asset as any)?.transcription}, durationMs=${(asset as any)?.durationMs || (asset as any)?.audioDurationMs || 'N/A'}`);
-
   if (!asset) {
     throw new Error(`Asset ${assetId} not found for userId=${userId}`);
   }
@@ -145,19 +159,22 @@ export async function getTranscription(
   // frames from word order or returning stale segment-only timing.
   if (asset.transcription && !options.forceRefresh) {
     if (!options.preferWordLevel || hasUsableWordTimings(asset.transcription)) {
-      console.log(`[Transcription] Using cached transcription for ${assetId}: ${asset.transcription.words?.length || 0} words`);
       return asset.transcription;
     }
     console.warn(`[Transcription] Cached transcript for ${assetId} has no usable word alignment; regenerating word timings.`);
   }
   
   // Generate new transcription
-  const transcription = await generateTranscription(asset, options.language, {
+  const generated = await generateTranscription(asset, options.language, {
     preferWordLevel: options.preferWordLevel,
     userId,
   });
+  const { transcription } = generated;
   
-  if (options.preferWordLevel && !hasUsableWordTimings(transcription)) {
+  if (options.preferWordLevel && (
+    generated.timingEvidence.timingBasis !== 'MEASURED_WORD'
+    || !hasUsableWordTimings(transcription)
+  )) {
     throw new Error(`Transcription for ${assetId} did not produce usable word-level timing.`);
   }
 
@@ -171,45 +188,64 @@ export async function getTranscription(
 }
 
 /**
- * Check if an asset has cached transcription (without generating)
+ * Raw provider adapter for a caller that already owns a qualified source
+ * lease. This function neither authorizes provider egress nor revalidates the
+ * lease after provider work; the source-bound orchestration owner must do both.
+ * Unlike the legacy asset path, no provider may substitute another asset URL.
  */
-export async function hasTranscription(
-  assetId: string,
-  userId: string
-): Promise<boolean> {
-  const db = await getDatabase();
-  
-  const asset = await db
-    .collection(COLLECTIONS.MEDIA_ASSETS)
-    .findOne(
-      { assetId, userId, transcription: { $exists: true, $ne: null } },
-      { projection: { _id: 1 } }
-    );
-  
-  return asset !== null;
+export async function transcribeLeasedMediaSourceWithProviderV2(input: Readonly<{
+  asset: MediaAsset;
+  userId: string;
+  sourceUrl: string;
+  requestedLanguage?: string | null;
+  precision: 'TEXT_ALLOWED' | 'MEASURED_WORD_REQUIRED';
+  approvedProviderIds: readonly SourceTranscriptionProviderIdV1[];
+}>): Promise<GeneratedTranscriptionV2> {
+  if (input.asset.type !== 'video' && input.asset.type !== 'audio') {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_MEDIA_KIND_INVALID');
+  }
+  const sourceUrl = exactProviderMediaUrl(input.sourceUrl);
+  const requestedLanguage = input.requestedLanguage?.trim() || undefined;
+  if (requestedLanguage && requestedLanguage.length > 64) {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_LANGUAGE_INVALID');
+  }
+  const approvedProviderIds = approvedProviderSet(input.approvedProviderIds);
+  return generateTranscription(input.asset, requestedLanguage, {
+    preferWordLevel: input.precision === 'MEASURED_WORD_REQUIRED',
+    userId: input.userId,
+    exactMediaUrl: sourceUrl,
+    allowSyntheticNarration: false,
+    allowedProviderIds: approvedProviderIds,
+  });
 }
 
 /**
  * Generate transcription.
- * Priority: 1) Synthetic from narration text (ThinkForge projects - instant, free, always accurate)
- *           2) Whisper Large V3 on fal.ai (best ASR - word timestamps, ~$0.006/min)
- *           3) Gemma 4 (free fallback - less accurate for speech)
- *           4) Deepgram Nova-2 (final fallback)
+ * Text priority: synthetic narration, fal.ai segment timing, Gemini estimated
+ * timing, then Deepgram measured word timing. Precision requests may only use
+ * measured Grok or Deepgram word timing.
  */
 async function generateTranscription(
   asset: MediaAsset,
   language?: string,
-  options?: { preferWordLevel?: boolean; userId?: string }
-): Promise<TranscriptionData> {
+  options?: TranscriptionGenerationOptionsV2,
+): Promise<GeneratedTranscriptionV2> {
   // Synthetic timing is suitable for non-precision reading/caption previews only.
   // Frame-addressed edits require measured ASR timing even when narration text is known.
-  const narrationText = await getNarrationTextForAsset(asset.assetId);
+  const narrationText = options?.allowSyntheticNarration === false
+    ? null
+    : await getNarrationTextForAsset(asset.assetId);
   if (narrationText && !options?.preferWordLevel) {
-    console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
-    return generateSyntheticTimings(narrationText, asset);
-  }
-  if (narrationText) {
-    console.log(`[Transcription] Known narration found for ${asset.assetId}; measuring real word timing for precision grounding.`);
+    return {
+      transcription: generateSyntheticTimings(narrationText, asset),
+      timingEvidence: {
+        timingBasis: 'SYNTHETIC_NARRATION',
+        providerId: 'editron',
+        modelId: 'synthetic-narration-v1',
+        strategy: 'synthetic_narration',
+        providerContractVersion: '1',
+      },
+    };
   }
 
   // --- Mode 2: Grok STT for real footage (word-level timestamps) --
@@ -219,14 +255,14 @@ async function generateTranscription(
   // Wizper only returns segment-level -> 10-30s drift on long videos.
   if (options?.preferWordLevel) {
     const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
-    if (xaiKey) {
+    if (providerAllowed(options, 'xai') && xaiKey) {
       let grokProviderAttempted = false;
       let grokRequestCount = 0;
       let grokResponseStatus: number | undefined;
       let grokBytesIn: number | undefined;
       const grokStartedAt = Date.now();
       try {
-        let mediaUrl = asset.cachedUrl;
+        let mediaUrl = options.exactMediaUrl ?? asset.cachedUrl;
         if (!mediaUrl && asset.gcsPath) {
           const { refreshSignedUrl } = await import('../gcs-service');
           const signed = await refreshSignedUrl(asset.gcsPath);
@@ -242,14 +278,15 @@ async function generateTranscription(
         // Scale note: holds file in memory (~90MB typical). For 1000+ concurrent, use
         // xAI Files API (upload once, reference by ID). Documented in scaling phase backlog.
         let fileUrl = mediaUrl;
-        try {
-          const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
-          if (isR2Available()) {
-            fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
-          }
-        } catch (e) { console.warn(`[Transcription] R2 presigned URL failed, using CDN:`, e instanceof Error ? e.message : e); }
+        if (!options.exactMediaUrl) {
+          try {
+            const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
+            if (isR2Available()) {
+              fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
+            }
+          } catch (e) { console.warn(`[Transcription] R2 presigned URL failed, using CDN:`, e instanceof Error ? e.message : e); }
+        }
 
-        console.log(`[Transcription] Grok STT: downloading ${asset.assetId} for direct file upload...`);
         const dlController = new AbortController();
         const dlTimer = setTimeout(() => dlController.abort(), 120_000);
         const dlResponse = await fetch(fileUrl, { signal: dlController.signal });
@@ -258,8 +295,6 @@ async function generateTranscription(
         const fileBuffer = await dlResponse.arrayBuffer();
         grokBytesIn = fileBuffer.byteLength;
         const fileBlob = new Blob([fileBuffer], { type: 'video/mp4' });
-        console.log(`[Transcription] Grok STT: downloaded ${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)}MB, uploading to xAI...`);
-
         let response: Response | null = null;
         const maxRetries = 3;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -315,7 +350,6 @@ async function generateTranscription(
           // Count distinct speakers from diarization (0 if no speaker labels)
           const speakerIds = new Set(words.filter(w => w.speaker !== undefined).map(w => w.speaker));
           const speakerCount = speakerIds.size;
-          console.log(`[Transcription] Grok STT: ${words.length} words, ${speakerCount} speakers, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
           await recordEditronTranscriptionProviderCost(asset, {
             status: 'success',
             userId: options?.userId,
@@ -334,12 +368,21 @@ async function generateTranscription(
             preferWordLevel: options?.preferWordLevel,
           });
           return {
-            words,
-            transcript: data.text || words.map((w: any) => w.word).join(' '),
-            language: data.language || language || 'en',
-            confidence: 0.95,
-            generatedAt: new Date(),
-            ...(speakerCount > 1 && { speakerCount }),
+            transcription: {
+              words,
+              transcript: data.text || words.map((w: any) => w.word).join(' '),
+              language: data.language || language || 'en',
+              confidence: 0.95,
+              generatedAt: new Date(),
+              ...(speakerCount > 1 && { speakerCount }),
+            },
+            timingEvidence: {
+              timingBasis: 'MEASURED_WORD',
+              providerId: 'xai',
+              modelId: 'grok-stt',
+              strategy: 'grok_stt',
+              providerContractVersion: 'xai-stt-word-v1',
+            },
           };
         }
         console.warn(`[Transcription] Grok STT returned 0 words for ${asset.assetId}, falling through`);
@@ -361,7 +404,7 @@ async function generateTranscription(
             error: grokErr,
           });
         }
-        console.warn(`[Transcription] Grok STT failed for ${asset.assetId}: ${grokErr.message}, falling through to Wizper`);
+        console.warn(`[Transcription] Grok STT failed for ${asset.assetId}: ${grokErr.message}, falling through to ${options?.preferWordLevel ? 'Deepgram' : 'Wizper'}`);
       }
     }
   }
@@ -369,7 +412,9 @@ async function generateTranscription(
   // --- Get accessible URL for external transcription --------------
   let mediaUrl: string;
 
-  if (asset.gcsPath) {
+  if (options?.exactMediaUrl) {
+    mediaUrl = options.exactMediaUrl;
+  } else if (asset.gcsPath) {
     try {
       const { refreshSignedUrl } = await import('../gcs-service');
       const { url } = await refreshSignedUrl(asset.gcsPath);
@@ -390,129 +435,154 @@ async function generateTranscription(
     throw new Error(`Empty URL for asset ${asset.assetId} - gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
   }
 
-  // --- Strategy 2: Whisper Large V3 on fal.ai ---------------------
-  // Industry-standard ASR. Accurate word timestamps. ~$0.006/min.
-  // Better than Gemma/Gemini for transcription (dedicated speech model).
-  let falProviderAttempted = false;
-  const falStartedAt = Date.now();
-  try {
-    const { fal } = await import('@fal-ai/client');
-    const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
-    if (falKey) fal.config({ credentials: falKey });
-    falProviderAttempted = true;
-    const whisperResult = await Promise.race([
-      fal.subscribe('fal-ai/wizper', {
-        input: {
-          audio_url: mediaUrl,
-          task: 'transcribe',
-          language: (language || undefined) as any,
-          chunk_level: 'segment',
-        },
-        logs: false,
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper/fal timeout (90s)')), 90_000)),
-    ]);
-    const data = whisperResult.data as any;
-    if (data?.chunks && data.chunks.length > 0) {
-      // Wizper returns segment-level chunks. Split each segment into word-level
-      // timestamps by distributing the segment duration proportionally by word length.
-      const words: TranscriptionWord[] = [];
-      for (const chunk of data.chunks) {
-        const segText = (chunk.text || '').trim();
-        const segStart = (chunk.timestamp?.[0] || 0) * 1000;
-        const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
-        const segWords = segText.split(/\s+/).filter(Boolean);
-        if (segWords.length === 0) continue;
+  if (!options?.preferWordLevel) {
+    // --- Strategy 2: Whisper Large V3 on fal.ai -------------------
+    // Wizper exposes segment boundaries here. The per-word values below are
+    // proportional estimates and must never authorize frame-addressed edits.
+    if (providerAllowed(options, 'fal-ai')) {
+      let falProviderAttempted = false;
+      const falStartedAt = Date.now();
+      try {
+        const { fal } = await import('@fal-ai/client');
+        const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
+        if (falKey) fal.config({ credentials: falKey });
+        falProviderAttempted = true;
+        const whisperResult = await Promise.race([
+          fal.subscribe('fal-ai/wizper', {
+            input: {
+              audio_url: mediaUrl,
+              task: 'transcribe',
+              language: (language || undefined) as any,
+              chunk_level: 'segment',
+            },
+            logs: false,
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper/fal timeout (90s)')), 90_000)),
+        ]);
+        const data = whisperResult.data as any;
+        if (data?.chunks && data.chunks.length > 0) {
+          // Wizper returns segment-level chunks. Split each segment into word-level
+          // timestamps by distributing the segment duration proportionally by word length.
+          const words: TranscriptionWord[] = [];
+          for (const chunk of data.chunks) {
+            const segText = (chunk.text || '').trim();
+            const segStart = (chunk.timestamp?.[0] || 0) * 1000;
+            const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
+            const segWords = segText.split(/\s+/).filter(Boolean);
+            if (segWords.length === 0) continue;
 
-        const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
-        let cursor = segStart;
-        for (const w of segWords) {
-          const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
-          words.push({
-            word: w,
-            startMs: Math.round(cursor),
-            endMs: Math.round(cursor + wordDuration),
-            confidence: 0.9,
+            const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
+            let cursor = segStart;
+            for (const w of segWords) {
+              const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
+              words.push({
+                word: w,
+                startMs: Math.round(cursor),
+                endMs: Math.round(cursor + wordDuration),
+                confidence: 0.9,
+              });
+              cursor += wordDuration;
+            }
+          }
+
+          const mediaSeconds = data.chunks.reduce(
+            (max: number, chunk: any) => Math.max(max, Number(chunk.timestamp?.[1] || 0)),
+            0,
+          ) || undefined;
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'success',
+            userId: options?.userId,
+            provider: 'fal-ai',
+            model: 'fal-ai/wizper',
+            strategy: 'fal_wizper',
+            requestCount: 1,
+            mediaSeconds,
+            functionMs: Date.now() - falStartedAt,
+            wordCount: words.length,
+            segmentCount: data.chunks.length,
+            language,
+            preferWordLevel: options?.preferWordLevel,
           });
-          cursor += wordDuration;
+          return {
+            transcription: {
+              words,
+              transcript: data.text || words.map((w: any) => w.word).join(' '),
+              language: data.inferred_languages?.[0] || language || 'en',
+              confidence: 0.9,
+              generatedAt: new Date(),
+            },
+            timingEvidence: {
+              timingBasis: 'SEGMENT_ESTIMATED',
+              providerId: 'fal-ai',
+              modelId: 'fal-ai-wizper',
+              strategy: 'fal_wizper',
+              providerContractVersion: 'fal-wizper-segment-v1',
+            },
+          };
         }
+        await recordEditronTranscriptionProviderCost(asset, {
+          status: 'failed',
+          userId: options?.userId,
+          provider: 'fal-ai',
+          model: 'fal-ai/wizper',
+          strategy: 'fal_wizper',
+          requestCount: 1,
+          functionMs: Date.now() - falStartedAt,
+          language,
+          preferWordLevel: options?.preferWordLevel,
+          segmentCount: 0,
+          error: new Error('Fal Wizper returned 0 chunks'),
+        });
+        console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
+      } catch (whisperErr: any) {
+        if (falProviderAttempted) {
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'failed',
+            userId: options?.userId,
+            provider: 'fal-ai',
+            model: 'fal-ai/wizper',
+            strategy: 'fal_wizper',
+            requestCount: 1,
+            functionMs: Date.now() - falStartedAt,
+            language,
+            preferWordLevel: options?.preferWordLevel,
+            error: whisperErr,
+          });
+        }
+        console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
       }
-
-      const mediaSeconds = data.chunks.reduce(
-        (max: number, chunk: any) => Math.max(max, Number(chunk.timestamp?.[1] || 0)),
-        0,
-      ) || undefined;
-      console.log(`[Transcription] Whisper: ${words.length} words (from ${data.chunks.length} segments) for ${asset.assetId}`);
-      await recordEditronTranscriptionProviderCost(asset, {
-        status: 'success',
-        userId: options?.userId,
-        provider: 'fal-ai',
-        model: 'fal-ai/wizper',
-        strategy: 'fal_wizper',
-        requestCount: 1,
-        mediaSeconds,
-        functionMs: Date.now() - falStartedAt,
-        wordCount: words.length,
-        segmentCount: data.chunks.length,
-        language,
-        preferWordLevel: options?.preferWordLevel,
-      });
-      return {
-        words,
-        transcript: data.text || words.map((w: any) => w.word).join(' '),
-        language: data.inferred_languages?.[0] || language || 'en',
-        confidence: 0.9,
-        generatedAt: new Date(),
-      };
     }
-    await recordEditronTranscriptionProviderCost(asset, {
-      status: 'failed',
-      userId: options?.userId,
-      provider: 'fal-ai',
-      model: 'fal-ai/wizper',
-      strategy: 'fal_wizper',
-      requestCount: 1,
-      functionMs: Date.now() - falStartedAt,
-      segmentCount: 0,
-      language,
-      preferWordLevel: options?.preferWordLevel,
-      error: new Error('Fal Wizper returned 0 chunks'),
-    });
-    console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
-  } catch (whisperErr: any) {
-    if (falProviderAttempted) {
-      await recordEditronTranscriptionProviderCost(asset, {
-        status: 'failed',
-        userId: options?.userId,
-        provider: 'fal-ai',
-        model: 'fal-ai/wizper',
-        strategy: 'fal_wizper',
-        requestCount: 1,
-        functionMs: Date.now() - falStartedAt,
-        language,
-        preferWordLevel: options?.preferWordLevel,
-        error: whisperErr,
-      });
+    // --- Strategy 3: Gemini transcription (estimated fallback) ---
+    // Prompt-produced timestamp numbers are not measured word alignment.
+    if (providerAllowed(options, 'google-gemini')) {
+      try {
+        const result = await transcribeWithGemini(mediaUrl, asset, language, {
+          userId: options?.userId,
+          preferWordLevel: options?.preferWordLevel,
+        });
+        if (result.words.length > 0) {
+          return {
+            transcription: result,
+            timingEvidence: {
+              timingBasis: 'SEGMENT_ESTIMATED',
+              providerId: 'google-gemini',
+              modelId: 'editron-analysis-model',
+              strategy: 'gemini_transcription',
+              providerContractVersion: 'gemini-prompt-estimated-v1',
+            },
+          };
+        }
+        console.warn(`[Transcription] Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
+      } catch (geminiErr: any) {
+        console.warn(`[Transcription] Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
+      }
     }
-    console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
-  }
-  // --- Strategy 3: Gemma 4 transcription (fallback) --------------
-  // Free but less accurate for speech-to-text than Whisper.
-  try {
-    const result = await transcribeWithGemini(mediaUrl, asset, language, {
-      userId: options?.userId,
-      preferWordLevel: options?.preferWordLevel,
-    });
-    if (result.words.length > 0) {
-      console.log(`[Transcription] Gemma/Gemini: ${result.words.length} words for ${asset.assetId}`);
-      return result;
-    }
-    console.warn(`[Transcription] Gemma/Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
-  } catch (geminiErr: any) {
-    console.warn(`[Transcription] Gemma/Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
   }
 
   // --- Strategy 4: Deepgram Nova-2 (final fallback) --------------
+  if (!providerAllowed(options, 'deepgram')) {
+    throw new Error('ASSET_TRANSCRIPTION_APPROVED_PROVIDERS_EXHAUSTED');
+  }
   try {
     const { transcribeMedia } = await import('../deepgram-service');
     const result = await transcribeMedia(mediaUrl, {
@@ -537,17 +607,68 @@ async function generateTranscription(
       confidence: w.confidence,
     }));
 
-    return {
+    const transcription: TranscriptionData = {
       words,
       transcript: result.transcript,
       language: result.detectedLanguage,
       confidence: result.confidence,
       generatedAt: new Date(),
     };
+    return {
+      transcription,
+      timingEvidence: {
+        timingBasis: words.length > 0 ? 'MEASURED_WORD' : 'NO_SPEECH',
+        providerId: 'deepgram',
+        modelId: 'nova-2',
+        strategy: 'deepgram_fallback',
+        providerContractVersion: 'deepgram-word-v1',
+      },
+    };
   } catch (deepgramErr: any) {
-    console.error(`[Transcription] All strategies failed for ${asset.assetId}`);
-    throw new Error(`Transcription failed: Gemini and Deepgram both failed. Last error: ${deepgramErr.message}`);
+    const route = options?.preferWordLevel
+      ? 'measured-word Deepgram fallback'
+      : 'text fallback Deepgram route';
+    throw new Error(`Transcription failed: ${route} failed. Last error: ${deepgramErr.message}`);
   }
+}
+
+function exactProviderMediaUrl(value: unknown): string {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_SOURCE_URL_INVALID');
+  }
+  if (parsed.protocol !== 'https:'
+    || parsed.username
+    || parsed.password
+    || parsed.hash) {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_SOURCE_URL_INVALID');
+  }
+  return candidate;
+}
+
+function approvedProviderSet(
+  value: readonly SourceTranscriptionProviderIdV1[],
+): readonly SourceTranscriptionProviderIdV1[] {
+  const allowed: readonly SourceTranscriptionProviderIdV1[] = [
+    'xai', 'deepgram', 'fal-ai', 'google-gemini',
+  ];
+  if (!Array.isArray(value) || value.length < 1 || value.length > allowed.length
+    || value.some((providerId) => !allowed.includes(providerId))
+    || new Set(value).size !== value.length) {
+    throw new Error('ASSET_TRANSCRIPTION_APPROVED_PROVIDER_SET_INVALID');
+  }
+  return Object.freeze([...value]);
+}
+
+function providerAllowed(
+  options: TranscriptionGenerationOptionsV2 | undefined,
+  providerId: SourceTranscriptionProviderIdV1,
+): boolean {
+  return options?.allowedProviderIds === undefined
+    || options.allowedProviderIds.includes(providerId);
 }
 
 /**
@@ -680,12 +801,8 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
       (s: any) => s.voiceover?.audioAssetId === assetId,
     );
     if (scene?.descriptor?.narration) {
-      console.log(`[Transcription] Narration found via Strategy 1 (direct storyboard lookup) for ${assetId}: ${scene.descriptor.narration.length} chars`);
       return scene.descriptor.narration;
     }
-    console.log(`[Transcription] Strategy 1: storyboard found but no narration for ${assetId}`);
-  } else {
-    console.log(`[Transcription] Strategy 1: no storyboard found with voiceover.audioAssetId=${assetId}`);
   }
 
   // Strategy 2: Find via project -> sourceStoryboardId -> match by time position
@@ -713,7 +830,6 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
             const sceneDur = scene.descriptor?.durationSeconds || 5;
             if (overlayStartSec >= cumulativeSec && overlayStartSec < cumulativeSec + sceneDur) {
               if (scene.descriptor?.narration) {
-                console.log(`[Transcription] Found narration via project->storyboard time match for ${assetId}`);
                 return scene.descriptor.narration;
               }
             }
@@ -730,7 +846,6 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
             .sort((a: any, b: any) => a.from - b.from);
           const idx = voiceoverOverlays.findIndex((o: any) => o.assetId === assetId);
           if (idx >= 0 && idx < scenesWithNarration.length) {
-            console.log(`[Transcription] Found narration via voiceover index match (${idx}) for ${assetId}`);
             return scenesWithNarration[idx].descriptor.narration;
           }
         }
@@ -821,8 +936,6 @@ function generateSyntheticTimings(
     };
   });
 
-  console.log(`[Transcription] Synthetic: ${words.length} words, ${totalMs}ms total (weighted syllable distribution)`);
-
   return {
     words: timedWords,
     transcript: narrationText,
@@ -830,36 +943,4 @@ function generateSyntheticTimings(
     confidence: 0.95,
     generatedAt: new Date(),
   };
-}
-
-/**
- * Get transcription for a specific time range (useful for clips)
- * 
- * @param transcription - Full transcription data
- * @param startMs - Start of range (0-based)
- * @param endMs - End of range (0-based)
- */
-export function getWordsInRange(
-  transcription: TranscriptionData,
-  startMs: number,
-  endMs: number
-): TranscriptionWord[] {
-  return transcription.words.filter(
-    w => w.startMs >= startMs && w.endMs <= endMs
-  );
-}
-
-/**
- * Clear cached transcription (e.g., if user wants to regenerate)
- */
-export async function clearTranscription(
-  assetId: string,
-  userId: string
-): Promise<void> {
-  const db = await getDatabase();
-  
-  await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-    { assetId, userId },
-    { $unset: { transcription: '' } }
-  );
 }

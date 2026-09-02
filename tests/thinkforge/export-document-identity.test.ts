@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createCurrentWriterOutputBinding } from '@/lib/thinkforge/persistence/writer-output-binding';
 import { createCurrentScriptSidecarBinding } from '@/lib/thinkforge/persistence/script-sidecar-binding';
-import { resolveSceneShotPlan } from '@/lib/thinkforge/production/resolve-scene-shot-plan';
+import { buildTreatmentCapturePlan } from '@/lib/thinkforge/production/semantic-capture-plan';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import {
+  materializeScriptSidecarV3,
+  ScriptWriterSidecarV3ModelSchema,
+} from '@/lib/thinkforge/schemas/script-sidecar-v3';
+import {
   createApprovedShootKitSnapshot,
-  verifyApprovedShootKitSnapshot,
 } from '@/lib/thinkforge/production/shoot-kit-snapshot';
+import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -87,73 +91,90 @@ function storedDocument(sessionId: string, scriptId: string) {
   };
 }
 
-function productionSidecar() {
-  return {
-    sidecarVersion: 1,
-    characters: [{ id: 'host', name: 'Host', role: 'host' }],
-    overallMusicPrompt: '',
-    characterDescriptions: {},
-    colorPalette: [],
-    environmentNotes: '',
-    suggestedProfileCategory: 'production-mode',
-    sourceRefs: [],
-    scenes: [{
-      title: 'Evidence',
-      narration: 'Show the evidence without changing the claim.',
-      visualDescription: 'The evidence remains readable in a stable medium shot.',
-      videoMotionPrompt: '',
-      audioDescription: '',
-      musicDescription: '',
-      sfxDescription: '',
-      durationSeconds: 8,
-      mood: 'serious',
-      imageQualityTokens: '',
-      videoQualityTokens: '',
-      generationUnitId: 'unit_evidence',
-      primaryVisualForUnit: true,
-      sceneType: 'continuous',
-      assetRecommendation: 'ai-video',
-      lines: [{
-        text: 'Show the evidence without changing the claim.',
-        speakerId: 'host',
-        onCamera: false,
-        delivery: 'voiceover',
-        sourceRefs: [],
+const productionSourceLedger = {
+  ledgerVersion: 1 as const,
+  entries: [{
+    referenceId: 'src_brief',
+    kind: 'upload' as const,
+    title: 'Approved production brief',
+    summary: 'The approved source for the host claim and supporting process visual.',
+    sourceId: 'asset_brief_1',
+    confidence: 1,
+    provenance: { origin: 'user_upload', sessionId: 'session_canonical' },
+  }],
+};
+
+function productionTreatment() {
+  const treatment = structuredClone(mixedPresenterCutawayTreatment);
+  treatment.captureRequirements[0]!.unresolvedCapabilityQuestions = [];
+  return treatment;
+}
+
+function productionSidecar(treatment: ReturnType<typeof productionTreatment>) {
+  return materializeScriptSidecarV3({
+    treatment,
+    identityPolicy: { mode: 'ordinary' },
+    modelSidecar: ScriptWriterSidecarV3ModelSchema.parse({
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'model_host', name: 'Host', role: 'host' }],
+      acts: [{
+        id: 'model_act',
+        title: 'Evidence',
+        narrativePurpose: 'Connect the host claim to the supporting process evidence.',
+        narrativeScenes: [{
+          id: 'model_scene',
+          title: 'Claim and counterpoint',
+          narrativePurpose: 'Keep the host credible while the hidden process becomes visible.',
+          durationIntentSeconds: 12,
+          charactersPresent: ['model_host'],
+          sourceRefs: ['src_brief'],
+          beats: [{
+            id: 'model_beat',
+            kind: 'mixed',
+            narrativePurpose: 'State the claim while its process counterpoint appears.',
+            durationIntentSeconds: 12,
+            lines: [{
+              id: 'model_line',
+              text: 'The visible delay starts before the handoff that caused it.',
+              speakerId: 'model_host',
+              languageCode: 'en',
+              onCamera: true,
+              delivery: 'sync-dialogue',
+              sourceRefs: ['src_brief'],
+            }],
+            treatmentVisualEvents: treatment.visualEvents.map((event) => ({
+              treatmentEventId: event.id,
+            })),
+            sourceRefs: ['src_brief'],
+          }],
+        }],
       }],
-      charactersPresent: ['host'],
-      sourceRefs: [],
-      shotIntent: {
-        narrativePurpose: 'Make the evidence legible.',
-        emotionalBeat: 'Measured confidence.',
-        energy: 0.4,
-        visualPriority: 'The evidence in frame.',
-        action: 'still',
-        desiredFraming: 'medium',
-        desiredAngle: 'eye-level',
-        desiredMovement: 'static',
-        simultaneousPerformers: 0,
-        spokenAudio: false,
-        performance: [],
-        continuity: { wardrobe: [], props: [], previousSceneIds: [] },
-      },
-    }],
-  };
+      sourceRefs: ['src_brief'],
+    }),
+  });
 }
 
 function productionDocument(sessionId: string, scriptId: string) {
-  const document = storedDocument(sessionId, scriptId);
-  const sidecar = productionSidecar();
+  const document = {
+    ...storedDocument(sessionId, scriptId),
+    contentContract: createThinkForgeWriterContract('video_script'),
+  };
+  const treatment = productionTreatment();
+  const sidecar = productionSidecar(treatment);
   return {
     ...document,
     metadata: {
       writerOutput: {
-        sidecarVersion: 1,
+        sidecarVersion: 3,
         scriptSidecar: sidecar,
         sidecarBinding: createCurrentScriptSidecarBinding({
           documentContent: document.content,
           documentVersion: document.version,
           sidecar,
         }),
+        videoTreatment: treatment,
+        sourceLedger: productionSourceLedger,
       },
     },
   };
@@ -161,9 +182,14 @@ function productionDocument(sessionId: string, scriptId: string) {
 
 const productionProfile = {
   ...profile,
+  spaces: [{ id: 'studio', label: 'Confirmed studio', noiseFloor: 'quiet' }],
   equipment: [
-    { id: 'phone', label: 'Phone', category: 'camera', kind: 'phone', availability: 'owned' },
-    { id: 'tripod', label: 'Tripod', category: 'support', kind: 'tripod', availability: 'owned' },
+    {
+      id: 'phone', label: 'Phone', category: 'camera', kind: 'phone', availability: 'owned',
+      preferred: true, orientations: ['landscape', 'portrait'], stabilization: ['tripod'],
+    },
+    { id: 'lav', label: 'Wired lavalier', category: 'audio', kind: 'wired-lav', availability: 'owned', preferred: true },
+    { id: 'light', label: 'LED panel', category: 'light', kind: 'led-panel', availability: 'owned' },
   ],
 };
 
@@ -532,7 +558,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
         productionShotSettings: settings,
       },
     });
-    mocks.getScript.mockResolvedValue(storedDocument('session_canonical', 'script_1'));
+    mocks.getScript.mockResolvedValue(productionDocument('session_canonical', 'script_1'));
     const { GET } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
 
     const response = await GET(new Request(
@@ -543,7 +569,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
     expect(response.status).toBe(200);
     expect(mocks.getSession).toHaveBeenCalledWith('session_alias', 'user_member', 'org_1');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_1');
-    expect(payload).toMatchObject({ status: 'needs-user-input', plan: null });
+    expect(payload).toMatchObject({ status: 'capture-projection', plan: null });
   });
 
   it('does not persist production settings until exact document ownership is proven', async () => {
@@ -584,7 +610,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
         selectedTrend: { candidate: { candidateId: 'trend_preserved' } },
       },
     });
-    mocks.getScript.mockResolvedValue(storedDocument('session_canonical', 'script_1'));
+    mocks.getScript.mockResolvedValue(productionDocument('session_canonical', 'script_1'));
     mocks.setSessionProductionConfiguration.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -628,7 +654,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
       projectMeta: {},
     });
     mocks.getScript.mockResolvedValue({
-      ...storedDocument('session_canonical', 'script_1'),
+      ...productionDocument('session_canonical', 'script_1'),
       version: 3,
     });
     const route = await import('@/app/api/services/thinkforge/production/shot-plan/route');
@@ -653,7 +679,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
     expect(mocks.saveApprovedShootKitSnapshot).not.toHaveBeenCalled();
   });
 
-  it('persists and returns an approved snapshot for the exact bound document', async () => {
+  it('persists reusable inputs but keeps a semantic capture brief unapproved', async () => {
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -661,10 +687,6 @@ describe('ThinkForge Shoot Kit document identity', () => {
       projectMeta: {},
     });
     mocks.getScript.mockResolvedValue(productionDocument('session_canonical', 'script_1'));
-    mocks.saveApprovedShootKitSnapshot.mockResolvedValue({
-      ok: true,
-      script: productionDocument('session_canonical', 'script_1'),
-    });
     mocks.setSessionProductionConfiguration.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -686,72 +708,35 @@ describe('ThinkForge Shoot Kit document identity', () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      status: 'ready',
+      status: 'capture-projection',
       documentVersion: 1,
-      approval: { status: 'approved', approvedBy: 'user_member' },
+      approval: { status: 'preview', reason: 'not_approved' },
     });
-    expect(mocks.saveApprovedShootKitSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: 'session_canonical',
-      scriptId: 'script_1',
-      expectedVersion: 1,
-      expectedContent: 'One useful, exact document.',
-      snapshot: expect.objectContaining({ status: 'approved' }),
-    }));
-
-    const approvedSnapshot = mocks.saveApprovedShootKitSnapshot.mock.calls[0]![0].snapshot;
-    const approvedDocument = productionDocument('session_canonical', 'script_1');
-    (approvedDocument.metadata as Record<string, unknown>).approvedShootKitSnapshot = approvedSnapshot;
-    mocks.getScript.mockResolvedValue(approvedDocument);
-    const readResponse = await route.GET(new Request(
-      'http://localhost/api/services/thinkforge/production/shot-plan?sessionId=session_alias&scriptId=script_1',
-    ));
-
-    expect(readResponse.status).toBe(200);
-    expect(await readResponse.json()).toMatchObject({
-      status: 'ready',
-      documentVersion: 1,
-      approval: {
-        status: 'approved',
-        snapshotHash: approvedSnapshot.snapshotHash,
+    expect(mocks.setSessionProductionConfiguration).toHaveBeenCalledWith(
+      'session_canonical',
+      {
+        capabilityProfile: expect.objectContaining({
+          version: productionProfile.version,
+          people: productionProfile.people,
+        }),
+        shotSettings: settings,
       },
-    });
+    );
+    expect(mocks.saveApprovedShootKitSnapshot).not.toHaveBeenCalled();
   });
 });
 
 describe('approved Shoot Kit snapshot contract', () => {
-  it('binds approval to the exact document and rejects a later revision', () => {
-    const capabilityProfile = {
-      ...profile,
-      equipment: [
-        { id: 'phone', label: 'Phone', category: 'camera', kind: 'phone', availability: 'owned' },
-        { id: 'tripod', label: 'Tripod', category: 'support', kind: 'tripod', availability: 'owned' },
-      ],
-    };
-    const resolution = resolveSceneShotPlan({
-      profile: capabilityProfile,
-      intent: {
-        sceneId: 'scene_1',
-        sidecarSceneIndex: 0,
-        generationUnitId: 'unit_1',
-        durationSec: 8,
-        aspectRatio: '16:9',
-        narrativePurpose: 'Show the evidence clearly.',
-        emotionalBeat: 'Measured confidence.',
-        energy: 0.4,
-        visualPriority: 'The evidence in frame.',
-        action: 'still',
-        desiredFraming: 'medium',
-        desiredAngle: 'eye-level',
-        desiredMovement: 'static',
-        simultaneousPerformers: 0,
-        spokenAudio: false,
-        performance: [],
-      },
+  it('rejects a semantic capture brief because it is not an executable shot plan', () => {
+    const treatment = productionTreatment();
+    const capturePlan = buildTreatmentCapturePlan({
+      sidecar: productionSidecar(treatment),
+      treatment,
+      profile: productionProfile,
     });
-    expect(resolution.status).toBe('resolved');
-    if (resolution.status !== 'resolved') return;
+    expect(capturePlan.status).toBe('capture-brief-ready');
 
-    const snapshot = createApprovedShootKitSnapshot({
+    expect(() => createApprovedShootKitSnapshot({
       sessionId: 'session_1',
       scriptId: 'script_1',
       sourceDocument: {
@@ -759,28 +744,11 @@ describe('approved Shoot Kit snapshot contract', () => {
         contentHash: 'a'.repeat(64),
         sidecarHash: 'b'.repeat(64),
       },
-      profile: capabilityProfile,
+      profile: productionProfile,
       settings,
-      plan: resolution.plan,
+      plan: capturePlan,
       approvedBy: 'user_1',
       approvedAt: new Date('2026-08-17T00:00:00.000Z'),
-    });
-
-    expect(verifyApprovedShootKitSnapshot({
-      snapshot,
-      sessionId: 'session_1',
-      scriptId: 'script_1',
-      documentVersion: 4,
-      documentHash: 'a'.repeat(64),
-      sidecarHash: 'b'.repeat(64),
-    })).toMatchObject({ current: true });
-    expect(verifyApprovedShootKitSnapshot({
-      snapshot,
-      sessionId: 'session_1',
-      scriptId: 'script_1',
-      documentVersion: 5,
-      documentHash: 'a'.repeat(64),
-      sidecarHash: 'b'.repeat(64),
-    })).toMatchObject({ current: false, reason: 'document_version_mismatch' });
+    })).toThrow();
   });
 });

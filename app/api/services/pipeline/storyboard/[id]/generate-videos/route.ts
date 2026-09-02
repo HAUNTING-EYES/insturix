@@ -31,6 +31,14 @@ import {
 import { getActualVideoDuration } from '@/lib/pipeline/adapters/video-model-configs';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
+import { verifyPipelineVideoEnqueueInternalRequestV1 } from '@/lib/editron/security/pipeline-video-enqueue-internal-auth';
+import { resolvePipelineVideoWorkerDispatchPolicyV1 } from '@/lib/pipeline/video-worker-dispatch-policy';
+import {
+  createPipelineVideoProjectDeliveryPrerequisiteV1,
+  resolvePipelineVideoProjectDeliveryTargetV1,
+  type PipelineVideoProjectDeliveryPrerequisiteV1,
+  type PipelineVideoProjectDeliveryTargetV1,
+} from '@/lib/editron/services/pipeline-video-project-delivery-v1';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -45,25 +53,44 @@ export async function POST(
 ) {
   try {
     const { id: storyboardId } = await params;
-    const body = await request.json();
+    const rawBody = await request.text();
+    let body: Record<string, unknown>;
+    try {
+      const parsedBody: unknown = JSON.parse(rawBody);
+      if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+        return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 });
+      }
+      body = parsedBody as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
 
-    // Auth: prefer Clerk session, fallback to userId in body (for internal AI tool calls).
-    // Rule 18N: fail-visible on real auth errors — a bare `catch {}` silently masked
-    // Clerk middleware misconfiguration / key rotation / network failures, leaving
-    // the caller with a confusing 401 "Unauthorized" instead of the real cause.
-    // Log the error but continue (body.userId fallback is the legitimate internal path).
+    // Browser calls use Clerk. The server-side chat caller has no browser
+    // cookie, so it must present the narrow, body-bound server signature.
     let userId: string | null = null;
     try {
       const authResult = await auth();
       userId = authResult.userId;
     } catch (authErr: any) {
-      console.warn(`[generate-videos] Clerk auth() threw: ${authErr?.message || authErr} — falling back to body.userId`);
-    }
-    if (!userId && body.userId) {
-      userId = body.userId;
+      console.warn(`[generate-videos] Clerk auth() threw: ${authErr?.message || authErr}`);
     }
     if (!userId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      const internalAuth = verifyPipelineVideoEnqueueInternalRequestV1(request.headers, rawBody);
+      if (internalAuth.disposition === 'NOT_CONFIGURED') {
+        return NextResponse.json({
+          success: false,
+          error: 'Internal video enqueue authentication is not configured',
+          code: internalAuth.disposition,
+        }, { status: 503 });
+      }
+      if (
+        internalAuth.disposition !== 'ACCEPTED'
+        || typeof body.userId !== 'string'
+        || !body.userId.trim()
+      ) {
+        return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      }
+      userId = body.userId.trim();
     }
     const {
       sceneIndices,
@@ -236,6 +263,12 @@ export async function POST(
        *  OLD: Route refined prompts sequentially (~15s each, caused 504 timeout on 14+ scenes).
        *  NEW: Worker refines in its own 300s budget. Quality identical, no timeout. */
       refinementContext?: Record<string, any>;
+      /** Existing project asset to replace after generation, when this is a regeneration. */
+      expectedProjectAssetId?: string;
+      /** Exact producer snapshot for the worker's ProjectService delivery call. */
+      projectDeliveryTarget?: PipelineVideoProjectDeliveryTargetV1;
+      /** Hash-bound admission evidence relayed unchanged to the worker. */
+      projectDeliveryPrerequisite?: PipelineVideoProjectDeliveryPrerequisiteV1;
     }
 
     const sceneJobs: SceneJob[] = [];
@@ -316,6 +349,7 @@ export async function POST(
             imageUrl: subImageUrl,
             motionPrompt,
             durationSeconds: subDuration,
+            expectedProjectAssetId: sub.videoAssetId,
             refinementContext: useLLMRefinement ? {
               visualDescription: subVisual,
               narration: sub.narration || descriptor.narration,
@@ -371,6 +405,7 @@ export async function POST(
           // violating Rule 8N for any model that can do longer (Seedance 1.5: 12s,
           // Seedance 2.0: 15s). Now respects user's chosen model's duration grid.
           durationSeconds: actualSceneDur,
+          expectedProjectAssetId: scene.videoAssetId,
           nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
           refinementContext: useLLMRefinement ? {
             visualDescription: descriptor.visualDescription,
@@ -393,6 +428,180 @@ export async function POST(
         { success: false, error: 'No valid video jobs could be built for the selected scenes', creditCost: 0 },
         { status: 400 },
       );
+    }
+
+    // A finalized storyboard may regenerate an existing project clip. Resolve
+    // that clip once, before charging, into exactly one ProjectService target.
+    // Pre-finalize/legacy storyboard project IDs intentionally have no target:
+    // their later finalize operation owns project creation and insertion.
+    const linkedProjectId = (
+      typeof storyboard.projectId === 'string' && storyboard.projectId.startsWith('proj_')
+    ) ? storyboard.projectId : undefined;
+    const linkedProjectTargetCount = sceneJobs.filter(
+      (scene) => Boolean(scene.expectedProjectAssetId),
+    ).length;
+    // This bounded admission advances one project revision. Reject multiple
+    // linked targets before credits/provider/QStash until a batch owner exists.
+    if (
+      linkedProjectId
+      && linkedProjectTargetCount > 0
+      && linkedProjectTargetCount !== 1
+    ) {
+      return NextResponse.json({
+        success: false,
+        error: 'Multiple linked project video targets require a batch admission owner.',
+        code: 'PROJECT_DELIVERY_MULTIPLE_LINKED_TARGETS_UNSUPPORTED',
+        linkedProjectTargetCount,
+      }, { status: 409 });
+    }
+    if (linkedProjectId && linkedProjectTargetCount === 1) {
+      let projectSnapshot: Awaited<ReturnType<
+        typeof import('@/lib/editron/services/project-service')['projectService']['loadProjectForMutation']
+      >>;
+      try {
+        const { projectService } = await import('@/lib/editron/services/project-service');
+        projectSnapshot = await projectService.loadProjectForMutation(userId, linkedProjectId);
+      } catch {
+        return NextResponse.json({
+          success: false,
+          error: 'The linked project is unavailable for safe video delivery.',
+          code: 'PROJECT_DELIVERY_PROJECT_UNAVAILABLE',
+        }, { status: 409 });
+      }
+
+      for (const scene of sceneJobs) {
+        const resolution = resolvePipelineVideoProjectDeliveryTargetV1({
+          projectId: linkedProjectId,
+          expectedRevision: projectSnapshot.revision,
+          expectedAssetId: scene.expectedProjectAssetId,
+          overlays: projectSnapshot.project.overlays,
+        });
+        if (resolution.kind === 'NOT_REQUIRED') continue;
+        if (resolution.kind !== 'RESOLVED') {
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} cannot be safely rebound to one project video overlay.`,
+            code: `PROJECT_DELIVERY_${resolution.kind}`,
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
+        const targetOverlay = projectSnapshot.project.overlays.find(
+          (overlay) => overlay.id === resolution.target.target.overlayId,
+        );
+        if (!targetOverlay) {
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} no longer has its resolved project video overlay.`,
+            code: 'PROJECT_DELIVERY_TARGET_NOT_FOUND',
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
+        try {
+          const unmaterializedPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+            projectId: linkedProjectId,
+            expectedRevision: projectSnapshot.revision,
+            overlay: targetOverlay,
+            directorLock: projectSnapshot.project.directorLock,
+            directorLockAt: projectSnapshot.project.directorLockAt,
+            timelineRangeCutLocks: projectSnapshot.project.timelineRangeCutLocks,
+          });
+          const { projectService } = await import('@/lib/editron/services/project-service');
+          const admission = await projectService.admitPipelineVideoDeliveryInvalidationV1(
+            userId,
+            linkedProjectId,
+            unmaterializedPrerequisite,
+          );
+          if (admission.disposition === 'ALREADY_PENDING') {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} has an unusable legacy invalidation reservation.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+            }, { status: 409 });
+          }
+          const invalidation = await projectService.enqueuePipelineVideoArtifactInvalidationV1(
+            userId,
+            linkedProjectId,
+            admission.admission,
+          );
+          const { fenceRenderJobsForProjectArtifactInvalidationV1 } = await import(
+            '@/lib/editron/services/render-job-service'
+          );
+          const renderFences = await fenceRenderJobsForProjectArtifactInvalidationV1({
+            receipt: invalidation.outbox.receipt,
+          });
+          if (renderFences.unresolvedArtifactIds.length > 0) {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} has current render artifacts that could not be fenced.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNRESOLVED',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+              unresolvedArtifactCount: renderFences.unresolvedArtifactIds.length,
+            }, { status: 409 });
+          }
+          const progressedInvalidation =
+            await projectService.advancePipelineVideoArtifactInvalidationV1(
+              userId,
+              linkedProjectId,
+              {
+                outboxId: invalidation.outbox.outboxId,
+                receiptHash: invalidation.outbox.receipt.receiptHash,
+                fences: renderFences.fences,
+                resolvedDerivativeClasses: renderFences.resolvedDerivativeClasses,
+              },
+            );
+          const { canAuthorizeProjectArtifactInvalidationV1 } = await import(
+            '@/lib/editron/services/project-artifact-invalidation-v1'
+          );
+          if (!canAuthorizeProjectArtifactInvalidationV1(progressedInvalidation.outbox)) {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} artifact invalidation remains incomplete.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+            }, { status: 409 });
+          }
+          scene.projectDeliveryTarget = {
+            ...resolution.target,
+            expectedRevision: admission.afterRevision,
+          };
+          scene.projectDeliveryPrerequisite = admission.prerequisite;
+          // The single-target guard above means this revised snapshot cannot
+          // collide with another independent admission in this request.
+          projectSnapshot = {
+            ...projectSnapshot,
+            revision: admission.afterRevision,
+          };
+        } catch (prerequisiteError: any) {
+          const prerequisiteCode = typeof prerequisiteError?.message === 'string'
+            ? prerequisiteError.message
+            : 'PROJECT_DELIVERY_PREREQUISITE_INVALID';
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} cannot be admitted for safe project delivery.`,
+            code: prerequisiteCode === 'INVALIDATION_UNVERIFIABLE'
+              || prerequisiteError?.reason === 'INVALIDATION_UNVERIFIABLE'
+              ? 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE'
+              : prerequisiteCode,
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
+      }
+    }
+
+    const workerDispatchPolicy = resolvePipelineVideoWorkerDispatchPolicyV1();
+    if (workerDispatchPolicy.kind === 'NOT_CONFIGURED') {
+      return NextResponse.json({
+        success: false,
+        error: workerDispatchPolicy.message,
+        code: workerDispatchPolicy.code,
+      }, { status: 503 });
     }
 
     const billableVideoSeconds = Math.round(
@@ -462,10 +671,22 @@ export async function POST(
     } as any);
 
     // Create job records (unique ID includes sub-shot index for montage scenes)
+    const jobIdForScene = (scene: SceneJob) => (
+      scene.subShotIndex !== undefined
+        ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
+        : `${batchId}_s${scene.sceneIndex}`
+    );
+    const projectDeliveryForScene = (scene: SceneJob) => {
+      if (!scene.projectDeliveryTarget || !scene.projectDeliveryPrerequisite) return undefined;
+      return {
+        ...scene.projectDeliveryTarget,
+        deliveryId: `video-delivery_${jobIdForScene(scene)}`,
+        prerequisite: scene.projectDeliveryPrerequisite,
+      };
+    };
+
     const jobDocs = sceneJobs.map(s => ({
-      _id: s.subShotIndex !== undefined
-        ? `${batchId}_s${s.sceneIndex}_sub${s.subShotIndex}`
-        : `${batchId}_s${s.sceneIndex}`,
+      _id: jobIdForScene(s),
       batchId,
       userId,
       storyboardId,
@@ -475,6 +696,7 @@ export async function POST(
       durationSeconds: s.durationSeconds,
       creditTransactionId,
       chargedCredits: chargedCreditsForJob(s.durationSeconds),
+      projectDelivery: projectDeliveryForScene(s),
       status: 'queued',
       createdAt: now,
       expiresAt,
@@ -493,18 +715,11 @@ export async function POST(
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const workerUrl = `${baseUrl}/api/internal/workers/pipeline/video`;
 
-    console.log(`[generate-videos] Worker URL: ${workerUrl}`);
-    console.log(`[generate-videos] QSTASH_TOKEN set: ${!!process.env.QSTASH_TOKEN}, QSTASH_URL: ${process.env.QSTASH_URL || '(default)'}`);
-
-    const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
-
     let enqueueErrors = 0;
 
-    // Helper to build job payload (same for dev, fetch-fallback, and QStash)
+    // Helper to build job payload (same for development and QStash dispatch).
     const buildPayload = (scene: SceneJob) => ({
-      jobId: scene.subShotIndex !== undefined
-        ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
-        : `${batchId}_s${scene.sceneIndex}`,
+      jobId: jobIdForScene(scene),
       batchId,
       userId,
       storyboardId,
@@ -519,9 +734,10 @@ export async function POST(
       chargedCredits: chargedCreditsForJob(scene.durationSeconds),
       nextSceneImageUrl: scene.nextSceneImageUrl,
       refinementContext: scene.refinementContext,
+      projectDelivery: projectDeliveryForScene(scene),
     });
 
-    if (isDev) {
+    if (workerDispatchPolicy.kind === 'DEVELOPMENT_FETCH') {
       // In dev, call worker directly (fire-and-forget)
       for (const scene of sceneJobs) {
         fetch(workerUrl, {
@@ -530,19 +746,10 @@ export async function POST(
           body: JSON.stringify(buildPayload(scene)),
         }).catch(err => console.error(`[generate-videos] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message));
       }
-    } else if (!process.env.QSTASH_TOKEN) {
-      console.warn('[generate-videos] QSTASH_TOKEN not set, using fire-and-forget fetch');
-      for (const scene of sceneJobs) {
-        fetch(workerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPayload(scene)),
-        }).catch(err => console.error(`[generate-videos] Fetch dispatch failed for scene ${scene.sceneIndex}:`, err.message));
-      }
     } else {
       // Production: Use QStash
       const qstashClient = new Client({
-        token: process.env.QSTASH_TOKEN,
+        token: workerDispatchPolicy.qstashToken,
         baseUrl: process.env.QSTASH_URL || undefined,
       });
 

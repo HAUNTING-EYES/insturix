@@ -10,6 +10,51 @@ import { OverlayType, type MgSequenceOverlay, type Overlay } from '@/components/
 import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codegen/render/sequence-playback';
 import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
+import type { MediaSourcePtsCadenceMapRecordV1 } from './media-source-pts-cadence-map-lifecycle-v1';
+import type { MediaSourcePtsCadenceMapAssetRecordV2 } from './media-source-pts-cadence-map-asset-state-v2';
+import type {
+  MediaProxyMasterRelationV1,
+  MediaSourceInvalidationPlanV1,
+  MediaSourceVersionV1,
+} from './media-source-version-v1';
+import { resolveActiveMediaR2StorageKeyV1 } from './media-proxy-master-transition-v1';
+import {
+  resolveProjectVideoSourceStorageV1,
+  type ProjectVideoSourceStorageResolutionV1,
+} from './project-video-source-version-pin-v1';
+import { getR2PresignedReadUrl } from './r2-service';
+
+export type ResolveProjectAssetsOptionsV1 = Readonly<{
+  forceGCS?: boolean;
+  projectId?: string;
+}>;
+
+export type ProjectAssetSourceUnverifiableReasonV1 =
+  | Extract<
+      ProjectVideoSourceStorageResolutionV1,
+      { disposition: 'UNVERIFIABLE' }
+    >['reason']
+  | 'PROJECT_SCOPE_REQUIRED'
+  | 'SOURCE_URL_UNAVAILABLE';
+
+export class ProjectAssetSourceUnverifiableErrorV1 extends Error {
+  readonly code = 'PROJECT_VIDEO_SOURCE_UNVERIFIABLE' as const;
+
+  constructor(
+    readonly diagnostic: Readonly<{
+      projectId: string | null;
+      overlayId: number;
+      assetId: string;
+      reason: ProjectAssetSourceUnverifiableReasonV1;
+    }>,
+  ) {
+    super(
+      `Project video source is unverifiable for overlay ${diagnostic.overlayId} (${diagnostic.reason}).`,
+    );
+    this.name = 'ProjectAssetSourceUnverifiableErrorV1';
+  }
+}
 
 export interface MediaAsset {
   _id?: any;
@@ -43,6 +88,32 @@ export interface MediaAsset {
   isProxy?: boolean;
   /** R2 key for the original file (set during proxy→original swap) */
   originalR2Key?: string;
+  /** Source-bound technical-probe lifecycle embedded in this existing media record. */
+  sourceQualificationV1?: MediaSourceQualificationRecordV1;
+  /**
+   * Immutable identity issued only after a complete server-read byte hash and
+   * matching before/after provider observations. `null` is an explicit
+   * non-qualified result, never a client or URL fallback.
+   */
+  sourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
+  /** Historical proxy identity retained only for a later qualified proxy/master relation. */
+  proxySourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
+  /** Historical proxy and newly qualified master, with no implied source-time mapping. */
+  proxyMasterRelationV1?: Readonly<MediaProxyMasterRelationV1> | null;
+  /** Media-owner invalidation intent; ProjectService separately owns project effects. */
+  sourceInvalidationPlanV1?: Readonly<MediaSourceInvalidationPlanV1> | null;
+  /** Qualified proxy/master playback mapping. Project overlays still require their own source pins. */
+  proxyMasterActiveMappingV1?: unknown;
+  /** Exact canonical hash of `proxyMasterActiveMappingV1`. */
+  proxyMasterActiveMappingStateSha256V1?: unknown;
+  /** Source-version-bound PTS/cadence lifecycle; absent until the media owner creates it. */
+  sourcePtsCadenceMapV1?: Readonly<MediaSourcePtsCadenceMapRecordV1> | null;
+  /** Exact canonical hash of `sourcePtsCadenceMapV1`, used only for owner CAS. */
+  sourcePtsCadenceMapStateSha256V1?: string | null;
+  /** Current successor PTS state. V1 and V2 may never coexist on one asset. */
+  sourcePtsCadenceMapV2?: Readonly<MediaSourcePtsCadenceMapAssetRecordV2> | null;
+  /** Exact canonical hash of `sourcePtsCadenceMapV2`, used only for owner CAS. */
+  sourcePtsCadenceMapStateSha256V2?: string | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */
@@ -194,6 +265,18 @@ async function touchAssetsLastUsed(db: any, assetIds: string[]): Promise<void> {
   }
 }
 
+function hasDualVersionVideoEvidence(asset: MediaAsset): boolean {
+  return (typeof asset.originalR2Key === 'string' && asset.originalR2Key.trim().length > 0)
+    || asset.proxySourceVersionV1 != null
+    || asset.proxyMasterRelationV1 != null
+    || asset.proxyMasterActiveMappingV1 != null
+    || asset.proxyMasterActiveMappingStateSha256V1 != null;
+}
+
+function overlayAssetKey(overlayId: number, assetId: string): string {
+  return `${overlayId}:${assetId}`;
+}
+
 export class AssetResolver {
   /**
    * Create or get a public asset (for stock media like Pexels, default sounds, etc.)
@@ -261,11 +344,23 @@ export class AssetResolver {
    * This adds the 'src' property based on assetId
    */
   /**
-   * @param forceGCS - When true, always use GCS signed URLs (skip CDN proxy).
-   *   Lambda rendering REQUIRES this because the CDN proxy doesn't support
-   *   Content-Length or Range headers needed by FFmpeg for video seeking.
+   * `projectId` is mandatory whenever an overlay or asset carries qualified
+   * proxy/master evidence. The explicit project scope is never inferred from
+   * the pin being authenticated.
+   *
+   * A boolean second argument remains read-compatible for older callers.
    */
-  async resolveProjectAssets(overlays: Overlay[], forceGCS: boolean = false): Promise<Overlay[]> {
+  async resolveProjectAssets(
+    overlays: Overlay[],
+    forceGCSOrOptions: boolean | ResolveProjectAssetsOptionsV1 = false,
+  ): Promise<Overlay[]> {
+    const options = typeof forceGCSOrOptions === 'boolean'
+      ? { forceGCS: forceGCSOrOptions }
+      : forceGCSOrOptions;
+    const forceGCS = options.forceGCS === true;
+    const projectId = typeof options.projectId === 'string' && options.projectId.trim()
+      ? options.projectId.trim()
+      : null;
     // Extract unique assetIds from overlays
     const assetIds = new Set<string>();
     
@@ -289,16 +384,8 @@ export class AssetResolver {
     // LRU: mark the resolved assets as recently used (fire-and-forget, throttled).
     void touchAssetsLastUsed(db, assets.map(a => a.assetId));
 
-    console.log(`[AssetResolver] Resolving ${assetIds.size} assets, found ${assets.length} in DB`);
-
-    // Log unresolved assets
     const foundIds = new Set(assets.map(a => a.assetId));
     const assetsById = new Map(assets.map(asset => [asset.assetId, asset]));
-    for (const id of assetIds) {
-      if (!foundIds.has(id)) {
-        console.warn(`[AssetResolver] Asset NOT FOUND in media_assets: ${id}`);
-      }
-    }
 
     // Build assetId → URL map
     // Phase D W1: Use CDN URLs when available (never expire, edge-cached).
@@ -307,42 +394,97 @@ export class AssetResolver {
     const cdnBaseUrl = forceGCS ? '' : (process.env.CDN_WORKER_URL || '');
     const assetMap = new Map<string, string>();
 
-    if (forceGCS) {
-      console.log(`[AssetResolver] forceGCS=true — resolving all ${assets.length} assets via GCS signed URLs (Lambda render)`);
-    }
-
     for (const asset of assets) {
       if (asset.type === 'sequence') continue;
+      // A dual-version video is selected per overlay below. It may never enter
+      // the legacy asset-level map because one shared asset can be pinned to a
+      // different source version in each project.
+      if (asset.type === 'video' && hasDualVersionVideoEvidence(asset)) continue;
       try {
         // CDN Worker URL is the canonical path for R2 assets.
-        // The assetId IS the R2 key — CDN Worker resolves it directly.
+        // A completed proxy promotion retains the proxy key in `r2Key` and
+        // selects its server-owned master through `originalR2Key`.
         // Old code: only used CDN if asset had gcsPath/r2Key/cachedUrl-with-CDN.
         // Bug: R2 assets registered by the worker had no r2Key field, so they fell
         // through to "existing non-GCS URL" which returned the expired presigned URL.
         // Guard: GCS-only assets (have gcsPath but no R2 key) must NOT go through CDN
         // Worker — the Worker only serves R2 objects, not GCS.
-        const isGcsOnly = !!asset.gcsPath && !asset.r2Key && !asset.cachedUrl?.includes(cdnBaseUrl);
+        const activeStorageKey = resolveActiveMediaR2StorageKeyV1(asset);
+        const isGcsOnly = !!asset.gcsPath && !activeStorageKey && !asset.cachedUrl?.includes(cdnBaseUrl);
         if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
-          const storageKey = asset.r2Key?.trim() || asset.assetId;
+          const storageKey = activeStorageKey || asset.assetId;
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${storageKey}`);
-          console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
           assetMap.set(asset.assetId, asset.cachedUrl);
-          console.log(`[AssetResolver] ${asset.assetId}: existing non-GCS URL`);
         } else {
           // GCS signed URL path (used for forceGCS=true AND when CDN not configured)
-          const hasGCS = !!asset.gcsPath;
           const url = await this.getOrRefreshUrl(asset);
           assetMap.set(asset.assetId, url);
-          console.log(`[AssetResolver] ${asset.assetId}: GCS signed URL (hasGcsPath=${hasGCS}, urlLength=${url?.length || 0}, starts=${url?.substring(0, 50) || 'EMPTY'})`);
         }
-      } catch (err: any) {
-        console.error(`[AssetResolver] FAILED ${asset.assetId}: ${err.message} (gcsPath=${asset.gcsPath || 'NONE'}, r2Key=${(asset as any).r2Key || 'NONE'}, cachedUrl=${asset.cachedUrl?.substring(0, 50) || 'NONE'})`);
+      } catch {
         if (asset.cachedUrl) {
           assetMap.set(asset.assetId, asset.cachedUrl);
-          console.log(`[AssetResolver] ${asset.assetId}: using cachedUrl as fallback`);
         }
       }
+    }
+
+    const projectVideoMap = new Map<string, string>();
+    for (const overlay of overlays) {
+      if (overlay.type !== OverlayType.VIDEO
+        || !('assetId' in overlay)
+        || !overlay.assetId) continue;
+      const assetId = overlay.assetId as string;
+      const asset = assetsById.get(assetId);
+      if (!asset || asset.type !== 'video') continue;
+      const sourcePin = 'sourceVersionPinV1' in overlay
+        ? overlay.sourceVersionPinV1
+        : undefined;
+      if (!hasDualVersionVideoEvidence(asset) && sourcePin == null) continue;
+      if (!projectId) {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId: null,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'PROJECT_SCOPE_REQUIRED',
+        });
+      }
+      const source = resolveProjectVideoSourceStorageV1({
+        projectId,
+        overlayId: overlay.id,
+        assetId,
+        sourcePin,
+        asset,
+      });
+      if (source.disposition === 'UNVERIFIABLE') {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: source.reason,
+        });
+      }
+      let resolvedUrl: string;
+      try {
+        resolvedUrl = cdnBaseUrl
+          ? `${cdnBaseUrl}/asset/${source.storageKey}`
+          : await getR2PresignedReadUrl(source.storageKey);
+      } catch {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'SOURCE_URL_UNAVAILABLE',
+        });
+      }
+      if (!resolvedUrl) {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'SOURCE_URL_UNAVAILABLE',
+        });
+      }
+      projectVideoMap.set(overlayAssetKey(overlay.id, assetId), resolvedUrl);
     }
 
 
@@ -358,10 +500,9 @@ export class AssetResolver {
         const { url } = await refreshSignedUrl(gcsPath);
         if (url) {
           assetMap.set(assetId, url);
-          console.warn(`[AssetResolver] ${assetId}: resolved missing media_assets row from overlay gcsPath`);
         }
-      } catch (err: any) {
-        console.error(`[AssetResolver] FAILED ${assetId}: overlay gcsPath fallback failed: ${err.message}`);
+      } catch {
+        // The existing overlay source remains intact when its persisted row cannot be recovered.
       }
     }
 
@@ -378,7 +519,10 @@ export class AssetResolver {
         );
       }
       if ('assetId' in overlay && overlay.assetId) {
-        const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
+        const assetId = overlay.assetId as string;
+        const resolvedUrl = projectVideoMap.get(overlayAssetKey(overlay.id, assetId))
+          || assetMap.get(assetId)
+          || '';
         const existingSrc = (overlay as any).src || (overlay as any).content || '';
 
         if (resolvedUrl) {
@@ -390,11 +534,9 @@ export class AssetResolver {
           return result as typeof overlay;
         } else if (existingSrc) {
           // No resolved URL, but overlay already has a working URL (e.g., R2 proxy) — keep it
-          console.warn(`[AssetResolver] No resolved URL for ${overlay.assetId}, keeping existing: ${existingSrc.substring(0, 80)}`);
           return overlay;
         } else {
           // No URL anywhere — genuinely broken
-          console.error(`[AssetResolver] No URL available for ${overlay.assetId}, type=${overlay.type} — render will fail for this asset`);
           return overlay;
         }
       }
@@ -431,7 +573,7 @@ export class AssetResolver {
     // The Cloudflare Worker handles R2 caching + GCS fallback transparently.
     const cdnWorkerUrl = process.env.CDN_WORKER_URL;
     if (cdnWorkerUrl && asset.assetId) {
-      const storageKey = asset.r2Key?.trim() || asset.assetId;
+      const storageKey = resolveActiveMediaR2StorageKeyV1(asset) || asset.assetId;
       return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${storageKey}`;
     }
 
@@ -454,7 +596,6 @@ export class AssetResolver {
       if (expiresAt > now) {
         return asset.cachedUrl; // Still valid, use it
       }
-      console.error(`[AssetResolver] Asset ${asset.assetId} expired and has no gcsPath — media unavailable`);
       return ''; // Empty → editor shows "media unavailable" placeholder
     }
 
@@ -519,15 +660,6 @@ export class AssetResolver {
 
       return changed ? (modified as Overlay) : overlay;
     });
-  }
-
-  /**
-   * Get a proxy URL that never expires.
-   * Returns /api/services/editron/assets/url/{assetId} which 302-redirects
-   * to the current valid URL. Browser caches redirect for 1 hour.
-   */
-  getProxyUrl(assetId: string): string {
-    return `/api/services/editron/assets/url/${assetId}`;
   }
 
   /**
@@ -721,7 +853,6 @@ export class AssetResolver {
             fixed++;
           }
         } catch (error) {
-          console.error(`Failed to refresh asset ${issue.assetId}:`, error);
           remaining.push({
             overlayId: issue.overlayId,
             assetId: issue.assetId,

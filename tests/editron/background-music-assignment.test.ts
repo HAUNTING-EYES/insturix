@@ -21,7 +21,7 @@ vi.mock('@/lib/editron/services/upload-service', () => ({
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     loadProject: vi.fn(),
-    replaceOverlayFamilyAtomic: vi.fn(),
+    replaceBackgroundMusicAtRevisionV1: vi.fn(),
   },
 }));
 
@@ -220,7 +220,11 @@ function dependencies(
     }),
     upsertDerivativeAsset: vi.fn(async () => undefined),
     setDerivativeAssignmentStatus: vi.fn(async () => undefined),
-    replaceOverlayFamilyAtomic: vi.fn(async () => true),
+    replaceBackgroundMusicAtRevisionV1: vi.fn(async () => ({
+      disposition: 'APPLIED',
+      mutationReceipt: {},
+      timelineChangeReceipt: {},
+    } as any)),
     now: vi.fn(() => NOW),
     ...overrides,
   };
@@ -232,7 +236,7 @@ afterEach(() => {
 });
 
 describe('background music assignment', () => {
-  it('conditions, analyzes, rights-stamps, mixes, beat-aligns, and atomically replaces BGM', async () => {
+  it('conditions, analyzes, rights-stamps, mixes, defers beat-sync, and atomically replaces BGM', async () => {
     const deps = dependencies();
     const result = await assignBackgroundMusic(INPUT, deps);
     const bgm = result.overlays.find((overlay: any) => overlay.row === ROW.BGM) as any;
@@ -241,7 +245,7 @@ describe('background music assignment', () => {
       replayed: false,
       usageMode: 'embedded',
       sourceAssetId: 'audio_1',
-      snappedCutCount: 1,
+      snappedCutCount: 0,
       musicRights: {
         source: 'user-upload',
         licensed: true,
@@ -287,11 +291,11 @@ describe('background music assignment', () => {
       expect.objectContaining({ assetId: 'old_bgm' }),
     ]));
     expect(result.overlays.find((overlay: any) => overlay.id === 1)).toMatchObject({
-      durationInFrames: 150,
+      durationInFrames: 140,
     });
     expect(result.overlays.find((overlay: any) => overlay.id === 2)).toMatchObject({
-      from: 150,
-      durationInFrames: 150,
+      from: 140,
+      durationInFrames: 160,
     });
     expect(deps.findAsset).toHaveBeenCalledWith('audio_1', 'user_1', 'project_1');
 
@@ -302,16 +306,27 @@ describe('background music assignment', () => {
       beatGrid: BEAT_EVIDENCE.beatGrid,
       audioConditioningEvidence: expect.not.objectContaining({ buffer: expect.anything() }),
     }));
-    expect(deps.replaceOverlayFamilyAtomic).toHaveBeenCalledWith(
+    expect(deps.replaceBackgroundMusicAtRevisionV1).toHaveBeenCalledWith(
       'user_1',
       'project_1',
       expect.objectContaining({
-        expectedUpdatedAt: new Date('2026-07-25T09:00:00.000Z'),
-        overlays: result.overlays,
-        projectUpdates: expect.objectContaining({
-          'intelligence.audio.lastMusicAssignment': expect.objectContaining({
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: '2026-07-25T09:00:00.000Z',
+        },
+        actorKind: 'USER',
+        candidateOverlays: result.overlays,
+        musicCoveragePlan: result.musicCoveragePlan,
+        evidence: expect.objectContaining({
+          kind: 'ASSIGNMENT',
+          usageMode: 'embedded',
+          receipt: expect.objectContaining({
             idempotencyKey: 'assign_001',
             derivativeAssetId: result.derivativeAssetId,
+            beatRealignEnabled: false,
+            beatRealignDeferred: true,
+            snappedCutCount: 0,
           }),
         }),
       }),
@@ -349,7 +364,7 @@ describe('background music assignment', () => {
         licensed: false,
       },
       beatGrid: BEAT_EVIDENCE.beatGrid,
-      snappedCutCount: 1,
+      snappedCutCount: 0,
     });
     expect(referenceOverlays).not.toHaveLength(0);
     expect(referenceOverlays).toEqual(expect.arrayContaining([
@@ -608,7 +623,7 @@ describe('background music assignment', () => {
     expect(deps.fetchAsset).not.toHaveBeenCalled();
     expect(deps.condition).not.toHaveBeenCalled();
     expect(deps.upload).not.toHaveBeenCalled();
-    expect(deps.replaceOverlayFamilyAtomic).not.toHaveBeenCalled();
+    expect(deps.replaceBackgroundMusicAtRevisionV1).not.toHaveBeenCalled();
   });
 
   it('rejects external-only assets and oversized stored objects without processing them', async () => {
@@ -654,8 +669,8 @@ describe('background music assignment', () => {
   it('replays the complete committed timeline without repeating expensive work', async () => {
     const firstDeps = dependencies();
     const first = await assignBackgroundMusic(INPUT, firstDeps);
-    const casInput = vi.mocked(firstDeps.replaceOverlayFamilyAtomic).mock.calls[0][2];
-    const receipt = casInput.projectUpdates?.['intelligence.audio.lastMusicAssignment'];
+    const casInput = vi.mocked(firstDeps.replaceBackgroundMusicAtRevisionV1).mock.calls[0][2];
+    const receipt = casInput.evidence.receipt;
     const replayDeps = dependencies({
       loadProject: vi.fn(async () => projectFixture({
         overlays: first.overlays,
@@ -674,14 +689,14 @@ describe('background music assignment', () => {
     expect(replayDeps.fetchAsset).not.toHaveBeenCalled();
     expect(replayDeps.condition).not.toHaveBeenCalled();
     expect(replayDeps.upload).not.toHaveBeenCalled();
-    expect(replayDeps.replaceOverlayFamilyAtomic).not.toHaveBeenCalled();
+    expect(replayDeps.replaceBackgroundMusicAtRevisionV1).not.toHaveBeenCalled();
   });
 
   it('rejects an idempotency replay that changes the music usage mode', async () => {
     const firstDeps = dependencies();
     const first = await assignBackgroundMusic(INPUT, firstDeps);
-    const casInput = vi.mocked(firstDeps.replaceOverlayFamilyAtomic).mock.calls[0][2];
-    const receipt = casInput.projectUpdates?.['intelligence.audio.lastMusicAssignment'];
+    const casInput = vi.mocked(firstDeps.replaceBackgroundMusicAtRevisionV1).mock.calls[0][2];
+    const receipt = casInput.evidence.receipt;
     const replayDeps = dependencies({
       loadProject: vi.fn(async () => projectFixture({
         overlays: first.overlays,
@@ -699,7 +714,11 @@ describe('background music assignment', () => {
 
   it('loses a concurrent project race loudly and marks the derivative orphaned', async () => {
     const deps = dependencies({
-      replaceOverlayFamilyAtomic: vi.fn(async () => false),
+      replaceBackgroundMusicAtRevisionV1: vi.fn(async () => {
+        throw Object.assign(new Error('project revision changed'), {
+          code: 'PROJECT_REVISION_CONFLICT',
+        });
+      }),
     });
 
     await expect(assignBackgroundMusic(INPUT, deps))
@@ -714,7 +733,7 @@ describe('background music assignment', () => {
 
   it('marks the derivative orphaned when project persistence throws', async () => {
     const deps = dependencies({
-      replaceOverlayFamilyAtomic: vi.fn(async () => {
+      replaceBackgroundMusicAtRevisionV1: vi.fn(async () => {
         throw new Error('database unavailable');
       }),
     });

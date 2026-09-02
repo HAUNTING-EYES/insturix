@@ -1,6 +1,7 @@
 import React, { createContext, useContext, ReactNode } from "react";
 import { Overlay, AspectRatio, CaptionStyles, NamedMarker } from "../types";
 import type { RenderMusicDeliveryMode } from "@/lib/editron/services/render-delivery-manifest";
+import type { ProjectRevisionV1 } from "@/lib/editron/services/project-service";
 
 // Define the shape of the context
 interface EditorContextProps {
@@ -75,6 +76,7 @@ interface EditorContextProps {
 
   // Project ID for render history
   projectId?: string;
+  projectRevision: ProjectRevisionV1 | null;
 
   // Debugging
   getProjectState: () => any;

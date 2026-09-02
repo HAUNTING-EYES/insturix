@@ -47,6 +47,8 @@ const AVAILABILITIES = ["owned", "borrowed", "rental-approved", "purchase-approv
 type CostBasis = "none" | "one-time" | "per-shoot";
 const PRIORITIES = ["cost", "setup-time", "image-quality", "audio-quality", "mobility"] as const;
 const LIGHT_DIRECTIONS = ["north", "south", "east", "west", "unknown"] as const;
+const SUBJECT_STANCES = ["seated", "standing", "walking", "floor", "custom"] as const;
+type SubjectStance = (typeof SUBJECT_STANCES)[number];
 
 const CATEGORY_KINDS: Record<EquipmentCategory, readonly string[]> = {
   camera: ["phone", "webcam", "mirrorless", "dslr", "cinema", "action-camera"],
@@ -74,6 +76,7 @@ const FOCUS_RING = "focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240
 // ── Draft shapes (form-friendly; built into a real profile on submit) ──
 interface DraftSpace {
   id: string; label: string;
+  preferred: boolean;
   width: string; depth: string; height: string; usableDepth: string;
   noiseFloor: (typeof NOISE_FLOORS)[number];
   powerAvailable: boolean;
@@ -94,6 +97,8 @@ interface DraftEquipment {
 }
 interface Draft {
   people: { performers: number; operators: number; assistants: number; selfShoot: boolean };
+  subjectCalibrationSource: "user-measured" | "live-preview";
+  subjectEyeHeights: Record<SubjectStance, string>;
   currency: string; maxSpend: string; rentalAllowed: boolean; purchaseAllowed: boolean;
   maxSetupMinutes: string; maxSetupChanges: string; maxLocationChanges: string;
   householdSubstitutionsAllowed: boolean; prioritize: (typeof PRIORITIES)[number][];
@@ -110,6 +115,8 @@ const numOrUndef = (s: string): number | undefined => {
 function emptyDraft(): Draft {
   return {
     people: { performers: 0, operators: 0, assistants: 0, selfShoot: false },
+    subjectCalibrationSource: "user-measured",
+    subjectEyeHeights: { seated: "", standing: "", walking: "", floor: "", custom: "" },
     currency: "USD", maxSpend: "0", rentalAllowed: false, purchaseAllowed: false,
     maxSetupMinutes: "", maxSetupChanges: "", maxLocationChanges: "0",
     householdSubstitutionsAllowed: false, prioritize: ["cost", "setup-time"],
@@ -125,6 +132,13 @@ function profileToDraft(p: ProductionCapabilityProfile): Draft {
       assistants: p.people.assistantsAvailable,
       selfShoot: p.people.selfShoot,
     },
+    subjectCalibrationSource: p.people.subjectCalibration?.source ?? "user-measured",
+    subjectEyeHeights: Object.fromEntries(SUBJECT_STANCES.map((stance) => [
+      stance,
+      p.people.subjectCalibration?.eyeHeightMByStance[stance] !== undefined
+        ? String(p.people.subjectCalibration.eyeHeightMByStance[stance])
+        : "",
+    ])) as Record<SubjectStance, string>,
     currency: p.constraints.currency,
     maxSpend: String(p.constraints.maxIncrementalSpend),
     rentalAllowed: p.constraints.rentalAllowed,
@@ -135,7 +149,7 @@ function profileToDraft(p: ProductionCapabilityProfile): Draft {
     householdSubstitutionsAllowed: p.preferences.householdSubstitutionsAllowed,
     prioritize: [...p.preferences.prioritize],
     spaces: p.spaces.map((s) => ({
-      id: s.id, label: s.label,
+      id: s.id, label: s.label, preferred: s.preferred,
       width: s.dimensionsM?.width !== undefined ? String(s.dimensionsM.width) : "",
       depth: s.dimensionsM?.depth !== undefined ? String(s.dimensionsM.depth) : "",
       height: s.dimensionsM?.height !== undefined ? String(s.dimensionsM.height) : "",
@@ -167,6 +181,10 @@ function profileToDraft(p: ProductionCapabilityProfile): Draft {
 
 function buildProfileObject(draft: Draft): unknown {
   const isPaid = (a: DraftEquipment["availability"]) => a === "rental-approved" || a === "purchase-approved";
+  const eyeHeightMByStance = Object.fromEntries(SUBJECT_STANCES.flatMap((stance) => {
+    const value = numOrUndef(draft.subjectEyeHeights[stance]);
+    return value === undefined ? [] : [[stance, value]];
+  })) as Partial<Record<SubjectStance, number>>;
   return {
     version: PRODUCTION_CAPABILITY_PROFILE_VERSION,
     spaces: draft.spaces.map((s) => {
@@ -174,7 +192,7 @@ function buildProfileObject(draft: Draft): unknown {
         ? { width: numOrUndef(s.width), depth: numOrUndef(s.depth), ...(numOrUndef(s.height) !== undefined ? { height: numOrUndef(s.height) } : {}) }
         : undefined;
       return {
-        id: s.id, label: s.label,
+        id: s.id, label: s.label, preferred: s.preferred,
         ...(dims ? { dimensionsM: dims } : {}),
         ...(numOrUndef(s.usableDepth) !== undefined ? { usableDepthM: numOrUndef(s.usableDepth) } : {}),
         backgrounds: s.backgrounds.map((b) => ({
@@ -223,6 +241,12 @@ function buildProfileObject(draft: Draft): unknown {
       cameraOperatorsAvailable: draft.people.operators,
       assistantsAvailable: draft.people.assistants,
       selfShoot: draft.people.selfShoot,
+      ...(Object.keys(eyeHeightMByStance).length > 0 ? {
+        subjectCalibration: {
+          source: draft.subjectCalibrationSource,
+          eyeHeightMByStance,
+        },
+      } : {}),
     },
     constraints: {
       currency: draft.currency,
@@ -308,6 +332,27 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
           <Toggle label="Self-shoot" checked={draft.people.selfShoot} onChange={(v) => patch({ people: { ...draft.people, selfShoot: v } })} title="You operate the camera and appear yourself" />
           <Toggle label="Allow household items" checked={draft.householdSubstitutionsAllowed} onChange={(v) => patch({ householdSubstitutionsAllowed: v })} title="The planner may substitute household objects for gear you don't own" />
         </div>
+        <Field label="Measured lead-performer eye height (m)" hint="Enter only measurements you actually took; leave unknown stances blank">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {SUBJECT_STANCES.map((stance) => (
+              <Mini key={stance} label={stance}>
+                <input
+                  type="number"
+                  min={0.1}
+                  max={3}
+                  step="0.01"
+                  value={draft.subjectEyeHeights[stance]}
+                  onChange={(event) => patch({
+                    subjectCalibrationSource: "user-measured",
+                    subjectEyeHeights: { ...draft.subjectEyeHeights, [stance]: event.target.value },
+                  })}
+                  className={inputCls}
+                  aria-label={`${stance} lead-performer eye height in meters`}
+                />
+              </Mini>
+            ))}
+          </div>
+        </Field>
       </Group>
 
       {/* Budget & approvals */}
@@ -341,7 +386,12 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
           ? <Empty text="No rooms added. Add the spaces you can actually shoot in." />
           : draft.spaces.map((s, i) => (
             <SpaceRow key={s.id} space={s}
-              onChange={(next) => patch({ spaces: draft.spaces.map((x, xi) => (xi === i ? next : x)) })}
+              onChange={(next) => patch({
+                spaces: draft.spaces.map((x, xi) => {
+                  if (xi === i) return next;
+                  return next.preferred ? { ...x, preferred: false } : x;
+                }),
+              })}
               onRemove={() => patch({ spaces: draft.spaces.filter((_, xi) => xi !== i) })} />
           ))}
       </Group>
@@ -408,7 +458,7 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
 
 // ── Row editors ──
 function newSpace(): DraftSpace {
-  return { id: nextId("sp"), label: "", width: "", depth: "", height: "", usableDepth: "", noiseFloor: "unknown", powerAvailable: true, naturalLight: [], backgrounds: [], constraints: "" };
+  return { id: nextId("sp"), label: "", preferred: false, width: "", depth: "", height: "", usableDepth: "", noiseFloor: "unknown", powerAvailable: true, naturalLight: [], backgrounds: [], constraints: "" };
 }
 function newEquipment(category: EquipmentCategory): DraftEquipment {
   return {
@@ -439,6 +489,7 @@ function SpaceRow({ space, onChange, onRemove }: { space: DraftSpace; onChange: 
         </Mini>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Toggle label="Preferred" checked={space.preferred} onChange={(v) => set({ preferred: v })} title="Use this as the default capture space when more than one room is available" />
         <Toggle label="Power" checked={space.powerAvailable} onChange={(v) => set({ powerAvailable: v })} title="Mains power is available" />
         <AddButton label="Add background" onClick={() => set({ backgrounds: [...space.backgrounds, { id: nextId("bg"), description: "", widthM: "", movable: false }] })} />
         <AddButton label="Add natural light" onClick={() => set({ naturalLight: [...space.naturalLight, { id: nextId("nl"), kind: "window", direction: "unknown", controllable: false }] })} />

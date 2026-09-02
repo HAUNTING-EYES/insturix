@@ -90,6 +90,12 @@ function assertEquivalent(label: string, left: ThinkForgeBlock[], right: ThinkFo
   }
 }
 
+function assertMarkdownEquivalent(label: string, canonical: string, supplied: string): void {
+  if (semanticProjection(canonical) !== semanticProjection(supplied)) {
+    throw new ThinkForgeDocumentStateError(`${label} conflicts with the canonical document`);
+  }
+}
+
 export function normalizeCanonicalThinkForgeDocumentState(
   payload: Record<string, unknown>,
   existingBlocks: ThinkForgeBlock[] = [],
@@ -126,8 +132,7 @@ export function normalizeCanonicalThinkForgeDocumentState(
   blocks = preserveExportMetaForUnchangedBlocks(blocks, existingBlocks);
   const content = serializeThinkForgeBlocksToMarkdown(blocks);
   if (typeof payload.content === 'string' && payload.content.trim()) {
-    const contentBlocks = requireBlocks(parseMarkdownToBlocks(payload.content));
-    assertEquivalent('content', blocks, contentBlocks);
+    assertMarkdownEquivalent('content', content, payload.content);
   }
 
   return { richText, blocks, content };

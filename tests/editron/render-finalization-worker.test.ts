@@ -1,12 +1,24 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { RenderJobChapterOrchestrationSchema } from '@/lib/editron/schemas/render-job';
 
 const mocks = vi.hoisted(() => ({
   publishJSON: vi.fn(),
   getJob: vi.fn(),
   finalizeRenderArtifact: vi.fn(),
   completeJobFinalization: vi.fn(),
+  completeProjectRenderJobFinalizationTransaction: vi.fn(),
   failJobFinalization: vi.fn(),
+  failProjectRenderJobFinalizationTransaction: vi.fn(),
+  fenceStaleProjectRenderJobFinalizationTransaction: vi.fn(),
+  getCurrentProjectRenderJob: vi.fn(),
+  getProjectRenderJobAuthorizationByAdmission: vi.fn(),
+  getProjectRevision: vi.fn(),
+  claimProjectRenderJobFinalizationTransaction: vi.fn(),
+  releaseProjectRenderJobFinalizationClaimTransaction: vi.fn(),
+  beginChapterParentOrchestrationFinalizing: vi.fn(),
+  completeChapterParentOrchestration: vi.fn(),
+  failChapterParentOrchestration: vi.fn(),
 }));
 
 vi.mock('@upstash/qstash', () => ({
@@ -22,15 +34,50 @@ vi.mock('@/lib/editron/services/render-finalizer-client', async (importOriginal)
   return { ...actual, finalizeRenderArtifact: mocks.finalizeRenderArtifact };
 });
 
-vi.mock('@/lib/editron/services/render-job-service', () => ({
+vi.mock('@/lib/editron/db/mongodb', () => ({
+  getDatabase: vi.fn(async () => ({
+    collection: vi.fn(),
+  })),
+}));
+
+vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/editron/services/render-job-service')>(),
   getJob: mocks.getJob,
+  getCurrentProjectRenderJobV1: mocks.getCurrentProjectRenderJob,
   completeJobFinalization: mocks.completeJobFinalization,
   failJobFinalization: mocks.failJobFinalization,
+  getProjectRenderJobAuthorizationByAdmissionV1:
+    mocks.getProjectRenderJobAuthorizationByAdmission,
+}));
+
+vi.mock('@/lib/editron/services/project-service', () => ({
+  projectService: {
+    getProjectRevision: mocks.getProjectRevision,
+    completeProjectRenderJobFinalizationTransactionV1:
+      mocks.completeProjectRenderJobFinalizationTransaction,
+    failProjectRenderJobFinalizationTransactionV1:
+      mocks.failProjectRenderJobFinalizationTransaction,
+    fenceStaleProjectRenderJobFinalizationTransactionV1:
+      mocks.fenceStaleProjectRenderJobFinalizationTransaction,
+    claimProjectRenderJobFinalizationTransactionV1:
+      mocks.claimProjectRenderJobFinalizationTransaction,
+    releaseProjectRenderJobFinalizationClaimTransactionV1:
+      mocks.releaseProjectRenderJobFinalizationClaimTransaction,
+  },
+}));
+
+vi.mock('@/lib/editron/services/chapter-parent-orchestration-v1', () => ({
+  beginChapterParentOrchestrationFinalizingV1:
+    mocks.beginChapterParentOrchestrationFinalizing,
+  completeChapterParentOrchestrationV1: mocks.completeChapterParentOrchestration,
+  failChapterParentOrchestrationV1: mocks.failChapterParentOrchestration,
 }));
 
 import {
+  beginProjectRenderFinalizationV1,
   enqueueRenderFinalization,
   parseRenderFinalizationFailureEnvelope,
+  RenderFinalizationJobMessageSchema,
   resolveRenderFinalizationPipelineConfig,
 } from '@/lib/editron/services/render-finalization-dispatch';
 import { POST as FINALIZE } from '@/app/api/internal/workers/render-finalizer/route';
@@ -54,6 +101,54 @@ const message = {
   expectedDurationMs: 38_000,
 };
 
+const projectRevision = {
+  schemaVersion: 1 as const,
+  value: 7,
+  compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z',
+};
+
+const projectRenderAuthorization = {
+  schemaVersion: 1 as const,
+  jobId: message.jobId,
+  requestedByUserId: 'requester_1',
+  ownerId: 'owner_1',
+  projectId: 'project_1',
+  projectRevision,
+  bindingHash: 'a'.repeat(64),
+};
+
+const strictMessage = { ...message, projectRenderAuthorization };
+
+const providerFreeAuthorization = {
+  ...projectRenderAuthorization,
+  jobId: 'chr_123456789012',
+};
+
+const providerFreeFinalization = {
+  ...message,
+  jobId: providerFreeAuthorization.jobId,
+  claimToken: 'rfl_chapter_claim_123',
+  sourceOutputUrl: 'https://render.example.test/chapter-aggregate.mp4',
+  sourceOutputSize: 42_000_000,
+};
+
+const providerFreeMessage = {
+  ...providerFreeFinalization,
+  projectRenderAuthorization: providerFreeAuthorization,
+};
+
+const providerFreeClaim = {
+  ok: true as const,
+  status: 'CURRENT' as const,
+  jobId: providerFreeFinalization.jobId,
+  claimToken: providerFreeFinalization.claimToken,
+  sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+  sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+  expectedDurationMs: providerFreeFinalization.expectedDurationMs,
+  authorization: providerFreeAuthorization,
+  binding: {},
+};
+
 const finalizerResult = {
   url: 'https://render.example.test/editron-finalized/rnd_test_123.mp4',
   sizeBytes: 39_000_000,
@@ -74,9 +169,82 @@ const finalizerResult = {
   },
 };
 
+type ChapterParentLifecycleState = 'READY_FOR_FINALIZATION' | 'FINALIZING' | 'COMPLETED';
+type ChapterFinalizationState = 'running' | 'done' | 'failed';
+
+function chapterParentJob(input: {
+  state?: ChapterParentLifecycleState;
+  status?: 'finalizing' | 'done' | 'error';
+  finalizationState?: ChapterFinalizationState;
+  attempts?: number;
+} = {}) {
+  const state = input.state ?? 'READY_FOR_FINALIZATION';
+  const finalizationState = input.finalizationState ?? 'running';
+  const reservedAt = new Date('2026-09-01T00:00:00.000Z');
+  const startingAt = new Date('2026-09-01T00:00:01.000Z');
+  const runningAt = new Date('2026-09-01T00:00:02.000Z');
+  const concatenatingAt = new Date('2026-09-01T00:00:03.000Z');
+  const readyForFinalizationAt = new Date('2026-09-01T00:00:04.000Z');
+  const finalizingAt = new Date('2026-09-01T00:00:05.000Z');
+  const completedAt = new Date('2026-09-01T00:00:06.000Z');
+  const orchestration = RenderJobChapterOrchestrationSchema.parse({
+    version: 1,
+    scope: 'CHAPTER_ORCHESTRATION',
+    aggregateJobId: providerFreeAuthorization.jobId,
+    bindingHash: providerFreeAuthorization.bindingHash,
+    selectedRegion: 'us-east-1',
+    state,
+    reservedAt,
+    startingAt,
+    runningAt,
+    concatenatingAt,
+    readyForFinalizationAt,
+    ...(state === 'FINALIZING' || state === 'COMPLETED' ? { finalizingAt } : {}),
+    ...(state === 'COMPLETED' ? { completedAt } : {}),
+    chapterCount: 2,
+    progress: 1,
+    completedChapterCount: 2,
+    chapterLayoutManifestHash: 'b'.repeat(64),
+    aggregateOutput: {
+      url: providerFreeFinalization.sourceOutputUrl,
+      sizeBytes: providerFreeFinalization.sourceOutputSize,
+    },
+  });
+  return {
+    _id: providerFreeAuthorization.jobId,
+    status: input.status ?? 'finalizing',
+    expectedDurationMs: providerFreeFinalization.expectedDurationMs,
+    dispatch: {
+      version: 1 as const,
+      phase: 'NOT_ATTEMPTED' as const,
+      billingState: 'PENDING' as const,
+      attemptToken: 'attempt_chapter_parent_123',
+      creditIdempotencyKey: 'credit_chapter_parent_123',
+      billingWallet: { type: 'user' as const, clerkUserId: 'owner_1' },
+    },
+    chapterOrchestration: orchestration,
+    finalization: {
+      version: 'editron-render-finalization-v1' as const,
+      state: finalizationState,
+      claimToken: finalizationState === 'running'
+        ? providerFreeFinalization.claimToken
+        : undefined,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+      attempts: input.attempts ?? 1,
+      ...(finalizationState === 'done'
+        ? { outputUrl: finalizerResult.url, outputSize: finalizerResult.sizeBytes }
+        : {}),
+    },
+  };
+}
+
 describe('render finalization orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const [key, value] of Object.entries(env)) {
+      vi.stubEnv(key, value);
+    }
     mocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
     mocks.getJob.mockResolvedValue({
       _id: message.jobId,
@@ -91,8 +259,92 @@ describe('render finalization orchestration', () => {
     });
     mocks.finalizeRenderArtifact.mockResolvedValue(finalizerResult);
     mocks.completeJobFinalization.mockResolvedValue(true);
+    mocks.completeProjectRenderJobFinalizationTransaction.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+    });
     mocks.failJobFinalization.mockResolvedValue(true);
+    mocks.failProjectRenderJobFinalizationTransaction.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValue({
+      ok: true,
+      status: 'STALE',
+    });
+    mocks.getProjectRenderJobAuthorizationByAdmission.mockImplementation(
+      async ({ jobId }: { jobId: string }) => {
+        const job = await mocks.getJob(jobId);
+        if (!job) {
+          return {
+            ok: false,
+            status: 'NON_CURRENT',
+            code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+            reason: 'JOB_NOT_CURRENT',
+          };
+        }
+        if (job.projectRenderSnapshotBinding !== undefined || job.artifactBinding !== undefined) {
+          return {
+            ok: false,
+            status: 'NON_CURRENT',
+            code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+            reason: 'JOB_NOT_CURRENT',
+          };
+        }
+        return { ok: false, status: 'NOT_PROJECT_RENDER_JOB', job };
+      },
+    );
+    mocks.getProjectRevision.mockResolvedValue(projectRevision);
+    mocks.getCurrentProjectRenderJob.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      job: {
+        _id: message.jobId,
+        status: 'finalizing',
+        expectedDurationMs: message.expectedDurationMs,
+        finalization: {
+          state: 'running',
+          claimToken: message.claimToken,
+          sourceOutputUrl: message.sourceOutputUrl,
+          sourceOutputSize: message.sourceOutputSize,
+        },
+      },
+    });
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      jobId: message.jobId,
+      claimToken: message.claimToken,
+      sourceOutputUrl: message.sourceOutputUrl,
+      sourceOutputSize: message.sourceOutputSize,
+      expectedDurationMs: message.expectedDurationMs,
+      authorization: projectRenderAuthorization,
+    });
+    mocks.releaseProjectRenderJobFinalizationClaimTransaction.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+    });
+    mocks.beginChapterParentOrchestrationFinalizing.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'FINALIZING',
+    });
+    mocks.completeChapterParentOrchestration.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'COMPLETED',
+    });
+    mocks.failChapterParentOrchestration.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'FAILED',
+    });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('requires the complete signed pipeline and publishes a deduplicated retryable job', async () => {
@@ -119,6 +371,164 @@ describe('render finalization orchestration', () => {
     });
   });
 
+  it('carries strict authorization only inside the signed finalizer work message', async () => {
+    await expect(beginProjectRenderFinalizationV1({
+      authorization: projectRenderAuthorization,
+      providerRenderId: 'provider_render_1',
+      bucketName: 'bucket_1',
+      region: 'us-east-1',
+      sourceOutputUrl: message.sourceOutputUrl,
+      sourceOutputSize: message.sourceOutputSize,
+    })).resolves.toMatchObject({ state: 'enqueued' });
+
+    expect(mocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: strictMessage,
+      deduplicationId: message.claimToken,
+    }));
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      providerRenderId: 'provider_render_1',
+      bucketName: 'bucket_1',
+      region: 'us-east-1',
+      sourceOutputUrl: message.sourceOutputUrl,
+      sourceOutputSize: message.sourceOutputSize,
+    });
+  });
+
+  it('dispatches a provider-free aggregate without inventing provider identity', async () => {
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValueOnce(providerFreeClaim);
+    const result = await beginProjectRenderFinalizationV1({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    });
+
+    expect(result).toMatchObject({ state: 'enqueued' });
+    if (!('state' in result) || result.state !== 'enqueued') {
+      throw new Error('Expected provider-free finalization to enqueue.');
+    }
+    expect(result.claim.providerRenderId).toBeUndefined();
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    });
+    expect(mocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: providerFreeMessage,
+      deduplicationId: providerFreeFinalization.claimToken,
+    }));
+    const publishedBody = mocks.publishJSON.mock.calls[0]?.[0]?.body as Record<string, unknown>;
+    expect(publishedBody).not.toHaveProperty('providerRenderId');
+    expect(publishedBody).not.toHaveProperty('bucketName');
+    expect(publishedBody).not.toHaveProperty('region');
+  });
+
+  it('rejects a partial provider tuple before ProjectService or queue dispatch', async () => {
+    const partialProviderIdentities = [
+      { providerRenderId: 'provider_render_1' },
+      { providerRenderId: 'provider_render_1', bucketName: 'bucket_1' },
+      { bucketName: 'bucket_1', region: 'us-east-1' },
+    ];
+
+    for (const providerIdentity of partialProviderIdentities) {
+      await expect(beginProjectRenderFinalizationV1({
+        authorization: projectRenderAuthorization,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+        ...providerIdentity,
+      } as never)).rejects.toThrow('complete provider identity tuple');
+    }
+
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider-free authorizations without an exact chapter aggregate ID', async () => {
+    const invalidAuthorizations = [
+      projectRenderAuthorization,
+      { ...projectRenderAuthorization, jobId: 'chr_bad' },
+    ];
+
+    for (const authorization of invalidAuthorizations) {
+      await expect(beginProjectRenderFinalizationV1({
+        authorization,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      })).rejects.toThrow('chapter aggregate authorization');
+    }
+
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
+  it('releases the exact provider-free claim when queue dispatch fails', async () => {
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValueOnce(providerFreeClaim);
+    const dispatchError = new Error('qstash unavailable');
+    mocks.publishJSON.mockRejectedValueOnce(dispatchError);
+
+    await expect(beginProjectRenderFinalizationV1({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    })).rejects.toBe(dispatchError);
+
+    expect(mocks.releaseProjectRenderJobFinalizationClaimTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      claimToken: providerFreeFinalization.claimToken,
+    });
+  });
+
+  it('rejects cross-job authorization and strict rows disguised as legacy before media work', async () => {
+    expect(RenderFinalizationJobMessageSchema.safeParse({
+      ...strictMessage,
+      projectRenderAuthorization: {
+        ...projectRenderAuthorization,
+        jobId: 'rnd_different_job',
+      },
+    }).success).toBe(false);
+
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      expectedDurationMs: message.expectedDurationMs,
+      projectRenderSnapshotBinding: { scope: 'PROJECT_SNAPSHOT' },
+      finalization: {
+        state: 'running',
+        claimToken: message.claimToken,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      },
+    });
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      message,
+    ));
+
+    expect(response.status).toBe(400);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      expectedDurationMs: message.expectedDurationMs,
+      artifactBinding: { scope: 'TARGET_RANGE' },
+      finalization: {
+        state: 'running',
+        claimToken: message.claimToken,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      },
+    });
+    const artifactBound = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      message,
+    ));
+    expect(artifactBound.status).toBe(400);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+  });
+
   it('finalizes and publishes only through the active database claim', async () => {
     const response = await FINALIZE(jsonRequest(
       'https://preview.example.test/api/internal/workers/render-finalizer',
@@ -136,6 +546,388 @@ describe('render finalization orchestration', () => {
       claimToken: message.claimToken,
       result: finalizerResult,
     });
+  });
+
+  it('finalizes a strict project render only through fresh bound owners', async () => {
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getProjectRevision).toHaveBeenCalledTimes(1);
+    expect(mocks.getCurrentProjectRenderJob).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      currentProjectRevision: projectRevision,
+    });
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      claimToken: message.claimToken,
+      result: finalizerResult,
+    });
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('advances a provider-free chapter parent through exact finalization identity', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob(),
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.beginChapterParentOrchestrationFinalizing).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      currentProjectRevision: projectRevision,
+      selectedRegion: 'us-east-1',
+      chapterCount: 2,
+      chapterLayoutManifestHash: 'b'.repeat(64),
+      aggregateOutput: {
+        url: providerFreeFinalization.sourceOutputUrl,
+        sizeBytes: providerFreeFinalization.sourceOutputSize,
+      },
+    });
+    expect(mocks.finalizeRenderArtifact).toHaveBeenCalledWith({
+      inputUrl: providerFreeFinalization.sourceOutputUrl,
+      jobId: providerFreeFinalization.jobId,
+      expectedDurationMs: providerFreeFinalization.expectedDurationMs,
+    });
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      claimToken: providerFreeFinalization.claimToken,
+      result: finalizerResult,
+    });
+    expect(mocks.getProjectRevision).toHaveBeenCalledTimes(2);
+    expect(mocks.completeChapterParentOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('does not run chapter media work when parent finalization admission is unproved', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob(),
+    });
+    mocks.beginChapterParentOrchestrationFinalizing.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      reason: 'CAS_CONFLICT',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.completeChapterParentOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('does not admit a chapter parent after the live project revision changes', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob(),
+    });
+    mocks.getProjectRevision
+      .mockResolvedValueOnce(projectRevision)
+      .mockResolvedValueOnce({ ...projectRevision, value: projectRevision.value + 1 });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.beginChapterParentOrchestrationFinalizing).not.toHaveBeenCalled();
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider-free finalization when the parent dispatch ledger is missing', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: { ...chapterParentJob(), dispatch: undefined },
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.beginChapterParentOrchestrationFinalizing).not.toHaveBeenCalled();
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a durable provider-free terminal success without rerunning media work', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob({
+        status: 'done',
+        state: 'COMPLETED',
+        finalizationState: 'done',
+      }),
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.beginChapterParentOrchestrationFinalizing).not.toHaveBeenCalled();
+    expect(mocks.completeChapterParentOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('rejects a top-level terminal success without nested parent completion', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob({
+        status: 'done',
+        state: 'FINALIZING',
+        finalizationState: 'done',
+      }),
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      providerFreeMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Strict chapter parent completion was not durably committed.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.beginChapterParentOrchestrationFinalizing).not.toHaveBeenCalled();
+    expect(mocks.completeChapterParentOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('does no strict media work when the project render is not current', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: 'project_render_not_current',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: message.claimToken,
+      error: 'Project changed before render finalization.',
+    });
+  });
+
+  it('acknowledges a terminal chapter after transactional cleanup recovery is proved', async () => {
+    const chapterMessage = {
+      ...message,
+      jobId: 'chr_123456789012',
+    };
+    const chapterAuthorization = {
+      ...projectRenderAuthorization,
+      jobId: chapterMessage.jobId,
+    };
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: {
+        _id: chapterMessage.jobId,
+        status: 'done',
+        artifactCleanup: { state: 'PENDING' },
+      },
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'ALREADY_TERMINAL',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      {
+        ...chapterMessage,
+        projectRenderAuthorization: chapterAuthorization,
+      },
+    ));
+
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      skipped: 'job_already_terminal',
+    });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: chapterAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: chapterMessage.claimToken,
+      error: 'Terminal render retains pending cleanup work.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a standard terminal when transactional cleanup recovery is unproved', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: {
+        _id: message.jobId,
+        status: 'done',
+        artifactCleanup: { state: 'PENDING' },
+      },
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'ALREADY_TERMINAL',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'Strict terminal render cleanup handoff was not proved.',
+    });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: message.claimToken,
+      error: 'Terminal render retains pending cleanup work.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('fences the exact strict claim when its project was deleted before media work', async () => {
+    mocks.getProjectRevision.mockRejectedValueOnce(Object.assign(
+      new Error('Project not found'),
+      { code: 'PROJECT_NOT_FOUND_OR_FORBIDDEN' },
+    ));
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    await expect(response.json()).resolves.toMatchObject({ skipped: 'project_not_current' });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: null,
+      claimToken: message.claimToken,
+      error: 'Project no longer exists before render finalization.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+  });
+
+  it('keeps a stale strict delivery retryable when its fence cannot be proved', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge an unproved non-stale strict state', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+  });
+
+  it('never publishes strict success when the project changes during media work', async () => {
+    mocks.completeProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'STALE',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: 'claim_changed_during_finalization',
+    });
+    expect(mocks.finalizeRenderArtifact).toHaveBeenCalledTimes(1);
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      claimToken: message.claimToken,
+      result: finalizerResult,
+    });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unproved strict publication state retryable after media work', async () => {
+    mocks.completeProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.finalizeRenderArtifact).toHaveBeenCalledTimes(1);
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
   });
 
   it('does no media work for a stale or terminal delivery', async () => {
@@ -197,6 +989,221 @@ describe('render finalization orchestration', () => {
     mocks.failJobFinalization.mockResolvedValueOnce(false);
     const stale = await FAIL_FINALIZATION(jsonRequest('https://preview.example.test/failure', envelope));
     await expect(stale.json()).resolves.toMatchObject({ skipped: 'stale_finalization_claim' });
+  });
+
+  it('fails a strict finalization only through its current bound claim', async () => {
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.failProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      claimToken: message.claimToken,
+      error: expect.stringContaining('after 4 attempt(s)'),
+    });
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('keeps a provider-free chapter parent retryable below terminal attempts', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: chapterParentJob({
+        status: 'error',
+        state: 'FINALIZING',
+        finalizationState: 'failed',
+        attempts: 2,
+      }),
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(providerFreeMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.failChapterParentOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('delegates exhausted provider-free failure to the atomic ProjectService owner', async () => {
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(providerFreeMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.failProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      claimToken: providerFreeFinalization.claimToken,
+      error: expect.stringContaining('after 4 attempt(s)'),
+    });
+    expect(mocks.failChapterParentOrchestration).not.toHaveBeenCalled();
+    expect(mocks.getCurrentProjectRenderJob).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider-free terminal failure when the atomic owner cannot prove identity', async () => {
+    mocks.failProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(providerFreeMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failChapterParentOrchestration).not.toHaveBeenCalled();
+    expect(mocks.getCurrentProjectRenderJob).not.toHaveBeenCalled();
+  });
+
+  it('does not reconcile an artifact-bound failure through the legacy owner', async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      artifactBinding: { scope: 'TARGET_RANGE' },
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(message)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('fences a strict failure callback whose project revision changed', async () => {
+    mocks.failProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'STALE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.failProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      claimToken: message.claimToken,
+      error: expect.stringContaining('after 4 attempt(s)'),
+    });
+    expect(mocks.getProjectRevision).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge a deleted-project failure callback without a proven fence', async () => {
+    mocks.failProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failProjectRenderJobFinalizationTransaction).toHaveBeenCalledOnce();
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge an unproved strict failure state', async () => {
+    mocks.failProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge transient strict revision-read failures', async () => {
+    mocks.failProjectRenderJobFinalizationTransaction.mockRejectedValueOnce(
+      new Error('database unavailable'),
+    );
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 1,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failProjectRenderJobFinalizationTransaction).toHaveBeenCalledOnce();
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
   });
 });
 

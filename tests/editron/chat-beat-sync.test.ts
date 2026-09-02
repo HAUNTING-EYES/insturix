@@ -6,7 +6,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     loadProject: vi.fn(),
-    replaceOverlayFamilyAtomic: vi.fn(),
+    alignCutsToBeatsAtRevisionV1: vi.fn(),
   },
 }));
 
@@ -91,9 +91,53 @@ function project() {
   };
 }
 
-function dependencies(options: { firstVideoDuration?: number; commitResult?: boolean } = {}) {
+function dependencies(options: {
+  firstVideoDuration?: number;
+  commitConflict?: boolean;
+  commitSafeStop?: boolean;
+} = {}) {
   type CommitInput = Parameters<ChatBeatSyncDependencies['commit']>[0];
-  const commit = vi.fn(async (_input: CommitInput) => options.commitResult ?? true);
+  const commit = vi.fn(async (_input: CommitInput) => {
+    if (options.commitConflict) {
+      throw Object.assign(new Error('project changed'), { code: 'PROJECT_REVISION_CONFLICT' });
+    }
+    if (options.commitSafeStop) {
+      return {
+        disposition: 'SAFE_STOP' as const,
+        reason: 'SOURCE_TIME_EVIDENCE_INCOMPLETE' as const,
+        currentRevision: {
+          schemaVersion: 1 as const,
+          value: 0,
+          compatibilityUpdatedAt: UPDATED_AT.toISOString(),
+        },
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
+    }
+    return {
+      disposition: 'APPLIED' as const,
+      resolution: {
+        sourceBeatCount: 1,
+        timelineBeatCount: 1,
+        alignment: {
+          snappedCount: 1,
+          trackOverlayIds: [1, 2],
+          changes: [{
+            clipAId: 1,
+            clipBId: 2,
+            originalFrame: 60,
+            alignedFrame: 63,
+            beatFrame: 63,
+            shiftFrames: 3,
+            transitionOverlayIds: [4],
+          }],
+          rejections: [],
+        },
+      },
+      mutationReceipt: {},
+      timelineChangeReceipt: {},
+    } as any;
+  });
   const analyzeAssetBeats = vi.fn(async () => ({ beats: [] }));
   const assets = new Map<string, MediaAsset>([
     ['video-a', mediaAsset('video-a', 'video', options.firstVideoDuration ?? 3)],
@@ -105,7 +149,6 @@ function dependencies(options: { firstVideoDuration?: number; commitResult?: boo
     loadAsset: vi.fn(async (assetId) => assets.get(assetId) ?? null),
     analyzeAssetBeats,
     commit,
-    now: () => new Date('2026-08-01T09:01:00.000Z'),
   };
   return { deps, commit, analyzeAssetBeats };
 }
@@ -125,26 +168,16 @@ describe('executeChatBeatSync', () => {
     expect(commit).toHaveBeenCalledTimes(1);
     const write = commit.mock.calls[0]?.[0];
     if (!write) throw new Error('Expected one atomic beat-sync write');
-    expect(write.expectedUpdatedAt).toEqual(UPDATED_AT);
-    expect(write.overlays).toHaveLength(4);
-    expect(write.overlays.find((overlay) => overlay.id === 1)).toMatchObject({
-      from: 0,
-      durationInFrames: 63,
-    });
-    expect(write.overlays.find((overlay) => overlay.id === 2)).toMatchObject({
-      from: 63,
-      durationInFrames: 57,
-      sourceStartFrame: 15,
-      videoStartTime: 15,
-    });
-    expect(write.overlays.find((overlay) => overlay.id === 4)).toMatchObject({
-      from: 63,
-      boundaryFrame: 63,
-    });
-    expect(write.audit).toMatchObject({
-      version: 'chat-beat-sync-v2',
+    expect(write).toMatchObject({
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 0,
+        compatibilityUpdatedAt: UPDATED_AT.toISOString(),
+      },
+      audioOverlayId: 3,
       evidenceSource: 'persisted-beat-grid',
       beatFilter: 'downbeats',
+      strengthThreshold: 0.6,
     });
   });
 
@@ -170,7 +203,7 @@ describe('executeChatBeatSync', () => {
   });
 
   it('reports a revision conflict instead of overwriting a newer timeline', async () => {
-    const { deps, commit } = dependencies({ commitResult: false });
+    const { deps, commit } = dependencies({ commitConflict: true });
 
     const result = await executeChatBeatSync({
       userId: 'user-1',
@@ -181,6 +214,23 @@ describe('executeChatBeatSync', () => {
     expect(result).toMatchObject({
       status: 'error',
       error: { code: 'BEAT_SYNC_PROJECT_CONFLICT' },
+    });
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an authoritative source-time safe stop without claiming success', async () => {
+    const { deps, commit } = dependencies({ commitSafeStop: true });
+
+    const result = await executeChatBeatSync({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: { beatFilter: 'downbeats', strengthThreshold: 0.6 },
+    }, deps);
+
+    expect(result).toMatchObject({
+      status: 'no-op',
+      nextAction: 'stop',
+      data: { reason: 'source-time-evidence-incomplete' },
     });
     expect(commit).toHaveBeenCalledTimes(1);
   });

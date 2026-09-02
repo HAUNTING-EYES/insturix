@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { generateObject } from 'ai';
+import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { z } from 'zod';
 import { createThinkForgeModel } from '../agents/model-factory';
 import { retryOnceOnOverload } from './retry-on-overload';
@@ -42,6 +43,13 @@ interface CacheEntry {
   contextHash: string;
 }
 
+export interface WritingContextTelemetry {
+  userId?: string;
+  orgId?: string;
+  projectId?: string;
+  taskId?: string;
+}
+
 export interface WritingContextGenerationInput {
   prompt: string;
   /**
@@ -58,6 +66,7 @@ export interface WritingContextGenerationInput {
   temperature?: number;
   maxTokens?: number;
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }
 
 export interface WritingContextGenerationResult {
@@ -66,15 +75,26 @@ export interface WritingContextGenerationResult {
   modelName: string;
 }
 
+export type GeminiThinkingLevel = 'low' | 'medium' | 'high';
+
 export interface WritingContextStructuredGenerationInput<TOutput> extends WritingContextGenerationInput {
   schema: z.ZodType<TOutput>;
   thinkingBudgetTokens?: number;
+  thinkingLevel?: GeminiThinkingLevel;
 }
 
 export interface WritingContextStructuredGenerationResult<TOutput> {
   result: TOutput;
   cacheStatus: WritingContextGenerationResult['cacheStatus'];
   modelName: string;
+}
+
+export class ThinkForgeIncompleteStructuredOutputError extends Error {
+  constructor(readonly finishReason: string) {
+    super(`No object generated: provider reported an incomplete structured response (${finishReason}).`);
+    // Existing bounded recovery paths recognize the AI SDK's no-object contract.
+    this.name = 'AI_NoObjectGeneratedError';
+  }
 }
 
 interface ResolvedWritingContext {
@@ -122,8 +142,10 @@ async function recordThinkForgeWritingContextCost(input: {
   usage?: GeminiWritingContextUsage;
   privacyAudit?: ProviderPrivacyAuditRecord;
   thinkingBudgetTokens?: number;
+  thinkingLevel?: GeminiThinkingLevel;
   providerRequestCount?: number;
   retryCount?: number;
+  telemetry?: WritingContextTelemetry;
   error?: unknown;
 }) {
   const requestCount = Math.max(0, Math.floor(input.providerRequestCount ?? 1));
@@ -140,6 +162,10 @@ async function recordThinkForgeWritingContextCost(input: {
 
   void recordProviderCostEvent({
     status: input.status,
+    userId: input.telemetry?.userId,
+    orgId: input.telemetry?.orgId,
+    projectId: input.telemetry?.projectId,
+    taskId: input.telemetry?.taskId,
     service: 'thinkforge',
     action: 'writing_context_cache',
     route: 'lib/thinkforge/services/gemini-writing-context-cache',
@@ -167,6 +193,7 @@ async function recordThinkForgeWritingContextCost(input: {
       outputChars: input.outputChars,
       retryCount,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
+      thinkingLevel: input.thinkingLevel,
       privacyRoutePurpose: input.privacyAudit?.routePurpose,
       privacyClass: input.privacyAudit?.privacyClass,
       privacyFieldsSent: input.privacyAudit?.fieldsSent,
@@ -233,6 +260,7 @@ function assertWritingPromptPreflight(
       functionMs: Date.now() - startedAt,
       privacyAudit,
       providerRequestCount: 0,
+      telemetry: input.telemetry,
       error,
     });
     throw error;
@@ -303,6 +331,10 @@ function normalizeCacheModelName(modelName?: string): string {
 
 function toRuntimeModelName(modelName: string): string {
   return modelName.replace(/^models\//, '');
+}
+
+function usesGemini3GenerationContract(modelName: string): boolean {
+  return /^gemini-3(?:[.-]|$)/.test(toRuntimeModelName(modelName));
 }
 
 function getApiKey(): string {
@@ -864,7 +896,7 @@ export async function generateWithWritingContextCache(
         contents: dispatch.prompt,
         config: {
           ...(context.cacheName ? {} : { systemInstruction: dispatch.systemInstruction }),
-          temperature: input.temperature,
+          ...(usesGemini3GenerationContract(modelName) ? {} : { temperature: input.temperature }),
           maxOutputTokens: input.maxTokens,
           abortSignal: input.abortSignal,
           ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
@@ -885,6 +917,7 @@ export async function generateWithWritingContextCache(
       privacyAudit,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
     });
     return { text, cacheStatus: context.cacheStatus, modelName };
   } catch (error) {
@@ -900,6 +933,7 @@ export async function generateWithWritingContextCache(
       privacyAudit: failedAudit,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
       error,
     });
     throw error;
@@ -918,6 +952,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
+  const usesGemini3 = usesGemini3GenerationContract(modelName);
+  const thinkingLevel = usesGemini3 ? input.thinkingLevel ?? 'medium' : undefined;
   assertWritingPromptPreflight(input, modelName, 'llm_structured_privacy_blocked');
   const e2eFixture = resolveThinkForgeE2EStructuredFixture(input);
   if (e2eFixture) return e2eFixture;
@@ -941,6 +977,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   let sentPromptChars: number | undefined;
   let sentSystemInstructionChars: number | undefined;
   let providerAttemptCount = 0;
+  let generatedOutputChars: number | undefined;
+  let generatedUsage: GeminiWritingContextUsage | undefined;
 
   try {
     const dispatch = prepareThinkForgeProviderPromptDispatch({
@@ -969,9 +1007,11 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       ),
       maxOutputTokens: input.maxTokens ?? 0,
     });
-    const googleProviderOptions = {
+    const googleProviderOptions: GoogleGenerativeAIProviderOptions = {
       ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
-      ...(input.thinkingBudgetTokens !== undefined
+      ...(thinkingLevel
+        ? { thinkingConfig: { thinkingLevel } }
+        : input.thinkingBudgetTokens !== undefined
         ? { thinkingConfig: { thinkingBudget: input.thinkingBudgetTokens } }
         : {}),
     };
@@ -983,7 +1023,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
           schema: input.schema,
           prompt: dispatch.prompt,
           ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
-          temperature: input.temperature,
+          ...(usesGemini3 ? {} : { temperature: input.temperature }),
           maxOutputTokens: input.maxTokens,
           maxRetries: 0,
           abortSignal: deadline.abortSignal,
@@ -994,7 +1034,11 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
         deadline,
       );
     }, WRITING_OVERLOAD_RETRY_DELAY_MS, deadline.abortSignal);
-    const outputChars = JSON.stringify(generation.object).length;
+    generatedOutputChars = JSON.stringify(generation.object).length;
+    generatedUsage = await readAiSdkUsage(generation.usage);
+    if (generation.finishReason && generation.finishReason !== 'stop') {
+      throw new ThinkForgeIncompleteStructuredOutputError(generation.finishReason);
+    }
     recordThinkForgeWritingContextCost({
       status: 'success',
       modelName,
@@ -1002,13 +1046,15 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       cacheStatus: context.cacheStatus,
       userInputChars: sentPromptChars,
       systemInstructionChars: sentSystemInstructionChars,
-      outputChars,
+      outputChars: generatedOutputChars,
       functionMs: Date.now() - startedAt,
-      usage: await readAiSdkUsage(generation.usage),
+      usage: generatedUsage,
       privacyAudit,
-      thinkingBudgetTokens: input.thinkingBudgetTokens,
+      thinkingBudgetTokens: usesGemini3 ? undefined : input.thinkingBudgetTokens,
+      thinkingLevel,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
     });
     return {
       result: generation.object,
@@ -1028,11 +1074,15 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       cacheStatus: context.cacheStatus,
       userInputChars: sentPromptChars,
       systemInstructionChars: sentSystemInstructionChars,
+      outputChars: generatedOutputChars,
       functionMs: Date.now() - startedAt,
+      usage: generatedUsage,
       privacyAudit: failedAudit,
-      thinkingBudgetTokens: input.thinkingBudgetTokens,
+      thinkingBudgetTokens: usesGemini3 ? undefined : input.thinkingBudgetTokens,
+      thinkingLevel,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
       error: failure,
     });
     throw failure;

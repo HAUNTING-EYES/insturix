@@ -59,6 +59,11 @@ export interface ThinkForgeEvalBudgetSnapshot {
 const DEFAULT_COST_SAFETY_MULTIPLIER = 2;
 
 const DEFAULT_PRICE_HINTS: Readonly<Record<string, PriceHint>> = {
+  'gemini:gemini-3.6-flash': {
+    inputUsdPerMillion: 0.75,
+    outputUsdPerMillion: 3.75,
+    source: 'builtin:google_gemini_3_6_flash_standard_2026_08_30',
+  },
   'gemini:gemini-2.5-flash': {
     inputUsdPerMillion: 0.3,
     outputUsdPerMillion: 2.5,

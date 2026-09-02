@@ -191,6 +191,20 @@ describe('provider cost estimates', () => {
     expect(estimate.missingPricing).toBe(false);
   });
 
+  it('prices Gemini 3.6 Flash using the current date-bounded introductory rates', () => {
+    const estimate = estimateProviderCost({
+      provider: 'google-gemini',
+      operation: 'llm_completion_inline_context',
+      model: 'gemini-3.6-flash',
+      units: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
+    });
+
+    expect(estimate.costBasis).toBe('estimated_table');
+    expect(estimate.estimatedCostUsd).toBe(4.5);
+    expect(estimate.missingPricing).toBe(false);
+    expect(estimate.source).toContain('through 2026-12-31');
+  });
+
   it('does not fake Gemini video-analysis cost when token usage is absent', () => {
     const estimate = estimateProviderCost({
       provider: 'google-gemini',

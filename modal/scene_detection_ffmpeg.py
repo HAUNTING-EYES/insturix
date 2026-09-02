@@ -13,7 +13,7 @@ Returns:
   - scene_threshold: the threshold used (echoed back)
 
 Endpoint: POST https://jainnimit728--scene-detection-ffmpeg-scenedetector-detect.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/scene-detection-service.ts → reference-content-extractor.ts
 
 Deploy:   modal deploy modal/scene_detection_ffmpeg.py
@@ -66,7 +66,7 @@ class SceneDetector:
         version = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout.splitlines()[:1]
         print(f"[SceneDetector] ready: {version[0] if version else 'ffmpeg'}")
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def detect(self, request: dict):
         import time
 
@@ -81,14 +81,14 @@ class SceneDetector:
 
         try:
             stdout, stderr = _run_scene_detect(video_url, threshold)
-        except Exception as e:  # download / ffmpeg failure → empty, logged (consumer degrades to Gemini)
-            print(f"[SceneDetector] failed: {e}")
+        except Exception:  # download / ffmpeg failure → explicit unavailable cut evidence
+            print("[SceneDetector] failed")
             return {
                 "cuts": [],
                 "duration_ms": 0,
                 "scene_threshold": threshold,
                 "processing_time_ms": int((time.time() - t0) * 1000),
-                "error": str(e),
+                "error": "scene_detection_failed",
             }
 
         cuts = _parse_scene_cuts(stdout)

@@ -17,6 +17,9 @@ NativeVideoAudioRightsAttestation = Object.freeze({
   version: AUDIO_RIGHTS_ATTESTATION_VERSION,
 });
 
+export const SOURCE_MEDIA_RIGHTS_ATTESTATION_TEXT_V1 =
+  'I own this media or have permission to use it in exported videos, including any embedded audio.' as const;
+
 export interface BuildNativeVideoAudioRightsInput {
   sourceAssetId: string;
   userId: string;

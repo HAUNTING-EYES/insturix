@@ -5,13 +5,12 @@ import {
   claimJobForExecution,
   completeJob,
   failJob,
-  failQueuedJob,
   getJob,
   getJobCreditTransaction,
 } from '@/lib/clickatron-jobs';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
@@ -1215,55 +1214,4 @@ async function handler(req: Request) {
   }
 }
 
-// Add error handling for signature verification
-// Only enable signature verification in production (not in development)
-const protectedHandler = (process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.APP_ENV !== 'development' && process.env.NODE_ENV !== 'development')
-  ? verifySignatureAppRouter(handler)
-  : handler;
-
-export const POST = async (req: Request) => {
-  try {
-    return await protectedHandler(req);
-  } catch (error) {
-    console.error('Worker signature verification failed:', error);
-
-    // Try to extract jobId from request for error reporting
-    let jobId: string | undefined;
-    try {
-      const body = await req.json();
-      jobId = body.jobId;
-    } catch (bodyError) {
-      console.error('Worker: Failed to parse request body for error reporting:', bodyError);
-    }
-
-    // If we have a jobId, fail the job and mirror that terminal state to Mongo.
-    if (jobId) {
-      try {
-        const failed = await failQueuedJob(jobId, {
-          code: 'SIGNATURE_VERIFICATION_FAILED',
-          message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
-          details: error,
-        });
-        if (failed.outcome === 'updated' && failed.job) {
-          await markVariationFailedForJob(
-            failed.job,
-            'Generation worker signature verification failed before image generation could start.',
-          );
-
-          try {
-            await refundClaimedJob(
-              failed.job,
-              'QStash signature verification failed in worker',
-            );
-          } catch (refundError) {
-            console.error('Failed to process signature-failure refund:', refundError);
-          }
-        }
-      } catch (failError) {
-        console.error('Worker: Failed to mark job as failed after signature verification:', failError);
-      }
-    }
-
-    return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 });
-  }
-};
+export const POST = withInternalQStashWorkerAuth(handler, 'clickatron-variation');

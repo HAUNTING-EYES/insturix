@@ -199,7 +199,7 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
       userId: string,
       projectId: string,
       receiptId: string,
-      writerIssuedReceipt?: ProjectMutationReceiptV1,
+      writerIssuedReceipt: ProjectMutationReceiptV1,
     ): Promise<CheckpointRollbackReceiptV1> => {
       const checkpoint = checkpoints.get(checkpointId);
       if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId) {
@@ -594,7 +594,7 @@ describe('durable chat dubbing job', () => {
     expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
       job.beforeCheckpointId,
       'user-1',
-      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
     expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
   });
@@ -652,7 +652,7 @@ describe('durable chat dubbing job', () => {
     expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
       job.beforeCheckpointId,
       'user-1',
-      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 

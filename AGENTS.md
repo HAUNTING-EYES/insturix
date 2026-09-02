@@ -114,6 +114,12 @@ pnpm test                # vitest run
 - Before a handoff, reconcile the ledger against current code and artifacts and
   record the exact version/hash/path needed to resume. Do not rely on chat
   memory to carry unresolved assumptions or the next executable step.
+- Treat a user-proposed framework, model, library, workflow or product idea as
+  a non-binding candidate until it is researched against the current code and
+  authoritative plan. Do not reorder the active plan, introduce a new gate, or
+  start an implementation because an idea sounds promising. If it is useful,
+  append it only as a clearly scoped future option at the already appropriate
+  stage; ask the user before any true pivot, new gate or priority change.
 
 ### Mandatory pre-implementation grounding gate
 
@@ -160,6 +166,47 @@ projects are scalability targets, not separate user presets; short-form remains
 fast because it uses smaller ranges and work units on the same infrastructure.
 Never claim agency or production-house replacement until real certification
 gates pass.
+
+### Vertical-convergence and scope-admission rule (mandatory)
+
+Editron development is organized around one active, end-to-end supported
+project class at a time. Component tests and strong infrastructure remain
+mandatory, but an isolated owner, receipt or local fixture is never the unit of
+product progress. Every implementation slice must declare:
+
+```text
+active project class and visible user journey
+  -> exact missing caller/owner/consumer link
+  -> bounded infrastructure change
+  -> immediate integration into that same journey
+  -> fast user QA plus lower-level proof
+  -> render/delivery evidence or an explicit remaining blocker
+```
+
+- Do not start an infrastructure owner unless the authoritative plan names the
+  user-journey consumer it unlocks and the integration step that follows. If a
+  new prerequisite is discovered, return to the same journey after closing it;
+  do not let discovery create an unrelated infrastructure programme.
+- Classify every newly discovered requirement before implementation:
+  `ACTIVE_CLASS_BLOCKER`, `GLOBAL_SAFETY_INVARIANT`, `DECLARED_LATER_CAP_ROW`,
+  or `UNRELATED`. Only the first two may enter the immediate queue without a
+  new founder decision. A later CAP row remains mandatory in its owning stage
+  but does not silently block the active supported class.
+- Work may cross nominal stage boundaries in parallel when lanes are genuinely
+  independent, preserve sole owners, and converge on the same active journey.
+  Stage numbers are certification/dependency gates, not a ban on preparatory
+  work. Do not run a downstream production mutation, promotion or readiness
+  claim before its required upstream receipt exists.
+- Every parallel lane must name its inputs, outputs, owner, file set,
+  prerequisite receipts, merge point and QA scenario. Lanes that touch the same
+  writer or source of truth serialize. Parallel work that cannot name one
+  shared integration checkpoint is scope expansion and must stop.
+- Close each bounded phase by connecting its consumer, updating the QA
+  scenario/evidence bundle, and updating the live plan. A component-only local
+  pass may be recorded as lower-level evidence, never as phase completion.
+- Preserve the full Adobe-class-plus-LLM destination. Convergence controls
+  execution order; it does not waive long-form, professional editing,
+  collaboration, interchange, colour, audio, VFX, delivery or film-post work.
 
 ### The agentic or "vibe editing" system
 

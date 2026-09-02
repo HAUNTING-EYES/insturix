@@ -24,6 +24,11 @@ import {
   type MultiAssetTimelineOverlay,
 } from '@/lib/editron/services/multi-asset-director-context';
 import type { ProjectAssetAnalysisDoc } from '@/lib/editron/storyline/asset-analysis-reader';
+import {
+  projectRevisionPredicate,
+  readProjectRevisionV1,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-revision-v1';
 
 // Pure lane predicates live in a dependency-free module so client components can
 // import them without pulling this file's heavy hydration chain into the bundle.
@@ -60,55 +65,430 @@ export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boo
   return parseAssistFlag(env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED);
 }
 
+export interface AssistScanChargeRegistrationInput {
+  projectId: string;
+  userId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+}
+
+export type AssistScanChargeRegistrationResult =
+  | { disposition: 'registered' | 'already-registered'; terminal: boolean }
+  | { disposition: 'invalid' | 'not-assist' | 'conflict' };
+
+export type AssistScanChargeAdmissionResult =
+  | { disposition: 'admitted' | 'already-admitted' }
+  | { disposition: 'invalid' | 'not-assist' | 'conflict' };
+
+type NormalizedAssistScanCharge = {
+  projectId: string;
+  userId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+};
+
+function normalizeAssistScanCharge(
+  input: AssistScanChargeRegistrationInput,
+): NormalizedAssistScanCharge | null {
+  const projectId = input.projectId.trim();
+  const userId = input.userId.trim();
+  const creditTransactionId = input.creditTransactionId.trim();
+  const chargedCredits = input.chargedCredits;
+  if (
+    !projectId
+    || !userId
+    || !creditTransactionId
+    || !Number.isFinite(chargedCredits)
+    || chargedCredits < 0
+  ) {
+    return null;
+  }
+  return { projectId, userId, creditTransactionId, chargedCredits };
+}
+
+function assistProjectRevisionFor(project: Record<string, unknown>): ProjectRevisionV1 {
+  const revision = readProjectRevisionV1(project);
+  if (!revision) throw new Error('ASSIST_PROJECT_REVISION_INVALID');
+  return revision;
+}
+
+/**
+ * Atomically turns one newly-created project into an Assist scan and binds its
+ * completed deduction. Single-asset intake calls this before writing a queue
+ * status, so no worker-visible Assist project can exist without its exact money
+ * identity and no pre-existing project can be repurposed by this command.
+ */
+export async function admitAssistScanCharge(
+  db: { collection: (name: string) => any },
+  input: AssistScanChargeRegistrationInput,
+): Promise<AssistScanChargeAdmissionResult> {
+  const normalized = normalizeAssistScanCharge(input);
+  if (!normalized) return { disposition: 'invalid' };
+  const { projectId, userId, creditTransactionId, chargedCredits } = normalized;
+  const projects = db.collection('projects');
+  const absent = (field: string) => ({ $or: [{ [field]: { $exists: false } }, { [field]: null }] });
+  const projection = {
+    editMode: 1,
+    autoEditStatus: 1,
+    assistCreditTransactionId: 1,
+    assistChargedCredits: 1,
+    projectRevision: 1,
+    updatedAt: 1,
+  };
+  const current = await projects.findOne({ projectId, userId }, { projection });
+  if (!current) return { disposition: 'conflict' };
+  if (isAssistProject(current)) {
+    if (
+      current.autoEditStatus == null
+      && current.assistCreditTransactionId === creditTransactionId
+      && current.assistChargedCredits === chargedCredits
+    ) {
+      return { disposition: 'already-admitted' };
+    }
+    return { disposition: 'conflict' };
+  }
+  if (
+    current.editMode != null
+    || current.autoEditStatus != null
+    || current.assistCreditTransactionId != null
+    || current.assistChargedCredits != null
+  ) {
+    return current.editMode != null
+      ? { disposition: 'not-assist' }
+      : { disposition: 'conflict' };
+  }
+
+  const expectedRevision = assistProjectRevisionFor(current);
+  const committedAt = new Date();
+  const admitted = await projects.updateOne(
+    {
+      projectId,
+      userId,
+      ...projectRevisionPredicate(expectedRevision),
+      $and: [
+        absent('editMode'),
+        absent('autoEditStatus'),
+        absent('assistCreditTransactionId'),
+        absent('assistChargedCredits'),
+      ],
+    },
+    {
+      $set: {
+        editMode: 'assist',
+        assistCreditTransactionId: creditTransactionId,
+        assistChargedCredits: chargedCredits,
+        updatedAt: committedAt,
+      },
+      $inc: { projectRevision: 1 },
+    },
+  );
+  if (admitted.modifiedCount === 1) return { disposition: 'admitted' };
+
+  const latest = await projects.findOne({ projectId, userId }, { projection });
+  if (!latest) return { disposition: 'conflict' };
+  if (!isAssistProject(latest)) return { disposition: 'not-assist' };
+  if (
+    latest.autoEditStatus == null
+    && latest.assistCreditTransactionId === creditTransactionId
+    && latest.assistChargedCredits === chargedCredits
+  ) {
+    return { disposition: 'already-admitted' };
+  }
+  return { disposition: 'conflict' };
+}
+
+/**
+ * Durably binds one completed deduction to the Assist scan that must either
+ * consume it or refund it. The second CAS is deliberate: cancellation may win
+ * between deduction and registration, in which case the new charge is attached
+ * only as a terminal pending refund.
+ */
+export async function registerAssistScanCharge(
+  db: { collection: (name: string) => any },
+  input: AssistScanChargeRegistrationInput,
+): Promise<AssistScanChargeRegistrationResult> {
+  const normalized = normalizeAssistScanCharge(input);
+  if (!normalized) return { disposition: 'invalid' };
+  const { projectId, userId, creditTransactionId, chargedCredits } = normalized;
+
+  const projects = db.collection('projects');
+  const projection = {
+    editMode: 1,
+    autoEditStatus: 1,
+    assistCreditTransactionId: 1,
+    assistChargedCredits: 1,
+    assistRefundPending: 1,
+    projectRevision: 1,
+    updatedAt: 1,
+  };
+  const current = await projects.findOne(
+    { projectId, userId },
+    { projection },
+  );
+  if (!current) return { disposition: 'conflict' };
+  if (!isAssistProject(current)) return { disposition: 'not-assist' };
+  const currentRevision = assistProjectRevisionFor(current);
+
+  const currentTransactionId = typeof current.assistCreditTransactionId === 'string'
+    ? current.assistCreditTransactionId
+    : null;
+  const currentCharge = typeof current.assistChargedCredits === 'number'
+    ? current.assistChargedCredits
+    : null;
+  if (currentTransactionId !== null || currentCharge !== null) {
+    if (currentTransactionId !== creditTransactionId || currentCharge !== chargedCredits) {
+      return { disposition: 'conflict' };
+    }
+    const terminal = current.autoEditStatus === ASSIST_STATUS_SCAN_FAILED;
+    if (terminal && current.assistRefundPending !== true) {
+      const committedAt = new Date();
+      const marked = await projects.updateOne(
+        {
+          projectId,
+          userId,
+          ...projectRevisionPredicate(currentRevision),
+          editMode: 'assist',
+          autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+          assistCreditTransactionId: creditTransactionId,
+          assistChargedCredits: chargedCredits,
+        },
+        {
+          $set: { assistRefundPending: true, updatedAt: committedAt },
+          $inc: { projectRevision: 1 },
+        },
+      );
+      if (marked.modifiedCount !== 1) {
+        const latest = await projects.findOne({ projectId, userId }, { projection });
+        if (
+          latest
+          && isAssistProject(latest)
+          && latest.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+          && latest.assistCreditTransactionId === creditTransactionId
+          && latest.assistChargedCredits === chargedCredits
+          && latest.assistRefundPending === true
+        ) {
+          return { disposition: 'already-registered', terminal: true };
+        }
+        return { disposition: 'conflict' };
+      }
+    }
+    return { disposition: 'already-registered', terminal };
+  }
+
+  if (current.autoEditStatus === ASSIST_STATUS_READY || current.autoEditStatus === 'complete') {
+    return { disposition: 'conflict' };
+  }
+
+  const noChargePredicate = {
+    $and: [
+      { $or: [{ assistCreditTransactionId: { $exists: false } }, { assistCreditTransactionId: null }] },
+      { $or: [{ assistChargedCredits: { $exists: false } }, { assistChargedCredits: null }] },
+    ],
+  };
+  const activeCommittedAt = new Date();
+  const active = current.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+    ? { modifiedCount: 0 }
+    : await projects.updateOne(
+        {
+          projectId,
+          userId,
+          ...projectRevisionPredicate(currentRevision),
+          editMode: 'assist',
+          autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
+          ...noChargePredicate,
+        },
+        {
+          $set: {
+            assistCreditTransactionId: creditTransactionId,
+            assistChargedCredits: chargedCredits,
+            updatedAt: activeCommittedAt,
+          },
+          $inc: { projectRevision: 1 },
+        },
+      );
+  if (active.modifiedCount === 1) return { disposition: 'registered', terminal: false };
+
+  const latest = await projects.findOne({ projectId, userId }, { projection });
+  if (!latest || !isAssistProject(latest)) return { disposition: 'conflict' };
+  const latestTransactionId = typeof latest.assistCreditTransactionId === 'string'
+    ? latest.assistCreditTransactionId
+    : null;
+  const latestCharge = typeof latest.assistChargedCredits === 'number'
+    ? latest.assistChargedCredits
+    : null;
+  if (latestTransactionId !== null || latestCharge !== null) {
+    if (latestTransactionId !== creditTransactionId || latestCharge !== chargedCredits) {
+      return { disposition: 'conflict' };
+    }
+    if (latest.autoEditStatus !== ASSIST_STATUS_SCAN_FAILED || latest.assistRefundPending === true) {
+      return {
+        disposition: 'already-registered',
+        terminal: latest.autoEditStatus === ASSIST_STATUS_SCAN_FAILED,
+      };
+    }
+  }
+  if (latest.autoEditStatus !== ASSIST_STATUS_SCAN_FAILED) return { disposition: 'conflict' };
+
+  const terminalRevision = assistProjectRevisionFor(latest);
+  const terminalCommittedAt = new Date();
+  const terminal = await projects.updateOne(
+    {
+      projectId,
+      userId,
+      ...projectRevisionPredicate(terminalRevision),
+      editMode: 'assist',
+      autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+      ...(latestTransactionId === null && latestCharge === null
+        ? noChargePredicate
+        : {
+            assistCreditTransactionId: creditTransactionId,
+            assistChargedCredits: chargedCredits,
+          }),
+    },
+    {
+      $set: {
+        assistCreditTransactionId: creditTransactionId,
+        assistChargedCredits: chargedCredits,
+        assistRefundPending: true,
+        updatedAt: terminalCommittedAt,
+      },
+      $inc: { projectRevision: 1 },
+    },
+  );
+  if (terminal.modifiedCount === 1) return { disposition: 'registered', terminal: true };
+
+  const finalState = await projects.findOne({ projectId, userId }, { projection });
+  if (!finalState || !isAssistProject(finalState)) return { disposition: 'conflict' };
+  if (
+    finalState.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+    && finalState.assistCreditTransactionId === creditTransactionId
+    && finalState.assistChargedCredits === chargedCredits
+    && finalState.assistRefundPending === true
+  ) {
+    return {
+      disposition: 'already-registered',
+      terminal: true,
+    };
+  }
+  return { disposition: 'conflict' };
+}
+
+export interface AssistScanFailureSettlementInput {
+  projectId: string;
+  userId: string;
+  reason: string;
+  /** The exact durable deduction identity carried by this worker chain. */
+  creditTransactionId?: string;
+}
+
+export type AssistScanFailureSettlementDisposition =
+  | 'refunded'
+  | 'transition-lost'
+  | 'refund-pending'
+  | 'unverifiable-run'
+  | 'not-assist';
+
 /**
  * Settle a failed assist scan: atomic terminal transition + refund-where-deducted.
  * ONE implementation for all three workers (video-analysis, tribe-analysis,
  * director) — battle-lane finding: stage-2/3 failures previously kept the charge.
  *
  * Money rules enforced here:
- * - Refund fires ONLY when THIS call performs the scanning→scan_failed transition
- *   (QStash redelivery / cancel races refund exactly once).
+ * - A worker may fail/refund only the exact deduction identity it received at
+ *   intake. A stale or legacy message without that identity fails closed.
+ * - `assistRefundPending` is committed before the external wallet call, so a
+ *   crash between project terminalization and refund is recoverable.
  * - The transaction is consumed ($unset) ONLY on a confirmed successful refund —
  *   refundCredits reports failure by return value, not only by throwing.
- * - Every non-refunded outcome that should have refunded flags assistRefundPending.
+ * - A redelivery may resume the same pending refund; CreditsService makes the
+ *   external refund idempotent on the original transaction.
  *
  * `db` is passed in and CreditsService is imported lazily so this module stays
  * import-safe for env-less consumers.
  */
 export async function settleAssistScanFailure(
   db: { collection: (name: string) => any },
-  projectId: string,
-  reason: string,
-): Promise<'refunded' | 'transition-lost' | 'refund-pending' | 'not-assist'> {
-  const laneDoc = await db.collection('projects').findOne(
-    { projectId },
-    { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1, orgId: 1, visibility: 1 } },
-  );
-  if (!isAssistProject(laneDoc)) return 'not-assist';
+  input: AssistScanFailureSettlementInput,
+): Promise<AssistScanFailureSettlementDisposition> {
+  const projectId = input.projectId.trim();
+  const userId = input.userId.trim();
+  const reason = input.reason.trim();
+  const expectedTransactionId = input.creditTransactionId?.trim();
+  if (!projectId || !userId || !reason) return 'unverifiable-run';
 
-  const transition = await db.collection('projects').updateOne(
-    { projectId, autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] } },
-    { $set: { autoEditStatus: ASSIST_STATUS_SCAN_FAILED, autoEditError: reason } },
+  const laneDoc = await db.collection('projects').findOne(
+    { projectId, userId },
+    {
+      projection: {
+        editMode: 1,
+        autoEditStatus: 1,
+        assistCreditTransactionId: 1,
+        assistChargedCredits: 1,
+        assistRefundPending: 1,
+        assistRefundedAt: 1,
+        userId: 1,
+        orgId: 1,
+        visibility: 1,
+        projectRevision: 1,
+        updatedAt: 1,
+      },
+    },
   );
-  if (transition.modifiedCount !== 1) {
-    console.log(`[DirectorMode] Assist failure after a terminal status — settlement already owned elsewhere (project ${projectId}).`);
-    return 'transition-lost';
-  }
+  if (!laneDoc) return 'transition-lost';
+  if (!isAssistProject(laneDoc)) return 'not-assist';
+  const currentRevision = assistProjectRevisionFor(laneDoc);
 
   const txId = typeof laneDoc?.assistCreditTransactionId === 'string' ? laneDoc.assistCreditTransactionId : null;
   const charged = typeof laneDoc?.assistChargedCredits === 'number' ? laneDoc.assistChargedCredits : null;
-  const flagForSupport = async () => {
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { assistRefundPending: true } },
-    ).catch(() => {});
-  };
+  if (!expectedTransactionId || txId !== expectedTransactionId) {
+    console.warn('[DirectorMode] Assist failure ignored because its deduction identity is absent or stale:', {
+      projectId,
+      hasExpectedTransactionId: Boolean(expectedTransactionId),
+    });
+    return 'unverifiable-run';
+  }
+  const alreadyPending = laneDoc.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+    && laneDoc.assistRefundPending === true;
+  let pendingRevision = currentRevision;
+  if (!alreadyPending) {
+    const transitionedAt = new Date();
+    const transition = await db.collection('projects').updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(currentRevision),
+        editMode: 'assist',
+        assistCreditTransactionId: txId,
+        autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
+      },
+      {
+        $set: {
+          autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+          autoEditError: reason,
+          assistRefundPending: true,
+          updatedAt: transitionedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (transition.modifiedCount !== 1) {
+      return 'transition-lost';
+    }
+    pendingRevision = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: transitionedAt.toISOString(),
+    };
+  }
 
-  if (!txId || charged === null) {
-    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan failed but no persisted transaction/charge — refund did NOT run:', { projectId, txId, charged });
-    await flagForSupport();
+  if (charged === null || !Number.isFinite(charged) || charged < 0) {
+    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan has an invalid persisted charge:', {
+      projectId,
+      charged,
+    });
     return 'refund-pending';
   }
+
   try {
     const { CreditsService } = await import('@/lib/services/creditsService');
     const { resolveBillingOwner } = await import('./project-ownership');
@@ -117,7 +497,7 @@ export async function settleAssistScanFailure(
     // persisted ownership, so an org-billed Director Mode scan refunds the org — never the actor's
     // personal wallet. Flag off / personal project => the member's wallet, exactly as before.
     const wallet = resolveBillingOwner(
-      String(laneDoc?.userId ?? ''),
+      userId,
       { projectId, orgId: laneDoc?.orgId, visibility: laneDoc?.visibility },
       isOrgWalletBillingEnabled(),
     );
@@ -129,21 +509,151 @@ export async function settleAssistScanFailure(
     );
     if (result && result.success === false) {
       console.error('[DirectorMode][REFUND-FAILED][MONEY] refundCredits returned failure — flagging for support:', { projectId, error: (result as { error?: unknown }).error });
-      await flagForSupport();
       return 'refund-pending';
     }
     // Consume the transaction ONLY after a confirmed refund.
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-    ).catch(() => {});
-    console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${projectId}).`);
+    const refundedAt = new Date();
+    const finalized = await db.collection('projects').updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(pendingRevision),
+        editMode: 'assist',
+        autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+        assistRefundPending: true,
+        assistCreditTransactionId: txId,
+        assistChargedCredits: charged,
+      },
+      {
+        $set: { assistRefundedAt: refundedAt, updatedAt: refundedAt },
+        $unset: {
+          assistCreditTransactionId: '',
+          assistChargedCredits: '',
+          assistRefundPending: '',
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (finalized.modifiedCount !== 1) {
+      const latest = await db.collection('projects').findOne(
+        { projectId, userId },
+        {
+          projection: {
+            editMode: 1,
+            autoEditStatus: 1,
+            assistCreditTransactionId: 1,
+            assistChargedCredits: 1,
+            assistRefundPending: 1,
+            assistRefundedAt: 1,
+          },
+        },
+      );
+      if (
+        latest
+        && isAssistProject(latest)
+        && latest.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+        && latest.assistCreditTransactionId == null
+        && latest.assistChargedCredits == null
+        && latest.assistRefundPending !== true
+        && latest.assistRefundedAt != null
+      ) {
+        return 'refunded';
+      }
+      console.error('[DirectorMode][REFUND-RECORD-STALE][MONEY] wallet refund succeeded but exact project finalization was lost:', { projectId });
+      return 'refund-pending';
+    }
     return 'refunded';
   } catch (refundErr: unknown) {
     console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging for support:', refundErr instanceof Error ? refundErr.message : refundErr);
-    await flagForSupport();
     return 'refund-pending';
   }
+}
+
+export interface AssistUnchargedCancellationInput {
+  projectId: string;
+  userId: string;
+  reason: string;
+}
+
+export type AssistUnchargedCancellationDisposition =
+  | 'cancelled'
+  | 'already-cancelled'
+  | 'charge-present'
+  | 'already-ready'
+  | 'not-assist'
+  | 'conflict';
+
+/**
+ * Cancels only an Assist scan that still has no registered deduction. The
+ * absence-of-charge check and project revision are one CAS, so registration
+ * either wins and owns refund settlement or cancellation wins with no wallet
+ * side effect.
+ */
+export async function cancelUnchargedAssistScan(
+  db: { collection: (name: string) => any },
+  input: AssistUnchargedCancellationInput,
+): Promise<AssistUnchargedCancellationDisposition> {
+  const projectId = input.projectId.trim();
+  const userId = input.userId.trim();
+  const reason = input.reason.trim();
+  if (!projectId || !userId || !reason) return 'conflict';
+
+  const projects = db.collection('projects');
+  const projection = {
+    editMode: 1,
+    autoEditStatus: 1,
+    assistCreditTransactionId: 1,
+    assistChargedCredits: 1,
+    projectRevision: 1,
+    updatedAt: 1,
+  };
+  const current = await projects.findOne({ projectId, userId }, { projection });
+  if (!current) return 'conflict';
+  if (!isAssistProject(current)) return 'not-assist';
+  if (current.autoEditStatus === ASSIST_STATUS_SCAN_FAILED) return 'already-cancelled';
+  if (current.autoEditStatus === ASSIST_STATUS_READY || current.autoEditStatus === 'complete') {
+    return 'already-ready';
+  }
+  if (current.assistCreditTransactionId != null || current.assistChargedCredits != null) {
+    return 'charge-present';
+  }
+
+  const expectedRevision = assistProjectRevisionFor(current);
+  const committedAt = new Date();
+  const transition = await projects.updateOne(
+    {
+      projectId,
+      userId,
+      ...projectRevisionPredicate(expectedRevision),
+      editMode: 'assist',
+      autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
+      $and: [
+        { $or: [{ assistCreditTransactionId: { $exists: false } }, { assistCreditTransactionId: null }] },
+        { $or: [{ assistChargedCredits: { $exists: false } }, { assistChargedCredits: null }] },
+      ],
+    },
+    {
+      $set: {
+        autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+        autoEditError: reason,
+        updatedAt: committedAt,
+      },
+      $inc: { projectRevision: 1 },
+    },
+  );
+  if (transition.modifiedCount === 1) return 'cancelled';
+
+  const latest = await projects.findOne({ projectId, userId }, { projection });
+  if (!latest) return 'conflict';
+  if (!isAssistProject(latest)) return 'not-assist';
+  if (latest.autoEditStatus === ASSIST_STATUS_SCAN_FAILED) return 'already-cancelled';
+  if (latest.autoEditStatus === ASSIST_STATUS_READY || latest.autoEditStatus === 'complete') {
+    return 'already-ready';
+  }
+  if (latest.assistCreditTransactionId != null || latest.assistChargedCredits != null) {
+    return 'charge-present';
+  }
+  return 'conflict';
 }
 
 export type AssistAssetPartition = {

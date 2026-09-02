@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import type { RenderJob } from '@/lib/editron/schemas/render-job';
+import { projectService } from '@/lib/editron/services/project-service';
 import {
+  getProjectRenderHistoryV1,
   getRenderHistoryForProject,
   MAX_RENDER_FINALIZATION_ATTEMPTS,
 } from '@/lib/editron/services/render-job-service';
@@ -43,7 +46,40 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const history = await getRenderHistoryForProject(projectId, userId, 10);
+    const snapshot = await projectService.loadProjectForRenderSnapshot(userId, projectId);
+    if (!snapshot) {
+      return NextResponse.json(
+        { type: 'error', message: 'Project not found' },
+        { status: 404 },
+      );
+    }
+    const strict = await getProjectRenderHistoryV1({
+      ownerId: snapshot.ownerId,
+      requestedByUserId: userId,
+      projectId,
+      limit: 10,
+    });
+    if (!strict.ok) {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: strict.code,
+          message: 'Render history could not be validated.',
+        },
+        { status: 409 },
+      );
+    }
+    const legacy = (await getRenderHistoryForProject(
+      projectId,
+      snapshot.ownerId,
+      10,
+    )).filter((job) => !job.projectRenderSnapshotBinding && !job.artifactBinding);
+    const history: RenderJob[] = [...strict.jobs, ...legacy]
+      .sort((left, right) =>
+        renderHistoryTime(right) - renderHistoryTime(left)
+        || left._id.localeCompare(right._id)
+      )
+      .slice(0, 10);
 
     return NextResponse.json({
       type: 'success',
@@ -63,11 +99,15 @@ export async function GET(request: NextRequest) {
         })),
       }
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error fetching render history:', error);
     return NextResponse.json(
-      { type: 'error', message: error.message || 'Failed to fetch render history' },
+      { type: 'error', message: 'Failed to fetch render history' },
       { status: 500 }
     );
   }
+}
+
+function renderHistoryTime(job: RenderJob): number {
+  return job.completedAt?.getTime() ?? job.startedAt.getTime();
 }

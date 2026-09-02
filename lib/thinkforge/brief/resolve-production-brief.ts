@@ -209,6 +209,11 @@ function productionPlatformForAuthoringRequest(
       return 'linkedin';
     case 'x_post':
       return 'x';
+    case 'generic_post':
+    case 'generic_carousel':
+    case 'generic_video':
+    case 'custom':
+      return 'unspecified';
     default:
       break;
   }
@@ -226,6 +231,9 @@ function productionPlatformForAuthoringRequest(
       return 'linkedin';
     case 'x':
       return 'x';
+    case 'generic':
+    case 'custom':
+      return 'unspecified';
     default:
       return undefined;
   }

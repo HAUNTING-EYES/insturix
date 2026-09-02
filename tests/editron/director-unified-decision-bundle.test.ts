@@ -61,16 +61,21 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('throw bundleErr');
   });
 
-  it('persists unified bundle provenance for real-project debugging', () => {
+  it('records unified bundle provenance before dependent dispatch', () => {
     const source = directorSource();
+    const factIndex = source.indexOf("kind: 'UNIFIED_DECISION_BUNDLE'");
+    const autoBgmIndex = source.indexOf('Auto-BGM dispatch');
 
     expect(source).toContain('summarizeUnifiedDecisionBundle(unifiedDecisionBundle)');
     expect(source).toContain('summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain('authority: bundle.authority');
     expect(source).toContain('signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain("(result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary");
-    expect(source).toContain("await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary)");
-    expect(source).toContain("'intelligence.unifiedDecisionBundle'");
+    expect(source).toContain('await projectService.recordDirectorAuditFactV1(');
+    expect(source).toContain('payload: unifiedDecisionBundleSummary');
+    expect(factIndex).toBeGreaterThan(0);
+    expect(autoBgmIndex).toBeGreaterThan(factIndex);
+    expect(source).not.toContain('persistUnifiedDecisionBundleSummary');
   });
 
   it('persists final Phase-0 truth from the saved overlay set before completion events', () => {
@@ -97,6 +102,21 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('dispatch_error:');
   });
 
+  it('gates Director completion events on the lifecycle owner result', () => {
+    const source = directorSource();
+    const completionStart = source.indexOf('Brand Intelligence: emit director_completed');
+    const completionEnd = source.indexOf('Project Graph Record:', completionStart);
+    const completionBlock = source.slice(completionStart, completionEnd);
+
+    expect(completionBlock).toContain('const statusResult = await transitionProjectStatus(');
+    expect(completionBlock).toContain('if (!statusResult.success)');
+    expect(completionBlock).toContain('Director lifecycle transition rejected:');
+    expect(completionBlock.indexOf('if (!statusResult.success)'))
+      .toBeLessThan(completionBlock.indexOf("type: 'director_completed'"));
+    expect(source).toContain('const failureStatusResult = await transitionProjectStatus(');
+    expect(source).toContain('[Director] failure status transition rejected:');
+  });
+
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
     const source = directorSource();
     const fallbackAuthorityStart = source.indexOf("source: 'fallback-reactive'");
@@ -115,7 +135,29 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;');
     expect(source).not.toContain("const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';");
     expect(source).toContain("'creative-brief-per-asset-analysis-bypassed'");
-    expect(source).toContain("'intelligence.reason': intelligenceReason");
+    expect(source).toContain("kind: 'INTELLIGENCE_SKIP_SUMMARY'");
+    expect(source).toContain('reason: intelligenceReason');
+  });
+  it('receipts every Director intelligence fact without direct project writes', () => {
+    const source = directorSource();
+
+    expect(source).toContain("kind: 'INTELLIGENCE_RUN_SUMMARY'");
+    expect(source).toContain("kind: 'INTELLIGENCE_SKIP_SUMMARY'");
+    expect(source).toContain("kind: 'VJEPA_COVERAGE_AUDIT'");
+    expect(source).toContain('buildDirectorVjepaCoverageAuditSummaryV1(vjepaAudit)');
+    expect(source).toContain('buildPersistedDirectorDecisionLogV1(decisionLog)');
+    expect(source).toContain('await projectService.recordDirectorDecisionLogV1(');
+    expect(source).toContain('Computed Director decision-log evidence is invalid.');
+    expect(source).toContain('pathEErr instanceof ProjectMutationConflictError');
+    expect(source).toContain('edlErr instanceof ProjectMutationConflictError');
+    expect(source).not.toContain('non-fatal intelligence persistence');
+    expect(source).not.toContain('non-fatal intelligence failure persistence');
+    expect(source).not.toContain('const qrDb =');
+    expect(source).not.toContain('const auditDb =');
+    expect(source).not.toContain('const snapDb =');
+    expect(source).toContain('Computed V-JEPA coverage audit evidence is invalid.');
+    expect(source).toContain('committed with recordPhase0ProofFacts after the final editor save');
+    expect(source.match(/collection\('projects'\)\.updateOne/g) ?? []).toHaveLength(0);
   });
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
     expect(shouldRunPostEdlUtilityScoring({
@@ -192,10 +234,18 @@ describe('director unified decision bundle control flow', () => {
 
   it('applies post-bundle profile action policy before Director executes profile actions', () => {
     const source = directorSource();
+    const policyFactIndex = source.indexOf("kind: 'POST_BUNDLE_PROFILE_ACTION_POLICY'");
+    const actionProgressIndex = source.indexOf("'Starting Director Agent execution...'");
+    const finalSaveIndex = source.indexOf('await projectService.saveProjectWithReceipt');
 
     expect(source).toContain('shouldRunPostBundleProfileAction({');
     expect(source).toContain('Unified bundle: Skipping legacy profile action');
     expect(source).toContain('legacy profile action(s) skipped after EDL execution');
+    expect(source).toContain('payload: postBundleProfileActionPolicy');
+    expect(policyFactIndex).toBeGreaterThan(0);
+    expect(actionProgressIndex).toBeGreaterThan(policyFactIndex);
+    expect(finalSaveIndex).toBeGreaterThan(policyFactIndex);
+    expect(source).not.toContain('persistPostBundleProfileActionPolicy');
   });
 
   it('keeps Utility LIVE as shadow evidence during raw-footage creative brief runs', () => {

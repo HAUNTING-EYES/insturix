@@ -69,15 +69,6 @@ export const CAMERA_KIND_RANK: Record<Extract<ProductionEquipment, { category: '
   webcam: 1,
 };
 
-export const DEFAULT_FOCAL_LENGTH_MM: Record<Extract<ProductionEquipment, { category: 'camera' }>['kind'], number> = {
-  cinema: 50,
-  mirrorless: 35,
-  dslr: 35,
-  phone: 26,
-  'action-camera': 16,
-  webcam: 28,
-};
-
 const TIGHTER_FALLBACKS: Record<ShotFraming, readonly ShotFraming[]> = {
   'extreme-close-up': ['extreme-close-up'],
   'close-up': ['close-up', 'extreme-close-up'],

@@ -11,6 +11,20 @@ import { EDITORIAL_PLAN_EXECUTION_DEFINITION_COLLECTION_V1 }
   from '@/lib/editron/services/editorial-plan-execution-definition-v1';
 import { EDITORIAL_PLAN_REVISION_COLLECTION_V1 }
   from '@/lib/editron/services/editorial-plan-v1';
+import { PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/project-render-source-cleanup-v1';
+import { PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/chapter-concat-cleanup-v1';
+import { CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1 }
+  from '@/lib/editron/services/chapter-render-dispatch-v1';
+import { CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1 }
+  from '@/lib/editron/services/render-chapter-retention';
+import { PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
+import { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 }
+  from '@/lib/editron/services/project-whole-state-media-prerequisite-persistence-v1';
+import { PROJECT_DELETION_TOMBSTONES_COLLECTION_V1 }
+  from '@/lib/editron/services/project-deletion-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -76,10 +90,18 @@ export const COLLECTIONS = {
   MEDIA_UPLOADS: 'mediaUploads',
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
-  MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
+  PROJECT_RENDER_JOBS: 'editron_render_jobs',
+  PROJECT_DELETION_TOMBSTONES: PROJECT_DELETION_TOMBSTONES_COLLECTION_V1,
+  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES:
+    PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+  CHAPTER_RENDER_CHAPTERS: CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1,
+  CHAPTER_RENDER_RETENTION_RECEIPTS: CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1,
+  PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
+  PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX: PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
   MG_RENDER_JOBS: 'editron_mg_render_jobs',
+  MG_DESIGN_JOBS: 'editron_mg_design_jobs',
   CHAT_REFERENCE_STYLE_JOBS: 'editron_chat_reference_style_jobs',
   CHAT_EDITORIAL_INTENT_JOBS: 'editron_chat_editorial_intent_jobs',
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
@@ -182,6 +204,163 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Durable whole-project deletion receipts. Never TTL-delete audit proof.
+  await db.collection(COLLECTIONS.PROJECT_DELETION_TOMBSTONES).createIndexes([
+    {
+      key: { ownerId: 1, projectId: 1 },
+      name: 'project_deletion_owner_project_unique_v1',
+      unique: true,
+    },
+    { key: { deletedAt: -1, _id: 1 }, name: 'project_deletion_time_v1' },
+  ]);
+
+  // Provider render outputs that became stale after dispatch are deleted by a
+  // leased, idempotent cleanup consumer. Each query branch has its own index.
+  await db.collection(COLLECTIONS.PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX).createIndexes([
+    { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'status_available_createdAt' },
+    { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'status_leaseExpiresAt' },
+  ]);
+
+  // Strict render admissions whose provider response was ambiguous are
+  // reconciled in bounded attempt order without rerendering or refunding.
+  await db.collection(COLLECTIONS.PROJECT_RENDER_JOBS).createIndexes([
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderSnapshotBinding.scope': 1,
+        'dispatch.version': 1,
+        'dispatch.phase': 1,
+        status: 1,
+        'dispatch.attemptStartedAt': 1,
+        _id: 1,
+      },
+      name: 'dispatch_recovery_attempt_job',
+    },
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderSnapshotBinding.scope': 1,
+        'dispatch.version': 1,
+        'dispatch.phase': 1,
+        'dispatch.billingState': 1,
+        status: 1,
+        'dispatch.billingUnknownAt': 1,
+        _id: 1,
+      },
+      name: 'billing_recovery_unknown_job_v1',
+    },
+    {
+      key: {
+        'artifactCleanup.state': 1,
+        artifactState: 1,
+        chapterOrchestration: 1,
+        projectRenderSourceCleanupOutboxId: 1,
+        artifactInvalidatedAt: 1,
+        _id: 1,
+      },
+      name: 'project_render_snapshot_cleanup_recovery_v1',
+    },
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderLifecycleMigration.schemaVersion': 1,
+        status: 1,
+        startedAt: 1,
+        _id: 1,
+      },
+      name: 'project_render_lifecycle_migration_candidates_v1',
+    },
+  ]);
+
+  await db.collection(PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1).createIndexes([
+    {
+      key: { status: 1, updatedAt: 1, createdAt: 1, _id: 1 },
+      name: 'project_render_snapshot_invalidation_recovery_v1',
+    },
+  ]);
+
+  await db.collection(COLLECTIONS.PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES).createIndexes([
+    {
+      key: { 'retention.nextCheckAt': 1, createdAt: 1, _id: 1 },
+      name: 'project_whole_state_media_prerequisite_retention_due_v1',
+    },
+    {
+      key: { createdAt: 1, _id: 1 },
+      name: 'project_whole_state_media_prerequisite_legacy_created_v1',
+    },
+    {
+      key: { 'retention.expiresAt': 1 },
+      name: 'project_whole_state_media_prerequisite_retention_ttl_v1',
+      expireAfterSeconds: 0,
+    },
+  ]);
+
+  // Strict chapter children retain their own provider-call evidence inside the
+  // chapter aggregate. These indexes let the later recovery owner find
+  // uncertain attempts without treating a parent aggregate row as a provider
+  // child receipt.
+  await db.collection(COLLECTIONS.CHAPTER_RENDER_CHAPTERS).createIndexes([
+    {
+      key: {
+        'projectRenderSnapshotBinding.scope': 1,
+        'projectRenderSnapshotBinding.bindingHash': 1,
+        'chapters.dispatch.version': 1,
+        'chapters.dispatch.phase': 1,
+        'chapters.dispatch.childIndex': 1,
+        'chapters.dispatch.attemptStartedAt': 1,
+        _id: 1,
+      },
+      name: 'chapter_child_dispatch_recovery_attempt_v1',
+    },
+    {
+      key: {
+        'projectRenderSnapshotBinding.scope': 1,
+        'projectRenderSnapshotBinding.bindingHash': 1,
+        'chapters.dispatch.version': 1,
+        'chapters.dispatch.phase': 1,
+        'chapters.dispatch.childIndex': 1,
+        'chapters.dispatch.providerRenderId': 1,
+        'chapters.dispatch.providerBucketName': 1,
+        'chapters.dispatch.providerRegion': 1,
+        _id: 1,
+      },
+      name: 'chapter_child_dispatch_recovery_provider_v1',
+    },
+    {
+      key: {
+        artifactLifecycleVersion: 1,
+        artifactState: 1,
+        retentionState: 1,
+        expiresAt: 1,
+        _id: 1,
+      },
+      name: 'chapter_retention_due_v1',
+    },
+    {
+      key: {
+        artifactLifecycleVersion: 1,
+        'lifecycleMigration.schemaVersion': 1,
+        createdAt: 1,
+        _id: 1,
+      },
+      name: 'chapter_lifecycle_migration_candidates_v1',
+    },
+  ]);
+
+  // Audit tombstones survive deletion of the transient chapter aggregate. The
+  // retention owner writes one in the same transaction as the exact row delete.
+  await db.collection(COLLECTIONS.CHAPTER_RENDER_RETENTION_RECEIPTS).createIndexes([
+    { key: { chapterJobId: 1 }, name: 'chapter_job_id_unique_v1', unique: true },
+    { key: { deletedAt: 1, _id: 1 }, name: 'chapter_deleted_at_v1' },
+  ]);
+
+  // Concat output is a separate S3 object and has its own leased cleanup owner.
+  // Each claim branch has a matching index so expired leases cannot strand work.
+  await db.collection(COLLECTIONS.PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX).createIndexes([
+    { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'chapter_concat_status_available_createdAt' },
+    { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'chapter_concat_status_leaseExpiresAt' },
   ]);
 
   // Project-scoped documents and public URLs attached to AI chat. The extracted content is persisted

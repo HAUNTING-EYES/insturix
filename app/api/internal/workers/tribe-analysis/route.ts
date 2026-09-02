@@ -19,14 +19,25 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
-import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
-import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import {
+  INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+  withInternalQStashWorkerAuth,
+} from '@/lib/editron/security/internal-worker-auth';
+import { encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import {
+  ProjectAnalysisDirectorPublicationError,
+  activateProjectAnalysisDirectorInlineV1,
+  publishProjectAnalysisDirectorDispatchV1,
+} from '@/lib/editron/services/project-analysis-director-publication';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { CanonicalDirectorRunResultV1 } from '@/lib/editron/services/canonical-director-run';
+import type { ProjectAnalysisDirectorDispatchV1 } from '@/lib/editron/services/project-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
@@ -35,7 +46,9 @@ interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
   orgId?: string;
-  assetId?: string;
+  assetId: string;
+  analysisRunId: string;
+  deepAnalysisDispatchId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
@@ -44,55 +57,142 @@ interface TribeAnalysisPayload {
   chargedCredits?: number;
 }
 
+class TribeAnalysisOwnershipLostError extends Error {
+  readonly code = 'TRIBE_ANALYSIS_OWNERSHIP_LOST';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'TribeAnalysisOwnershipLostError';
+  }
+}
+
+class TribeAnalysisRetryableError extends Error {
+  readonly code = 'TRIBE_ANALYSIS_RETRYABLE';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'TribeAnalysisRetryableError';
+  }
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  console.log('[TribeWorker] Started');
-  let trackedProjectId: string | undefined;
+  let trackedScan: Pick<
+    TribeAnalysisPayload,
+    'projectId' | 'userId' | 'assetId' | 'analysisRunId' | 'creditTransactionId'
+  > | undefined;
   let directorDispatched = false;
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
-    const { projectId, userId, assetId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
-    const sourceAssetId = typeof assetId === 'string' && assetId.trim().length > 0 ? assetId.trim() : null;
-    trackedProjectId = projectId;
+    const {
+      projectId, userId, assetId, analysisRunId, deepAnalysisDispatchId, videoUrl,
+      segmentInputs, visualSegmentInputs, directorPayload,
+    } = payload;
+    const sourceAssetId = typeof assetId === 'string' ? assetId.trim() : '';
 
-    if (!projectId || !userId || !videoUrl) {
+    if (
+      !projectId
+      || !userId
+      || !sourceAssetId
+      || !analysisRunId
+      || !videoUrl
+      || (deepAnalysisDispatchId !== undefined
+        && (typeof deepAnalysisDispatchId !== 'string'
+          || deepAnalysisDispatchId.trim().length === 0
+          || deepAnalysisDispatchId.length > 200))
+      || directorPayload.projectId !== projectId
+      || directorPayload.userId !== userId
+      || directorPayload.analysisRunId !== analysisRunId
+    ) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+    trackedScan = {
+      projectId,
+      userId,
+      assetId: sourceAssetId,
+      analysisRunId,
+      creditTransactionId: payload.creditTransactionId,
+    };
+
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      console.error('[TribeWorker] Dependent worker dispatch is not configured outside development.');
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+            routeId: 'tribe-analysis',
+          },
+        },
+        { status: 503 },
+      );
     }
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
-
-    // ─── Idempotency guard ─────────────────────────────────────────
-    // QStash can redeliver this message (the worker runs ~8min, longer than QStash's effective
-    // response wait even with Upstash-Timeout), spawning a SECOND concurrent tribe worker that
-    // fights this one over the Modal GPU → V-JEPA/Wav2Vec abort (confirmed on real runs). Atomically
-    // CLAIM the project so a duplicate delivery bails instead of double-running. Stale claims (>15min,
-    // a crashed worker) are reclaimable; 15min > this route's maxDuration (800s) so a still-running
-    // worker keeps the lock.
-    const TRIBE_LOCK_STALE_MS = 15 * 60 * 1000;
-    const claim = await db.collection('projects').updateOne(
-      {
-        projectId,
-        $or: [
-          { tribeLockAt: { $exists: false } },
-          { tribeLockAt: null },
-          { tribeLockAt: { $lt: new Date(Date.now() - TRIBE_LOCK_STALE_MS) } },
-        ],
-      },
-      { $set: { tribeLockAt: new Date() } },
-    );
-    if (claim.matchedCount === 0) {
-      console.log(`[TribeWorker] ${projectId} already claimed by a concurrent worker (duplicate QStash delivery) — skipping to avoid GPU contention`);
+    const { projectService } = await import('@/lib/editron/services/project-service');
+    const claimSnapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const claim = await projectService.claimProjectAnalysisDeepRunV1(userId, projectId, {
+      expectedRevision: claimSnapshot.revision,
+      runId: analysisRunId,
+      sourceAssetId,
+      deepAnalysisDispatchId,
+    });
+    if (claim.disposition === 'DEEP_DISPATCH_PENDING') {
+      return NextResponse.json(
+        { success: false, error: 'TRIBE dispatch publication is not durable yet.' },
+        { status: 503 },
+      );
+    }
+    if (claim.disposition === 'DUPLICATE_ACTIVE') {
       return NextResponse.json({ success: true, skipped: 'duplicate-delivery', stage: 'tribe-analysis' });
     }
-    console.log(`[TribeWorker] Claimed ${projectId} (tribe lock acquired)`);
+    if (claim.disposition === 'DIRECTOR_DISPATCH_PUBLISHED') {
+      return NextResponse.json({ success: true, skipped: 'director-already-dispatched', stage: 'tribe-analysis' });
+    }
+    if (claim.disposition === 'DIRECTOR_DISPATCH_PENDING') {
+      if (!isInternalQStashDispatchConfigured()) {
+        const directorResult = await runPreparedDirectorInline({
+          projectId,
+          userId,
+          sourceAssetId,
+          analysisRunId,
+          directorPayload,
+          dispatch: claim.run.directorDispatch!,
+          onClaimed: () => { directorDispatched = true; },
+        });
+        return inlineDirectorResponse(directorResult, Date.now() - startMs);
+      }
+      await publishPreparedDirectorDispatch({
+        payload,
+        sourceAssetId,
+        directorPayload,
+        dispatch: claim.run.directorDispatch!,
+        onProviderAccepted: () => { directorDispatched = true; },
+      });
+      return NextResponse.json({ success: true, totalMs: Date.now() - startMs, stage: 'tribe-analysis' });
+    }
+    if (claim.disposition !== 'CLAIMED') {
+      throw new TribeAnalysisOwnershipLostError(
+        `TRIBE deep-analysis claim lost current run ownership (${claim.disposition}).`,
+      );
+    }
+    const deepAnalysisLeaseId = claim.lease.leaseId;
 
     const precomputedProjectDoc = await db.collection('projects').findOne(
-      { projectId },
+      {
+        projectId,
+        userId,
+        'autoEditAnalysisRunV1.runId': analysisRunId,
+        'autoEditAnalysisRunV1.deepAnalysisLease.leaseId': deepAnalysisLeaseId,
+      },
       { projection: { vjepaAnalysis: 1 } },
     );
-    const precomputedVjepaAnalysis = precomputedProjectDoc?.vjepaAnalysis;
+    if (!precomputedProjectDoc) {
+      throw new TribeAnalysisOwnershipLostError('TRIBE lease disappeared before GPU analysis began.');
+    }
+    const precomputedVjepaAnalysis = precomputedProjectDoc.vjepaAnalysis;
 
     // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
     // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
@@ -102,28 +202,16 @@ async function handler(request: NextRequest) {
       ? precomputedVjepaAnalysis
       : null;
     let wav2vecAnalysis: any = null;
+    let musicAnalysis: any = null;
 
     if (segmentInputs?.length > 0) {
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'analyzing_deep' } },
-        );
-
         const vjepaSegmentInputs = Array.isArray(visualSegmentInputs) && visualSegmentInputs.length > 0
           ? visualSegmentInputs
           : segmentInputs;
         const reusedPrecomputedVjepa = Boolean(vjepaAnalysis);
         const vjepaRequestedSeconds = sumSegmentSeconds(vjepaSegmentInputs);
         const speechRequestedSeconds = sumSegmentSeconds(segmentInputs);
-
-        console.log(
-          `[TribeWorker] TRIBE Phase 2: ${
-            vjepaAnalysis
-              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
-              : `dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments`
-          }; Wav2Vec for ${segmentInputs.length} speech segments...`
-        );
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           vjepaAnalysis
@@ -153,8 +241,6 @@ async function handler(request: NextRequest) {
         // Handle V-JEPA result
         if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
           vjepaAnalysis = vjepaResult.value;
-          const avgSig = vjepaAnalysis.segments.reduce((s: number, r: any) => s + r.visualSignificance, 0) / vjepaAnalysis.segments.length;
-          console.log(`[TribeWorker] V-JEPA: ${vjepaAnalysis.segments.length} segments analyzed (avg significance=${avgSig.toFixed(2)}, ${vjepaAnalysis.processingTimeMs}ms)`);
         } else {
           const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] V-JEPA skipped: ${msg}`);
@@ -211,12 +297,6 @@ async function handler(request: NextRequest) {
         const wav2vecResolution = wav2vecResult.status === 'fulfilled' ? wav2vecResult.value : null;
         if (wav2vecResolution?.analysis) {
           wav2vecAnalysis = wav2vecResolution.analysis;
-          const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
-          console.log(
-            `[TribeWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments ` +
-            `(avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms, ` +
-            `source=${wav2vecResolution.provenance}, waited=${wav2vecResolution.waitedMs}ms)`,
-          );
         } else {
           const msg = wav2vecResult.status === 'rejected'
             ? (wav2vecResult.reason?.message || String(wav2vecResult.reason))
@@ -265,10 +345,8 @@ async function handler(request: NextRequest) {
             });
 
         // Handle Music Analysis result
-        let musicAnalysis: any = null;
         if (musicResult.status === 'fulfilled' && musicResult.value) {
           musicAnalysis = musicResult.value;
-          console.log(`[TribeWorker] Music: BPM=${musicAnalysis.bpm}, ${musicAnalysis.beats.length} beats, presence=${musicAnalysis.musicPresence.toFixed(2)}, ${musicAnalysis.processingTimeMs}ms`);
         } else {
           const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] Music analysis skipped: ${msg}`);
@@ -304,31 +382,6 @@ async function handler(request: NextRequest) {
                 errorClass: settledErrorClass(musicResult),
               },
             });
-
-        // Store music analysis on project for Director to read
-        if (musicAnalysis) {
-          try {
-            const musicUpdatedAt = new Date();
-            await db.collection('projects').updateOne(
-              { projectId },
-              {
-                $set: {
-                  musicAnalysis,
-                  ...(sourceAssetId ? buildProjectAnalysisAssetSet(sourceAssetId, { musicAnalysis }, musicUpdatedAt) : {}),
-                },
-              },
-            );
-
-            if (sourceAssetId) {
-              try {
-                await persistProjectAssetAnalysis(db, projectId, sourceAssetId, { musicAnalysis }, musicUpdatedAt);
-              } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.warn(`[TribeWorker] Music per-asset analysis document write failed (non-fatal): ${msg}`);
-              }
-            }
-          } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] TRIBE Phase 2 analysis failed (non-fatal): ${msg}`);
@@ -341,12 +394,19 @@ async function handler(request: NextRequest) {
     // Otherwise falls back to Phase 0 flat weights.
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
-      { projectId },
+      {
+        projectId,
+        userId,
+        'autoEditAnalysisRunV1.runId': analysisRunId,
+        'autoEditAnalysisRunV1.deepAnalysisLease.leaseId': deepAnalysisLeaseId,
+      },
       { projection: { rawFootageAnalysis: 1, rawFootageAnalysisByAsset: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
-    const keyedRawFootageAnalysis = sourceAssetId
-      ? projectDoc?.rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)]
-      : null;
+    if (!projectDoc) {
+      throw new TribeAnalysisOwnershipLostError('TRIBE lease disappeared before Phase-2 evidence was built.');
+    }
+    const keyedRawFootageAnalysis = projectDoc
+      .rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)];
     const rawFootageAnalysis = keyedRawFootageAnalysis ?? projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;
 
@@ -374,7 +434,6 @@ async function handler(request: NextRequest) {
         }
 
         momentWeightMap = weightMap;
-        console.log(`[TribeWorker] Moment weights: Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] Moment weight computation failed (non-fatal): ${msg}`);
@@ -391,9 +450,6 @@ async function handler(request: NextRequest) {
           rawFootageAnalysis, syntheticStoryboard,
           vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
         );
-        if (segmentAnalysis) {
-          console.log(`[TribeWorker] SegmentAnalysis: ${segmentAnalysis.meta.segmentCount} segments, vjepa=${segmentAnalysis.meta.hasVjepa}, wav2vec=${segmentAnalysis.meta.hasWav2vec}, phase=${segmentAnalysis.meta.momentWeightPhase}`);
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] SegmentAnalysis build failed (non-fatal): ${msg}`);
@@ -401,234 +457,215 @@ async function handler(request: NextRequest) {
     }
 
     // ─── Step 4b: Store Phase 2 results on project doc ────────────
-    const phase2UpdatedAt = new Date();
-    const phase2PerAssetSet = sourceAssetId
-      ? buildProjectAnalysisAssetSet(sourceAssetId, {
-        vjepaAnalysis,
-        wav2vecAnalysis,
-        momentWeightMap,
-        segmentAnalysis,
-      }, phase2UpdatedAt)
-      : {};
-    if (!sourceAssetId) {
-      console.warn(`[TribeWorker] Missing assetId for per-asset analysis storage on ${projectId}; writing compatibility project fields only.`);
-    }
-
-    await db.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          autoEditStatus: 'analysis_complete',
-          ...(vjepaAnalysis && { vjepaAnalysis }),
-          ...(wav2vecAnalysis && { wav2vecAnalysis }),
-          ...(momentWeightMap && { momentWeightMap }),
-          ...(segmentAnalysis && { segmentAnalysis }),
-          ...phase2PerAssetSet,
-          updatedAt: phase2UpdatedAt,
-        },
+    const phase2Snapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const phase2Commit = await projectService.commitProjectAnalysisPhase2V1(userId, projectId, {
+      expectedRevision: phase2Snapshot.revision,
+      runId: analysisRunId,
+      sourceAssetId,
+      leaseId: deepAnalysisLeaseId,
+      evidence: {
+        ...(vjepaAnalysis ? { vjepaAnalysis } : {}),
+        ...(wav2vecAnalysis ? { wav2vecAnalysis } : {}),
+        ...(musicAnalysis ? { musicAnalysis } : {}),
+        ...(momentWeightMap ? { momentWeightMap } : {}),
+        ...(segmentAnalysis ? { segmentAnalysis } : {}),
       },
+    });
+    if (phase2Commit.disposition !== 'ADVANCED' && phase2Commit.disposition !== 'ALREADY_ADVANCED') {
+      throw new TribeAnalysisOwnershipLostError(
+        `TRIBE Phase-2 commit lost current run ownership (${phase2Commit.disposition}).`,
+      );
+    }
+    const preparedDispatch = phase2Commit.run.directorDispatch;
+    if (!preparedDispatch) {
+      throw new Error('TRIBE Phase-2 commit did not prepare its Director dispatch.');
+    }
+    const phase2UpdatedAt = new Date(
+      phase2Commit.run.phase2EvidenceCommittedAt ?? phase2Commit.run.updatedAt,
     );
 
-    if (sourceAssetId) {
-      try {
-        await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
-          vjepaAnalysis,
-          wav2vecAnalysis,
-          momentWeightMap,
-          segmentAnalysis,
-        }, phase2UpdatedAt);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
-      }
+    try {
+      await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
+        vjepaAnalysis,
+        wav2vecAnalysis,
+        musicAnalysis,
+        momentWeightMap,
+        segmentAnalysis,
+      }, phase2UpdatedAt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
     }
 
     // ─── Step 5: Dispatch Director to separate worker ─────────────
-    if (process.env.QSTASH_TOKEN) {
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'directing_queued' } },
-      );
-
-      const qstashBaseUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-      const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
-
-      const dispatchRes = await fetch(qstashUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-          'Content-Type': 'application/json',
-          'Upstash-Retries': '0',
-          'Upstash-Delay': '3s',
-        },
-        body: JSON.stringify(directorPayload),
+    if (isInternalQStashDispatchConfigured()) {
+      await publishPreparedDirectorDispatch({
+        payload,
+        sourceAssetId,
+        directorPayload,
+        dispatch: preparedDispatch,
+        onProviderAccepted: () => { directorDispatched = true; },
       });
-
-      const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
-      await recordTribeCostEvent(payload, {
-        stage: 'director_qstash',
-        status: directorDispatchStatus,
-        provider: 'upstash-qstash',
-        operation: 'queue_message',
-        units: { queueMessages: 1, requestCount: 1 },
-        metadata: { httpStatus: dispatchRes.status },
-      });
-
-      if (!dispatchRes.ok) {
-        const errBody = await dispatchRes.text().catch(() => 'no body');
-        throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
-      }
-
-      directorDispatched = true;
-      const dispatchData = await dispatchRes.json().catch(() => ({}));
       const totalMs = Date.now() - startMs;
-      console.log(`[TribeWorker] TRIBE complete: ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
       return NextResponse.json({ success: true, totalMs, stage: 'tribe-analysis' });
     }
 
     // ─── Dev fallback: no QStash → run Director inline ────────────
     console.warn(`[TribeWorker] No QSTASH_TOKEN — running Director inline`);
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { autoEditStatus: 'directing' } },
-    );
-
-    const initialProfileId = (directorPayload.profileId as string) || 'G-01';
-    const title = (directorPayload.title as string) || '';
-    const platform = (directorPayload.platform as string) || 'youtube';
-    const userIntent = directorPayload.userIntent as string | undefined;
-    const captionStyle = directorPayload.captionStyle as string | undefined;
-    const transitionPreference = directorPayload.transitionPreference as string | undefined;
-    const zoomBehavior = directorPayload.zoomBehavior as string | undefined;
-    const motionGraphics = directorPayload.motionGraphics as string | undefined;
-    const pacingFeel = directorPayload.pacingFeel as string | undefined;
-    const musicPreference = directorPayload.musicPreference as string | undefined;
-
-    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
-    const profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection) {
-      console.log(`[TribeWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
-    }
-
-    const editDNA = projectDoc?.referenceEditDNA;
-    let brief: any = undefined;
-    const userPrefs = {
-      ...(captionStyle && { captionStyle }),
-      ...(transitionPreference && { transitionPreference }),
-      ...(zoomBehavior && { zoomBehavior }),
-      ...(motionGraphics && { motionGraphics }),
-      ...(pacingFeel && { pacingFeel }),
-      ...(musicPreference && { musicPreference }),
-      ...(platform && { platform }),
-      ...(userIntent && { intent: userIntent }),
-    };
-    if (editDNA) {
-      brief = {
-        ...userPrefs,
-        overrides: {
-          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
-          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
-          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
-          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
-        },
-      };
-    } else if (Object.keys(userPrefs).length > 0) {
-      brief = { ...userPrefs, modifiers: [] };
-    }
-
-    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief,
-      (step, total, desc) => console.log(`[TribeWorker] Director ${step}/${total}: ${desc}`),
-    );
-
-    const totalMs = Date.now() - startMs;
-    const projectAfterDirector = await db.collection('projects').findOne(
-      { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
-    );
-    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
-    const learningDecision = resolveEditronLearningOutcome({
-      hasQualityReview: !!projectAfterDirector?.qualityReview,
-      qualityScore: projectAfterDirector?.qualityReview?.overallScore,
-      criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
-      qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
-      renderedQualityStatus: renderedQualityEvidence?.renderedQualityStatus,
-      renderedAestheticStatus: renderedQualityEvidence?.renderedAestheticStatus,
-      artifactStatus: renderedQualityEvidence?.artifactStatus,
-      renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount,
+    const directorResult = await runPreparedDirectorInline({
+      projectId,
+      userId,
+      sourceAssetId,
+      analysisRunId,
+      directorPayload,
+      dispatch: preparedDispatch,
+      onClaimed: () => { directorDispatched = true; },
     });
-    const completionSet: Record<string, unknown> = {
-      autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
-      autoEditCompletedAt: new Date(),
-      autoEditDurationMs: totalMs,
-      directorProfileUsed: profileId,
-    };
-    const completionUpdate: Record<string, unknown> = { $set: completionSet };
-    if (!learningDecision.shouldRecord) {
-      completionSet.projectStatus = 'needs-attention';
-      completionSet.autoEditHealth = 'needs_review';
-      completionSet.autoEditWarning = learningDecision.reason === 'missing_quality_review'
-        ? 'Director completed without a persisted quality review.'
-        : `Director completed with quality score ${learningDecision.qualityScore ?? 0} and ${projectAfterDirector?.qualityReview?.criticalCount ?? 0} critical issue(s).`;
-    } else {
-      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
-    }
-    await db.collection('projects').updateOne(
-      { projectId },
-      completionUpdate,
-    );
-
-    console.log(`[TribeWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
-
-    try {
-      if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
-        const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
-          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
-          renderedAestheticStatus:
-            renderedQualityEvidence?.renderedAestheticStatus ??
-            renderedQualityEvidence?.renderedQualityStatus ??
-            renderedQualityEvidence?.artifactStatus,
-        });
-        if (!outcome.recorded) {
-          console.log('[TribeWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
-        }
-      } else {
-        console.log(`[TribeWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
-      }
-    } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
-
-    return NextResponse.json({ success: true, totalMs });
+    return inlineDirectorResponse(directorResult, Date.now() - startMs);
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
+    const ownershipLost = error instanceof TribeAnalysisOwnershipLostError;
+    const retryable = error instanceof TribeAnalysisRetryableError;
     console.error(`[TribeWorker] Failed: ${msg}`);
 
     // Mark project as failed — but only if Director hasn't already been dispatched
     // (if dispatched, the Director worker owns the final status)
-    if (trackedProjectId && !directorDispatched) {
+    if (trackedScan && !directorDispatched && !ownershipLost && !retryable) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
         // Assist lane: a TRIBE-stage failure must refund (from-asset deducted at
         // intake) and surface scan_failed — not silently keep the charge as 'failed'.
-        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: trackedScan.projectId,
+          userId: trackedScan.userId,
+          reason: msg,
+          creditTransactionId: trackedScan.creditTransactionId,
+        });
         if (settlement === 'not-assist') {
-          await db.collection('projects').updateOne(
-            { projectId: trackedProjectId },
-            { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          const { projectService } = await import('@/lib/editron/services/project-service');
+          const snapshot = await projectService.loadProjectForMutation(
+            trackedScan.userId,
+            trackedScan.projectId,
           );
+          const failed = await projectService.failProjectAnalysisRunV1(
+            trackedScan.userId,
+            trackedScan.projectId,
+            {
+              expectedRevision: snapshot.revision,
+              runId: trackedScan.analysisRunId,
+              sourceAssetId: trackedScan.assetId,
+              errorMessage: msg,
+            },
+          );
+          if (failed.disposition !== 'RECORDED' && failed.disposition !== 'ALREADY_RECORDED') {
+            throw new Error(`TRIBE failure lost current run ownership (${failed.disposition}).`);
+          }
         }
       } catch (e) { console.warn(`[TribeWorker] Status update failed:`, e instanceof Error ? e.message : e); }
     }
 
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: msg },
+      { status: retryable ? 503 : ownershipLost ? 409 : 500 },
+    );
   }
+}
+
+async function publishPreparedDirectorDispatch(input: {
+  payload: TribeAnalysisPayload;
+  sourceAssetId: string;
+  directorPayload: Record<string, unknown>;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onProviderAccepted(): void;
+}): Promise<void> {
+  try {
+    const publication = await publishProjectAnalysisDirectorDispatchV1({
+      projectId: input.payload.projectId,
+      userId: input.payload.userId,
+      analysisRunId: input.payload.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+      directorPayload: input.directorPayload,
+      dispatch: input.dispatch,
+      onProviderAccepted: input.onProviderAccepted,
+    });
+    await recordTribeCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: 'success',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publication.httpStatus,
+        deduplicationId: publication.deduplicationId,
+        providerMessageId: publication.providerMessageId,
+      },
+    });
+  } catch (error: unknown) {
+    const publicationError = error instanceof ProjectAnalysisDirectorPublicationError
+      ? error
+      : undefined;
+    await recordTribeCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: publicationError?.providerAccepted ? 'success' : 'failed',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publicationError?.httpStatus,
+        deduplicationId: input.dispatch.deduplicationId,
+        providerAccepted: publicationError?.providerAccepted ?? false,
+      },
+    });
+    throw new TribeAnalysisRetryableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function runPreparedDirectorInline(input: {
+  projectId: string;
+  userId: string;
+  sourceAssetId: string;
+  analysisRunId: string;
+  directorPayload: Record<string, unknown>;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onClaimed(): void;
+}): Promise<CanonicalDirectorRunResultV1> {
+  await activateProjectAnalysisDirectorInlineV1(input);
+  const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+  return runCanonicalDirectorV1({
+    projectId: input.projectId,
+    userId: input.userId,
+    analysisRunId: input.analysisRunId,
+    analysisDirectorDispatchId: input.dispatch.deduplicationId,
+    profileId: typeof input.directorPayload.profileId === 'string' ? input.directorPayload.profileId : 'G-01',
+    platform: typeof input.directorPayload.platform === 'string' ? input.directorPayload.platform : 'youtube',
+    userIntent: typeof input.directorPayload.userIntent === 'string' ? input.directorPayload.userIntent : undefined,
+    captionStyle: input.directorPayload.captionStyle,
+    transitionPreference: input.directorPayload.transitionPreference,
+    zoomBehavior: input.directorPayload.zoomBehavior,
+    motionGraphics: input.directorPayload.motionGraphics,
+    pacingFeel: input.directorPayload.pacingFeel,
+    musicPreference: input.directorPayload.musicPreference,
+    editorialPreferences: input.directorPayload.editorialPreferences,
+  }, { onClaimed: input.onClaimed });
+}
+
+function inlineDirectorResponse(
+  result: CanonicalDirectorRunResultV1,
+  totalMs: number,
+) {
+  if (result.disposition === 'DISPATCH_PENDING') {
+    return NextResponse.json({ success: false, error: 'Inline Director dispatch remained pending.' }, { status: 503 });
+  }
+  if (result.disposition === 'ASSIST_READY') {
+    return NextResponse.json({ success: true, totalMs, status: result.status, directorSkipped: true });
+  }
+  if (result.disposition === 'ALREADY_PROCESSED' || result.disposition === 'OWNERSHIP_LOST') {
+    return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
+  }
+  return NextResponse.json({ success: true, totalMs });
 }
 
 async function recordTribeCostEvent(
@@ -650,7 +687,7 @@ async function recordTribeCostEvent(
     : undefined);
 
   await recordProviderCostEvent({
-    idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${event.stage}:${event.status}`,
+    idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${payload.analysisRunId}:${event.stage}:${event.status}`,
     status: event.status,
     userId: payload.userId,
     orgId,

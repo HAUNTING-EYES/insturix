@@ -58,6 +58,36 @@ describe('computeSpeedSegments', () => {
     ]);
     expect(maxSourceEnd(segments)).toBe(99);
   });
+
+  it('uses an explicit source span for a source-preserving shortened retime', () => {
+    const segments = computeSpeedSegments([
+      { frame: 0, value: 2, easing: 'linear' },
+      { frame: 59, value: 2, easing: 'linear' },
+    ], 60, 120);
+
+    expect(segments).toEqual([
+      {
+        compositionStartFrame: 0,
+        compositionEndFrame: 59,
+        playbackRate: 2,
+        sourceStartFrame: 0,
+      },
+      {
+        compositionStartFrame: 59,
+        compositionEndFrame: 60,
+        playbackRate: 2,
+        sourceStartFrame: 118,
+      },
+    ]);
+    expect(maxSourceEnd(segments)).toBe(120);
+  });
+
+  it('rejects an invalid source-frame budget', () => {
+    expect(() => computeSpeedSegments([
+      { frame: 0, value: 1, easing: 'linear' },
+      { frame: 1, value: 1, easing: 'linear' },
+    ], 2, Number.NaN)).toThrow('availableSourceFrames');
+  });
 });
 
 describe('evaluateKeyframeTrack', () => {

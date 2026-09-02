@@ -20,6 +20,842 @@ This document supersedes the implementation ordering in the earlier
 reconciliation document.  It retains IF1 and all valuable Phase 2C work; it
 does not approve a new parallel runtime.
 
+## Live execution pointer - 2026-08-26
+
+The authoritative current Stage 2.5 queue is the section titled **Canonical
+current Stage 2.5 execution queue - 2026-08-26** below. Earlier Stage 2.5
+"next" instructions are retained as dated history and do not authorize a
+rerun, provider call or reordered implementation. The latest canonical queue
+must be updated in the same bounded phase whenever its evidence or next action
+changes.
+
+Cross-session takeover must also read
+[EDITRON_CODEX_HANDOVER_2026-08-26.md](./editron/open-ended-editing/EDITRON_CODEX_HANDOVER_2026-08-26.md).
+It binds the exact active worktree/HEAD, the append-only Codex transcript
+identity, the final paid-cohort correction chain and the remaining Stage 2.5
+order. The handover is a map; code, receipts and this current queue remain
+authoritative when facts conflict.
+
+### Safety / project-authority implementation record - 2026-08-25
+
+- Commit `f0e12d438` moves the live chat `cut_section` call through the single
+  `ProjectService.cutTimelineRangeV1` owner. Its result now carries the complete
+  pre-cut ripple-effect range and distinct post-cut preview range rather than a
+  one-frame seam hint. This is one migrated writer, not range collaboration,
+  safe rebase, generic invalidation, or migration of all writers.
+- Commits `e159c9b6a`, `93df2b682`, `dea556299` and `17c04bc8e` make the
+  eight audited raw-fallback workers fail closed when either QStash rotation
+  key is absent: asset transcription/analysis/deep-analysis, Director failure,
+  Graph Sync, Chapter Concat, Brand Learning and Clickatron variation. The
+  Clickatron invalid-signature terminalization path remains intact. This does
+  not certify every internal worker, development-only route policy, or
+  unrelated ingress.
+- Commit `5684aca17` moves the authenticated Director-delivery-failure callback
+  through `ProjectService.recordDirectorDeliveryFailureV1`. The owner validates
+  the bounded callback audit, source message, active Director state and
+  snapshot revision in one CAS update; it increments `projectRevision` and
+  issues a writer receipt. Stale, terminal, changed and missing-project cases
+  produce explicit no-write dispositions. The route no longer reads or writes
+  `projects` directly. Its upload-batch status write remains a separate,
+  non-atomic aggregate update by design: reconciliation after a post-project
+  batch-write failure is still an open owner-design gap. Focused owner/ingress
+  verification was 33/33, with repository typecheck and quiet ESLint passing.
+- Commit `8823a676a` closes the first Director progress/revision seam. The
+  QStash Director worker now opts into the narrow
+  `ProjectService.recordDirectorProgressV1` command; it requires the active
+  lease token, exact revision and `autoEditStatus: 'directing'`, advances the
+  revision in one CAS write and returns the existing writer receipt. The
+  Director awaits that receipt, validates every contiguous ProjectService
+  action-receipt chain, and uses the carried revision for its final editor
+  save. The route is now observation/logging only for progress. Direct/manual,
+  Video Analysis and Tribe callers retain observer-only progress and therefore
+  do not gain an unexpected stage write. Focused ProjectService/Director
+  verification was 129/129, with repository typecheck and quiet ESLint
+  passing. This repairs the Director's own progress and receipt race; it does
+  not migrate the route claim/completion/runtime-failure lifecycle, legacy
+  Director facts, other worker writers, range collaboration or generic state
+  reconciliation.
+- The immediate next foundation work is the remaining legacy-project-writer
+  audit and the next highest-risk bounded owner migration. Current-source
+  audit [project-authority-current-truth-audit-2026-08-25.md](./editron/project-authority-current-truth-audit-2026-08-25.md)
+  confirms that no additional inspected production worker falls through to a
+  raw handler when QStash signing keys are absent. It also identifies the
+  split Director lifecycle as the next bounded migration: raw route
+  claim/completion/runtime-failure writes still surround a ProjectService
+  lease, final editor write and Phase-0 proof. Progress now carries its own
+  receipt revision, including receipts emitted by Director action tools. The
+  required Director-agent Step-0 audit and completed first repair are recorded
+  in [director-agent-progress-step0-audit-2026-08-25.md](./editron/director-agent-progress-step0-audit-2026-08-25.md).
+  Commit `a0cb07556` then removed the one dead Director progress type export
+  before the next structural change. The separate
+  [director-lifecycle-step0-audit-2026-08-25.md](./editron/director-lifecycle-step0-audit-2026-08-25.md)
+  records the verified next design: a durable run token is distinct from the
+  short-lived writer lease, and typed claim, ownership-loss completion and
+  active-run failure must be ProjectService commands rather than a generic
+  metadata port. Commit `f233ec379` now implements and tests that narrow
+  ProjectService owner: atomically claimed non-Assist run identity, exact
+  terminal-receipt completion, and active-run-only failure all advance the
+  canonical revision and return receipts/no-write dispositions. Its focused
+  owner suites passed 26/26 with repository typecheck and quiet lint. Commit
+  `bbc74cd8e` moves the QStash Director worker through that owner: the route
+  claims the durable run token, requires the executor's last writer-issued
+  terminal receipt for completion, and sends runtime failure only through the
+  matching active run. The executor now returns its final save, Phase-0 or
+  final durable-progress receipt as appropriate and defers its legacy raw
+  `status` transition for this worker, so it cannot invalidate that receipt
+  before completion. Assist handoff remains a deliberately separate legacy
+  route write. Focused owner/route suites pass 28/28 with repository typecheck
+  and quiet lint. This is a completed **automatic QStash Director lifecycle**
+  migration, not a migration of legacy Director fact writes, stuck recovery,
+  Assist rescue, range collaboration or generic reconciliation.
+  No Stage 2.5 paid dispatch is authorized by this audit.
+- The pipeline-audio worker migration is complete on the active worker path.
+  Commit `6382641ce` already makes production dispatch fail closed when QStash
+  publisher or signing configuration is absent; `1853c308a` binds the
+  retry-stable `audio-delivery_*` identity before publication. The active route
+  now requires that identity, obtains a ProjectService mutation snapshot, and
+  calls the narrow `ProjectService.commitPipelineAudioDeliveryV1` owner
+  described in [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md).
+  It has exact delivery-material idempotency, a non-audio timeline binding,
+  audio-only safe rebase, BGM fresh-snapshot CAS retry, writer-issued receipt,
+  and explicit `UNVERIFIABLE` attached-audio proof. The route has no direct
+  `projects` collection access, no post-read full-overlay replacement, and no
+  fallback after an owner conflict. Its active ingress tests cover BGM, SFX,
+  policy skip, terminal failure, missing identity and stale visual-binding
+  conflict; the cross-boundary suite passes 90/90 with repository typecheck
+  and quiet ESLint. This is a completed pipeline-audio **project writer**
+  migration, not a claim of audio render/mix proof, transactional media assets,
+  unified beat analysis, range collaboration, or migration of other legacy
+  writers. The next ordered foundation remains the residual fail-open and
+  legacy-project-writer inventory, then the canonical media/timebase/evidence
+  spine, followed by the remaining Stage 2.5 generalisation evidence.
+
+- **2026-08-25 media/timebase Step-0 current truth.** The live media library
+  still has multiple direct ingress paths: signed registration, server-side
+  upload, multipart tracking and a proxy-to-original URL swap. They persist
+  loose `MediaAsset` metadata, not one qualified immutable master/proxy source
+  identity. The richer `EditorialMediaIdentityContractV1` is explicitly
+  contract-only; the provider-native canonical-media records are bounded
+  reference/episode adapters and must not become a second ingest authority.
+  The exact audit is [canonical-media-timebase-step0-audit-2026-08-25.md](./editron/canonical-media-timebase-step0-audit-2026-08-25.md).
+  The completed first bounded implementation corrects the former chapter
+  renderer fixed-30-fps duration policy only; it does not claim rational/VFR/
+  timecode or long-form-media completion.
+
+- **2026-08-25 remote source-probe foundation.** Commit `b312af4ff` adds
+  a typed, read-only Modal `ffprobe` adapter and a deployment module. It
+  measures only technical stream/container observations through a
+  server-generated storage URL and returns `UNVERIFIABLE` for absent
+  configuration or malformed/empty evidence. It deliberately does not issue a
+  canonical source identity, byte digest, PTS map, CFR/VFR conclusion,
+  proxy/master mapping, ProjectService receipt, or product permission. The
+  next media slice is a signed qualification worker after actual storage
+  verification. The existing `MediaAsset` type now carries a source-bound
+  `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE` contract. The exact boundary is
+  [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
+  Commit `025b4e73b` corrects its formerly unprotected Modal web endpoint:
+  the deployment declaration now requires Modal proxy authentication and the
+  TypeScript adapter sends dedicated `EDITRON_MODAL_PROXY_AUTH_TOKEN_ID` /
+  `EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET` values as `Modal-Key` /
+  `Modal-Secret`. Generic `MODAL_TOKEN_*` values and a custom `Authorization`
+  header are not treated as endpoint authorization. No deployment or
+  environment configuration occurred; absent proxy credentials remain
+  `UNVERIFIABLE`. Commit `b96253b52` then extracts that dedicated credential
+  reader and `Modal-Key`/`Modal-Secret` header construction into the bounded
+  `modal-proxy-auth-v1.ts` owner, while preserving the source-probe public
+  configuration constants. This is shared security plumbing only: it does not
+  authenticate another endpoint, deploy anything, or close the remaining
+  worker-auth audit. Commit `27dd95b83` additionally permits those proxy
+  headers only for an HTTPS `modal.run` endpoint with no embedded credentials;
+  a foreign, malformed, or HTTP endpoint is treated as unconfigured and never
+  receives a secret. Custom domains require a separate reviewed trust policy.
+
+- **2026-08-25 Scene Detection source-auth correction.** Commit `eb7836dc9`
+  updates the repository source for the legacy ffmpeg cut detector: its Modal
+  declaration requires proxy authentication, its TypeScript caller uses only
+  the dedicated host-bound proxy credentials, generic `MODAL_TOKEN_*` values
+  cannot authorize it, and the source no longer logs/returns raw download
+  exceptions that could include a source URL. Its direct canonical consumer
+  already treats missing measured cuts as fatal rather than inventing model
+  timing. This is **source-only** evidence: no Modal deployment or environment
+  change was made or verified. The endpoint still receives a temporary URL
+  rather than a storage-owner-issued source handle, so it is not the finished
+  canonical-media ingress/provenance boundary.
+
+- **2026-08-25 Music Analysis source-auth correction.** Step-0 commit
+  `89a30417d` first removed dead worker code and raw diagnostic/error prints.
+  Commit `74f66518b` then changes only the repository source boundary: the
+  Essentia Modal declaration requires proxy authentication, and its client
+  uses only the dedicated, host-bound proxy credentials. Generic
+  `MODAL_TOKEN_*` values and arbitrary/HTTP endpoint configuration cannot
+  authorize a call or receive proxy headers. The client logs no raw request
+  error and rejects malformed worker payloads before downstream consumers see
+  music facts. Focused Music/Scene boundary tests pass 12/12, Python compile,
+  TypeScript checking and quiet ESLint pass. No Modal deployment or environment
+  update was made. The worker still receives a caller-provided temporary audio
+  URL, so canonical-media provenance, URL origin/redirect/byte/expiry policy,
+  and storage-owner-issued handles remain open.
+
+- **2026-08-25 Wav2Vec source-auth correction.** Step-0 commit `be538d723`
+  removed worker debug/raw-error diagnostics before commit `f0ccf4dbe` changed
+  the repository source boundary. The Modal endpoint now requires proxy auth;
+  the client sends only dedicated, host-bound proxy credentials, rejects
+  arbitrary/HTTP endpoint configuration before fetch, and validates remote
+  segment payloads before emitting vocal facts. Generic `MODAL_TOKEN_*` values
+  cannot authorize this path; raw source/request error text is not logged.
+  Existing one-source batched segment analysis is unchanged. Focused
+  Wav2Vec/Music tests pass 13/13, Python compile/static analysis, TypeScript
+  checking and quiet ESLint pass. No endpoint deployment or environment change
+  was made. The worker still receives a caller-provided temporary URL rather
+  than a canonical-media source handle.
+
+- **2026-08-25 V-JEPA and standalone classifier endpoint reconciliation.**
+  Step-0 commit `e18ff1200` removes dead V-JEPA worker code and raw diagnostic
+  logging; `d8ff0fbc6` then requires proxy authentication, uses only the
+  shared dedicated host-bound credentials and rejects malformed worker data.
+  Commit `436b37e19` requires Modal proxy authentication for an otherwise
+  unreferenced Gemma editorial research endpoint and changes its sole
+  repository probe from obsolete generic tokens to `Modal-Key` /
+  `Modal-Secret`. The manual probe takes an explicit endpoint and is not a
+  host-bound product client. This is source-only endpoint hardening: neither path was
+  deployed, neither gives the classifier a product caller, and V-JEPA still
+  receives a temporary caller URL rather than a canonical-media source handle.
+  The separate manual bearer boundaries for render finalization, chapter
+  concat and Brand Vault remain non-unified service policies, not evidence that
+  any proxy-auth migration is product-complete.
+
+- **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
+  source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
+  lifecycle as an optional field on the existing `MediaAsset` type. It accepts
+  only a server-owned R2 key or GCS path for a user upload and binds claims to
+  `(assetId, provider, objectKey)`. It is not live ingress/worker wiring, a
+  byte/source-version identity, a proxy mapping, a ProjectService command, or
+  a source-qualified production claim. Commit `6a377060b` wires that record
+  through only the signed registration ingress and a signed QStash worker. The
+  worker independently checks the persisted R2/GCS object, obtains a
+  short-lived server URL, probes it, and compare-and-set completes the same
+  record. Duplicate/stale/raced work, unavailable storage and configuration
+  failure remain explicit non-success states; no unsigned/inline fallback,
+  ProjectService mutation, renderer consumer, deployment or source-qualified
+  product claim was introduced.
+
+- **2026-08-25 provider storage-version observation foundation.** Commit
+  `2234fbc18` adds one deterministic, URL-free observation of the exact
+  storage object: R2 `HeadObject` ETag plus byte length, or GCS generation plus
+  byte length. The observation is bound to the existing server-owned locator
+  and detects a simple replacement behind a stable key. Commit `4d9a3f740`
+  fails closed when either provider omits byte length. Commit `4912226e1`
+  makes the signed worker read this observation before and after the remote
+  probe, persist it only when both hashes match, and discard otherwise measured
+  technical facts when the object changed. This is **not** a byte digest,
+  immutable canonical source version, proxy/master mapping, invalidation chain,
+  ProjectService source binding, deployment or product permission. Provider
+  metadata absence is `UNVERIFIABLE`; no client URL, declared size, proxy flag
+  or GCS mirror is substituted. The next ordered media slice is immutable
+  byte/source-version plus proxy/master and invalidation design—not a broad
+  ingress migration.
+
+- **2026-08-25 immutable source-version contract.** Commit `c6e715d9e`
+  defines and tests a deterministic `MediaSourceVersionV1` for one existing
+  `MediaAsset` owner, binding owner scope, asset, media kind, server-measured
+  byte length, complete-byte SHA-256 and one stable provider observation. It
+  also defines a proxy/master relation that is explicitly
+  `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`, plus an invalidation *plan* that
+  requires later ProjectService review rather than mutating a project. The
+  contract has no persistence, hash worker, upload-route, proxy-swap, analysis
+  invalidation, renderer or ProjectService consumer yet. A client SHA string,
+  an R2 ETag, or a URL cannot issue this identity. The next ordered slice is a
+  server-side full-byte hash receipt bound to unchanged storage, persisted only
+  through the existing `MEDIA_ASSETS` owner.
+
+- **2026-08-25 signed source-version worker binding.** Commit `278daa367`
+  wires that narrow byte-identity contract into the existing signed
+  registration qualification worker. The worker loads the persisted asset
+  owner scope and `video | audio | image` kind, streams the server-minted R2
+  or GCS object through SHA-256, verifies the provider object remained the
+  same before/after the byte read and technical probe, then compare-and-set
+  persists `sourceVersionV1` on the same `MEDIA_ASSETS` record. A malformed or
+  partial stream, invalid asset kind/owner, unavailable storage, changed
+  object, unsuccessful probe, stale binding, or CAS race leaves no issued
+  source version. This is one product-code ingress boundary—not a second media
+  registry, ProjectService write, proxy/master mapping, invalidation consumer,
+  timebase/PTS/VFR receipt, deployment verification, or long-form result. The
+  current signed route has `maxDuration = 180`; a hash that cannot finish in
+  that bounded delivery is explicitly unqualified, not evidence that large
+  media can yet resume or scale.
+
+- **2026-08-25 server-owned proxy/master activation.** Commit `699633aee`
+  replaces the browser-trusted proxy swap with one guarded `MEDIA_ASSETS`
+  transition. The interactive route and authenticated stale-upload cron both
+  derive the candidate master only from the same user's completed
+  `MEDIA_UPLOADS` row, verify its live R2 storage observation, retain the
+  proxy storage key and a valid historical proxy source version when present,
+  clear active `sourceVersionV1`, install a fresh master-bound `PENDING`
+  qualification record, and only then publish the existing signed worker. The
+  resolver selects `originalR2Key` only after that non-proxy transition, so
+  new reads use the server-selected master rather than the old proxy. A worker
+  dispatch outage is returned as `PENDING`, never as a qualified source. This
+  is not a proxy/master relation, PTS transform, analysis invalidation
+  consumer, ProjectService source-binding/rebase command, long-form hash
+  worker, or production media certification. The existing browser caller may
+  still send obsolete URL/key fields, but the server ignores them for authority.
+
+- **2026-08-25 qualified proxy/master relation and invalidation intent.**
+  Commit `a049fa1fa` completes the next media-owner step only after the signed
+  worker both measures the master and issues its immutable source version. It
+  revalidates the retained proxy version against the exact owner, asset, media
+  kind and retained proxy R2 key; revalidates the master against the qualified
+  master key and terminal storage observation; then persists the existing
+  `MediaProxyMasterRelationV1` with
+  `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED` plus an
+  `INVALIDATE_DERIVATIVES/PROXY_MASTER_PROMOTED` intent. Starting another
+  promotion clears both records before qualification. The intent is not a
+  derivative-clear worker, PTS map, ProjectService source-binding/rebase,
+  preview/render refresh, long-form hash or production certification.
+
+- **2026-08-25 exact source-PTS anchors.** Commit `177d56112` advances the
+  repository source for the existing read-only technical probe. For a newly
+  deployed and re-run probe, each audio/video stream can carry nullable,
+  exact-text `start_pts` and non-negative `duration_ts` anchors beside its
+  rational timebase; Python serializes integers as text so JavaScript cannot
+  round large ticks. Existing stored observations remain readable and a
+  malformed, numeric, fractional or negative-duration response stays null for
+  that anchor. No deployment occurred in this commit. These anchors are not a
+  PTS map, source range, CFR/VFR conclusion, proxy transform, ProjectService
+  coordinate binding, operation permission, or long-form certification. The
+  next media design must issue a separate cadence/source-PTS mapping artifact
+  only where its measured evidence can support one.
+
+- **2026-08-25 PTS/cadence mapping Step-0.** The next canonical-media work is
+  now explicitly bounded by
+  [canonical-media-pts-cadence-step0-audit-2026-08-25.md](./editron/canonical-media-pts-cadence-step0-audit-2026-08-25.md).
+  It confirms that neither matching stream-rate labels nor the current PTS
+  anchors establish CFR, VFR or a source/proxy map. The required future owner
+  is a source-version-bound, resumable, private sidecar artifact lifecycle
+  whose status and manifest reference live on the existing `MEDIA_ASSETS`
+  record. It must preserve ordered lossless PTS/duration evidence, fail closed
+  for incomplete or invalid coverage, and clear on source replacement. This is
+  still not a source map, map worker, persistence field, deployment,
+  ProjectService source binding, operation eligibility or long-form claim.
+  Commit `426d3d09a` adds only a pure local-shard verifier: it requires an
+  exact existing source/qualification/storage/technical-observation binding,
+  selected reduced-rational stream timebase and mapper policy, then preserves
+  lossless PTS/duration ticks and distinguishes `UNIFORM_LOCAL` from
+  `VARIABLE_LOCAL`. It cannot claim source-wide CFR/VFR, persist artifacts,
+  resume mapping, issue a proxy transform or mutate a project. Its decoder
+  `best_effort_timestamp` origin and parser guards remain recorded as
+  provisional policy in the evidence-debt register. The next implementation
+  is partially specified by commit `bece283e3`: a pure map lifecycle binds the
+  verified bootstrap shard, source/technical/mapper identity, owner-supplied
+  lease, contiguous checkpoint and deterministic private sidecar key. Commit
+  `ff27d6da6` closes its candidate-only state-shape gap: `COMPLETE` now needs
+  the active claim, exact candidate and hash-bound full-verifier receipt; it
+  still cannot perform that verification or promote a source to CFR/VFR. Both
+  contracts fail closed for tampering, gaps, stale claims or public keys.
+  Commit `173432a4c` adds only an injectable R2 sidecar codec/port: it
+  canonicalizes map-bound shard/manifest bytes,
+  conditionally writes with `If-None-Match: *`, and reads the exact bytes back
+  on both first write and retry. Its factory requires an explicit
+  `NO_BROWSER_ROUTE` storage declaration and rejects the known `editron-cdn`
+  public bucket. That declaration is not access control or deployment proof.
+  Commit `f7da79e32` hardens the checked-in worker to reject the reserved
+  `private/` namespace (including encoded keys) before calling R2 and refuse
+  non-read methods; source-level tests prove that denial only. This port remains
+  unwired and no deployed-private-storage claim is permitted until the deployed
+  worker route and its bound bucket are verified. Commit `822e9182e` adds the
+  optional `MEDIA_ASSETS` field shape plus a pure reader/writer boundary that
+  requires the current source version, technical qualification and a canonical
+  map-state hash to agree. Commit `3ad3a1078` adds the existing-media-owner
+  Mongo compare-and-set adapter: it rechecks that binding before each write,
+  requires an exact prior state hash and returns an honest race/invalid-state
+  disposition. No mapper worker calls it and no live Atlas write is claimed.
+  Commit `228b28dd4` clears both cadence-map fields in the real proxy-to-master
+  replacement payload; commit `584b913ff` clears them in both the claim and
+  completion writes of the source-qualification worker. These are the two
+  currently audited writers that directly reset/issue `sourceVersionV1`.
+  They do not prove legacy raw storage-key writers cannot change an already
+  qualified asset: that separate inventory and migration rule remains
+  `MEDIA-15` evidence debt.
+  A local `ffprobe -read_intervals` measurement is now recorded in
+  [media-source-pts-cadence-mapper-feasibility-2026-08-25.md](./editron/media-source-pts-cadence-mapper-feasibility-2026-08-25.md):
+  a request at 30 seconds began 2.166… seconds early at a keyframe. Therefore
+  independently sought time chunks cannot assign exact global frame ordinals.
+  The only candidate production mapper is a continuous presentation-order scan
+  with durable exact checkpoints; seek/overlap partitioning stays experimental
+  until it proves coverage against that mode. The V1 contiguous-shard contract
+  also does not represent valid source discontinuities or epochs (`MEDIA-17`).
+  A second Step-0 audit,
+  [canonical-media-pts-sidecar-content-audit-2026-08-25.md](./editron/canonical-media-pts-sidecar-content-audit-2026-08-25.md),
+  proves the current V1 sidecar contains only aggregate shard descriptors and
+  the manifest only a rolling checkpoint. It cannot recover per-frame PTS or
+  enumerate every shard, so it cannot be promoted to a usable source map. A
+  versioned frame-payload/manifest-index successor is required before mapper
+  runtime work; V1 stays a strict prerequisite contract. Commit `785c296d7`
+  supplies the first pure successor piece: a canonical V2 frame-batch codec
+  retains every PTS/duration record, binds its explicit resource policy to the
+  mapper command-policy version, and rechecks descriptor/hash/range agreement
+  on decode. Commit `923fd6fc6` supplies the second: a canonical V2 manifest
+  index enumerates exactly those private batch sidecars with source-bound
+  deterministic keys, digests and contiguous frame/PTS summaries. It rejects
+  cross-binding, policy mismatch, forged keys, reordered/gapped batches and
+  noncanonical stored JSON. Neither artifact writes or reads private storage,
+  persists V2 state, proves sidecar availability or complete coverage, issues
+  CFR/VFR, runs a mapper or authorizes a consumer. A V2 reader/full verifier,
+  state path and worker remain required before a terminal map claim.
+  Commit `3cd22d54f` adds the pure injected-reader half of that next boundary:
+  it verifies every indexed sidecar's recomputed byte size/digest, canonical
+  frame payload and exact map/policy/shard binding, returning only an
+  `INDEX_INTEGRITY_VERIFIED` or explicit `UNVERIFIABLE` result. Its uniform or
+  variable cadence observation is deliberately limited to the listed range;
+  it cannot prove that the index covers the qualified source and therefore
+  cannot issue source-wide CFR/VFR or terminalize a map. A source-coverage
+  verifier, V2 state path and worker remain required.
+  Commit `650d46b82` adds that pure source-coverage verifier over the injected
+  reader: it derives the expected presentation bounds from one qualified
+  source/stream and mapper binding, requires the V2 index to match that binding
+  and to span those exact bounds, and only then returns `CFR` or `VFR`.
+  Partial indexes, forged coverage expectations and cross-map indexes remain
+  `UNVERIFIABLE`. It does not select or call a storage backend, write V2 state,
+  run a mapper worker, terminalize an asset map, bind ProjectService, or make a
+  product cadence claim. Commit `981b5f903` supplies the next owner boundary:
+  one optional V2 envelope on the existing `MEDIA_ASSETS` record embeds the V1
+  lease/checkpoint lifecycle, binds an extending recoverable V2 manifest,
+  rereads the stored index and every batch before checkpoint, and issues a
+  terminal source-cadence receipt only after exact qualified-source coverage
+  and lifecycle-manifest readback. Its source-bound Mongo CAS rejects parallel
+  V1/V2 state, stale expectations, source replacement and races. The focused
+  V1/V2 chain passes 38/38 with repository typecheck and quiet lint. Commit
+  `b7b92ea68` adds the matching server-only R2 V2 artifact port: immutable
+  conditional writes plus bounded exact readback for both recoverable frame
+  batches and manifest indexes. It rejects forged references, wrong storage,
+  missing objects and altered existing bytes. Commit `713718566` additionally
+  restricts reads to the two deterministic V2 object-key grammars. Commit
+  `e4709d0c9` extends both
+  audited source-version writers--the qualification claim/completion path and
+  proxy-to-master transition--to clear the V2 record/hash pair atomically with
+  V1. Commit `771491f94` defines the next compute-stage boundary without
+  promoting it to a map: strict canonical private staging batches, deterministic
+  content-addressed keys and a hash-chained Modal result summary can preserve
+  exact integer-text PTS/duration evidence for later owner-side reread. The
+  existing Modal probe and the future scanner now share one DNS/public-address
+  storage-URL policy instead of duplicating an SSRF rule. This commit does not
+  contain the continuous ffprobe process, Modal submit/poll functions, private
+  R2 deployment, staging reader/finalizer, asset CAS call or cadence conclusion.
+  Commit `01ce47827` implements the compute side of that boundary: one
+  continuous `ffprobe -show_frames` process validates the exact selected stream,
+  source timebase and ffprobe version, preserves measured presentation ticks and
+  durations without seek-chunk inference, and conditionally writes bounded,
+  hash-chained canonical batches to a private R2 bucket with exact readback.
+  Proxy-authenticated Modal submit/poll endpoints use a durable function-call
+  identity and return only a binding plus terminal summary. No-network tests
+  cover forged bindings, gaps, missing durations, excess batches, private DNS
+  and altered existing bytes. The exact continuous command also completed over
+  one repository media sample with 3,885 measured frames in four batches.
+  This is local implementation/command proof, not a Modal deployment, live
+  private-bucket write, Atlas mutation or product certification. The existing
+  `MEDIA_ASSETS` owner remains unwired to it. Commit `c35e0295e` adds the
+  server-side transport and temporary-staging read boundary: both configured
+  endpoints must be trusted HTTPS Modal hosts with complete dedicated proxy
+  credentials; submit/poll responses are byte-bounded and exact-map-bound; and
+  the staging reader accepts only the private scan-key grammar, exact byte
+  count/digest and canonical batch payload. It returns no source URL and has no
+  public-bucket fallback. This is still an unwired adapter, not a scan dispatch,
+  deployed endpoint/bucket, durable Editron worker, asset write or cadence
+  result. Commit `e9aaad644` adds the next owner-side promotion boundary. It
+  independently matches each reread staging batch to the complete scan summary
+  and qualified source/map identity, rebuilds existing V1 shard descriptors and
+  recoverable V2 frame payloads, and writes them through the existing private
+  artifact ports. If V2 canonical bytes exceed the declared limit, it splits
+  only at measured frame boundaries while preserving exact ordinals and PTS.
+  Source, result, staging, progression or policy mismatch fails before a
+  canonical artifact write. It still does not advance the lifecycle or mutate
+  an asset. Audit of the terminal verifier then found that its existing V2 R2
+  reader intentionally rejects the V1 lifecycle-manifest namespace. Commit
+  `4d7039c6c` supplies a separate manifest-only private reader with bounded
+  length/digest readback; it cannot read shard, V2 or staging keys and does not
+  weaken the V2 namespace policy. Lifecycle checkpoint/finalization and the
+  source-bound `MEDIA_ASSETS` CAS call were still required at that checkpoint.
+  Commit `a40b0f33a` now composes those existing owners without introducing a
+  second registry: it rejects a foreign live lease before canonical artifact
+  writes, promotes exact signed staging batches, persists initialization,
+  claims and each verified checkpoint through the existing media-asset CAS,
+  rereads the V2 index, every frame batch and the V1 lifecycle manifest, and
+  persists the terminal source-cadence receipt only after exact source-wide
+  coverage. Replay of a completed binding performs no artifact or state write;
+  resource-policy mismatch and CAS loss fail closed. The five-file owner
+  cluster passes 17/17 with repository typecheck and quiet lint. Commit
+  `26a34ae7f` adds the server runtime factory for all four existing private
+  adapters. It accepts only the dedicated media-PTS R2 account, credentials and
+  non-public bucket shared with Modal, gives every adapter one explicit
+  `NO_BROWSER_ROUTE` scope, and refuses generic R2/CDN fallback. Its focused
+  storage/transport cluster passes 20/20 with repository typecheck and quiet
+  lint. Commit `9b733dc42` now binds one immutable, URL-free
+  `media_source_pts_cadence_scan` durable-job input to the existing generic job
+  store and the sole `MEDIA_ASSETS` owner. It records the selected stream,
+  qualified source/storage versions, exact ffprobe runtime, scan/manifest
+  policies and canonical source binding; execution must recompute that binding,
+  and the Modal mapper rejects mismatched mapper, command-policy or ffprobe
+  versions. The first focused run exposed and then closed a forged-locator gap:
+  a syntactically valid `sourceBindingSha256` is no longer trusted without
+  reconstructing the canonical qualification. The cluster passes 17/17 plus
+  eight Python scanner tests, repository typecheck and quiet lint. This remains
+  non-wired local infrastructure. Commit `c77573f89` closes the discovered lease
+  mismatch between the generic five-minute durable-job lease and the embedded
+  `MEDIA_ASSETS` cadence claim: finalization now heartbeats the outer lifecycle
+  and renews only the same active asset claim through the existing CAS owner,
+  without incrementing a mapping attempt or accepting a foreign/expired claim.
+  Its focused cluster passes 14/14 with repository typecheck and quiet lint.
+  Commit `be2bb6024` then adds a lease-checked generic `deferUntil` transition:
+  a healthy external `PENDING` state preserves its resume payload, releases the
+  lease and restores exactly the attempt consumed by that delivery. Actual
+  transport/execution errors still consume retry attempts through the existing
+  retry/dead-letter transition. Its durable-worker cluster passes 21/21 with
+  repository typecheck and quiet lint.
+  Commit `be701da45` adds a versioned outer submission envelope without changing
+  the frozen V1 scan material. The durable job can persist one stable
+  `submissionId` before the external call; Modal submit/poll responses must echo
+  that identity beside the exact map binding and call ID. A lost response may
+  still cause duplicate compute, but retries can only write byte-identical,
+  immutable staging objects and cannot create duplicate media truth. Exactly-once
+  compute cost therefore remains unclaimed. The transport passes 8/8 TypeScript
+  and nine Python tests with repository typecheck and quiet lint.
+  Commit `554a108bf` adds the transport-neutral durable lifecycle worker. Every
+  delivery recomputes the immutable job against the current qualified source,
+  persists a stable `SUBMITTING` identity before external submission, accepts
+  only the transport owner's exact opaque call-ID grammar, resumes `SUBMITTED`
+  work without resubmission, defers a healthy `PENDING` poll without consuming
+  an attempt, and sends a terminal complete result through the existing
+  `MEDIA_ASSETS` finalizer. Stale source identity, forged resume state, copied
+  map bindings and malformed transport jobs fail closed; scan-level
+  `UNVERIFIABLE` remains distinct from `PASS`. The focused lifecycle cluster
+  passes 24/24 and repository quiet ESLint passes. The full repository
+  typecheck reported no error in this slice but was blocked by two concurrent,
+  unstaged ThinkForge errors; a clean full typecheck rerun is still required
+  before calling this checkpoint fully closed.
+  Commit `49fa19a37` composes that worker through the existing official owners:
+  the qualification runtime issues a fresh server-only URL after storage-version
+  observation, the strict transport performs correlated submit/poll, the
+  dedicated private-R2 runtime supplies staging/artifact readers and writers,
+  and the existing V2 `MEDIA_ASSETS` CAS/finalizer persists the result. Transport,
+  private storage and the media owner are all preflighted before a durable claim.
+  Its 103 focused media/PTS tests and repository quiet ESLint pass; full
+  typecheck is clean for the slice and remains blocked only by two concurrent,
+  unstaged ThinkForge errors. No signed source URL survives in durable state.
+  Commit `4ef03f5ec` exports a request-time QStash-authenticated worker route and
+  the corresponding fail-closed dispatcher/recovery coordinator. The queue body
+  contains exactly `{jobId}`; configuration is verified before job creation;
+  publish rejection, missing acknowledgement and delivered-but-unrecorded state
+  remain distinct. Recovery uses the shared store's `listRecoverable`, filters
+  again to stale jobs with the exact `MEDIA_ASSETS` PTS operation/input identity,
+  and uses a state-bound deduplication hash. Its 104 focused PTS/auth tests,
+  repository typecheck and quiet ESLint pass. Route import performs no store or
+  network I/O. This route is not deployed, the recovery function is not scheduled,
+  and no live QStash, Modal, R2 or Atlas execution proof was created. The versioned
+  8 MiB/50,000-record scan bounds, 8 MiB/10,000-entry
+  manifest bounds, 20-attempt limit and seven-day TTL are engineering policies,
+  not yet long-form performance certification. The probe and mapper Modal images
+  also install unpinned ffmpeg packages independently: exact runtime comparison
+  fails closed, but production deployment still needs a shared pinned runtime
+  identity. Source/proxy transforms and the ProjectService consumer remain
+  absent. A separately authorized non-production live crash/redelivery exercise
+  remains; DEP-02/DEP-03, project routing and model evaluation remain later in the
+  frozen order.
+
+  Commit `f1b3eb2d6` materializes `HOLD-DEP-02` without creating a second
+  replacement, rights, media, project or mutation owner. A new pure verifier
+  accepts only a replacement form already issued by the existing
+  `resolveUserAssetOverlayPlacement` decision owner and binds that form to the
+  caller's exact ProjectService revision, immutable `MediaSourceVersionV1`,
+  trusted visual-rights evidence, source-handle/PTS evidence, old target and
+  presentation, outside-state hash and muted-audio disposition. It requires
+  `add_overlay` before `delete_overlay`; missing, copied, reordered or tampered
+  inputs return an explicit zero-write `SAFE_STOP`. The Stage 2.5 isolated owner
+  now executes all six frozen sentinels: resolved swap, list/search equivalence,
+  delete-before-resolution rejection, untrusted-rights safe stop, double/partial
+  swap rejection and forged-binding rejection. The focused six-file cluster
+  passes 109/109 with repository typecheck and quiet ESLint passing. This is
+  `ISOLATED_SYNTHETIC_CURRENT_EDIT_PROOF_ONLY`: canonical ProjectService mutation
+  count remains zero, no renderer or reload proof ran, no production visual-
+  rights or source-handle authority was added, and the legacy
+  `use_matching_footage` path remains uncertified. `HOLD-DEP-03` is therefore the
+  next public owner gap: downstream consumers still lack a writer-issued,
+  source-version-bound source-time transform after retiming.
+
+  Commit `63a86bf7d` defines the missing transform vocabulary without claiming
+  that the writer is wired. `resolveVerifiedVideoSourceTimeBindingV1` accepts
+  only the existing `MEDIA_ASSETS` V2 terminal PTS/cadence state bound to the
+  immutable source version. `createProjectVideoSourceTimeTransformV1` then
+  binds that evidence, before/after ProjectService revisions, the legacy
+  numeric project FPS, source/timeline offsets, speed curve and exact current
+  `computeSpeedSegments` renderer mapping into one immutable transform. Exact
+  CFR PTS events can be rebound; VFR without private-index lookup, subframe
+  output positions, incomplete/tampered evidence, invalid curves and
+  insufficient source handles fail closed. Two adversarial contract tests,
+  repository typecheck and quiet ESLint pass. The test also records an important
+  current-renderer limitation: speed keyframe easing is not evaluated by the
+  segment owner, and later playback can be capped after earlier segments consume
+  the overlay's available source span. This checkpoint is
+  `CONTRACT_ONLY_NOT_WRITER_ISSUED`: ProjectService does not yet issue or persist
+  the transform, `apply_speed_ramp` still does not return it, VFR event rebinding
+  remains absent, and no project mutation or render occurred. The next bounded
+  phase is the dedicated ProjectService speed-ramp CAS and chat handoff.
+
+  Commit `217930e47` completes the dedicated ProjectService writer slice.
+  `applyVideoSpeedRampV1` accepts the exact caller snapshot revision and an
+  explicit actor, re-reads the video overlay and current user-owned media
+  asset, validates that `sourceStartFrame`/`videoStartTime` agree, and rejects
+  renderer state unless its single speed keyframe track exactly matches the
+  form-owner-selected `speedCurve`. It derives the verified source binding
+  from the existing `MEDIA_ASSETS` V2 terminal PTS state and prepares the
+  transform before one overlay-and-receipt CAS. Missing media timing or source
+  handles produces a structured zero-write `SAFE_STOP`; stale project state,
+  contradictory coordinates, forged bindings and curve/track divergence fail
+  before mutation. The successful timeline receipt carries the exact transform
+  with before/after ProjectService revisions. Downstream rebinding re-reads the
+  current project, resolves the transform from ProjectService-owned receipt
+  history (a caller hash is not authorization), re-reads the current media
+  binding and returns `UNVERIFIABLE` for stale project/source identity. The
+  58-test focused writer/contract/cut/save cluster, repository typecheck and
+  quiet ESLint pass. This remains a truthful **WRITER_ISSUED_NOT_CHAT_WIRED**
+  checkpoint: the existing `apply_speed_ramp` chat tool still uses generic
+  `updateOverlay`, VFR private-index rebinding and rendered proof remain absent,
+  and the frozen `HOLD-DEP-03` isolated sentinel has not yet been reissued
+  against this owner.
+
+  Commit `a022bfeb2` repairs the first renderer/source-accounting prerequisite
+  exposed while attempting that reissue. Video overlays can now carry explicit
+  inclusive `sourceStartFrame` and exclusive `sourceEndFrame` bounds. The
+  shared `computeSpeedSegments` owner accepts that verified source-frame budget,
+  and both browser/server video playback and timeline-cut source accounting use
+  it. Source-bound splits and tail trims retain exact source ends. Legacy
+  overlays without explicit bounds keep the previous conservative duration
+  budget, so this does not silently widen old playback. This closes the defect
+  where a source-preserving shortened 2x retime was capped back toward 1x merely
+  because its composition duration was shorter than its source span. Focused
+  retime/cut verification passes 27/27 and the five changed paths pass quiet
+  ESLint. Repository typecheck was attempted but is currently blocked only by
+  concurrent unstaged ThinkForge script-narration/physical-capture work; those
+  paths were neither edited nor staged here. This remains a prerequisite, not
+  a DEP-03 closeout: ProjectService still needs an atomic duration/ripple write,
+  exact effect receipt and adversarial owner reissue before inference.
+
+  Commit `e6ec03f10` adds that operation's pure bounded form without writing a
+  project. `retimeIsolatedVideoSourceRangeV1` accepts only one whole, isolated,
+  unit-speed video overlay whose owner-verified source span exactly matches its
+  current duration. It preserves every source frame, shortens composition time,
+  shifts later non-overlapping overlays, and emits exact before/after ranges,
+  duration delta and affected overlay identities. Existing retime state, any
+  local keyframes, overlapping captions/audio/effects, source mismatch and
+  non-integral output duration all produce zero-write `SAFE_STOP`. The source-
+  time transform now has a backward-compatible V2 renderer-mapping identity for
+  explicit source spans: the regression fixture maps a 120-source-frame 2x
+  retime into 60 project frames and rebinds source event 100 to project frame
+  50. Focused verification passes 21/21 and all four paths pass quiet ESLint;
+  repository typecheck has zero errors in these paths and remains blocked by 18
+  concurrent unstaged ThinkForge errors. This is not a general partial-ramp,
+  mixed-track reconform, slow-motion/interpolation, VFR or ProjectService-write
+  certificate. The next slice is one ProjectService CAS that derives the source
+  binding, persists this exact state/effect/transform and advances one revision.
+
+  Commit `7457ab774` completes that bounded ProjectService writer. The new
+  `applyVideoSourceRangeRetimeV1` re-reads the exact project revision, rejects
+  an active Director mutation or overlapping timeline-range lock, resolves the
+  current user-owned media asset and CFR terminal PTS binding, and invokes the
+  pure isolated-range owner. One CAS stores the shortened speed-curve target,
+  every shifted later overlay, the new project duration and a single exact
+  timeline receipt. That receipt carries the V2 source-time transform and a
+  distinct `RETIME_AND_SHIFT_LEFT` effect; it does not mislabel the operation
+  as deleted source content. Downstream event rebinding now accepts this
+  ProjectService-owned receipt class and still re-reads project revision, asset
+  identity and source binding. Overlapping dialogue, VFR event rebinding,
+  insufficient source handles and every pure-owner conflict remain zero-write
+  safe stops. Focused writer/retime/cut verification passes 29/29 and the two
+  changed paths pass quiet ESLint. Repository typecheck has zero errors in the
+  Editron writer paths and remains blocked by 15 concurrent unstaged ThinkForge
+  errors. This is **PROJECTSERVICE_WRITER_NOT_CHAT_OR_SENTINEL_WIRED**: no chat
+  operator, canonical project fixture, render proof or DEP-03 successor receipt
+  has yet consumed the writer.
+
+- **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
+  live chapter renderer derive its 15-minute admission threshold, 2.5-minute
+  target and 30-second minimum from the supplied numeric render FPS; the render
+  route and UI now use the same duration policy. It is still a numeric-FPS
+  wrapper, not a rational timebase, VFR, reel/timecode, proxy/master or
+  long-form-media implementation. Commit `dd13ff4db` removes Clickatron's
+  unauthenticated signature-failure fallback: a failed QStash verification no
+  longer reads a `jobId` from an untrusted body or terminalizes/refunds a queued
+  job. This closes that one worker-auth side effect only; the remaining
+  fail-open/legacy-writer inventory and ProjectService range-effect migration
+  are still required before the safety foundation is complete.
+
+- **2026-08-25 pipeline-video ingress closeout.** Commit `938d441b2` closes
+  two upstream P0s without touching the pipeline-video worker's project write:
+  an untrusted public caller can no longer choose `body.userId` when Clerk has
+  no session, and production can no longer charge/create a video batch then
+  claim queue success through an unsigned fetch that its worker rejects. The
+  server-side chat caller now supplies a two-minute, action-and-exact-body-bound
+  HMAC using the existing server-only monolith secret; production requires the
+  QStash publisher token and both worker signing keys before any credit or job
+  side effect. Direct fetch is development-only. Focused verification is 23/23
+  with repository typecheck and quiet ESLint passing. This does **not** migrate
+  the worker's raw overlay replacement, its raw quality-warning append, partial
+  QStash-publication recovery, or its Director pending-field clear/unsigned
+  downstream handoff; those were the next pipeline-video P0 design/migration.
+
+- **2026-08-25 pipeline-video ProjectService delivery migration — overlay
+  replacement only.** Commits `3d4852e46`, `6ea12538a` and `f1a0d3078` create
+  and wire the narrowly typed
+  `commitPipelineVideoDeliveryV1` path: one stable target overlay ID plus
+  expected prior asset, exact expected revision, canonical delivery material,
+  idempotency/material hash, writer-issued after-revision, exact local range
+  receipt and explicit `UNVERIFIABLE / NO_RENDERED_VIDEO_PROOF` result. It
+  records requested and applied-base revisions and permits one narrowly bounded
+  retry only when the exact target remains a video with the exact expected
+  source asset; target mutation, retyping, absence, duplicate-material misuse
+  and a second CAS loss remain explicit no-write conflicts. It also refuses
+  unproven native audio, while preserving the truthful no-native-audio/no-
+  receipt provider case. The producer now resolves one numeric target from one
+  ProjectService snapshot before credits; missing/ambiguous targets stop before
+  charge, while initial/pre-finalize generation has no project target. The
+  worker registers media in its existing owner and calls the command; it records
+  `APPLIED`, `ALREADY_APPLIED`, or explicit `CONFLICT` on the job and has no raw
+  overlay replacement fallback. Focused target/wiring, delivery, cost and batch
+  coverage passed 17/17, with repository typecheck and quiet ESLint passing.
+  Quality-warning persistence and Director dispatch were not included in this
+  overlay-delivery commit; their later bounded migrations are recorded below.
+- **2026-08-25 pipeline-video durable Director handoff.** Commit `330ed5091`
+  removes the false-success/lost-work path at batch completion. Its **Director
+  handoff block** no longer reads a project directly, defaults a missing
+  profile, clears `pendingDirector*`, or fetches the legacy
+  `/api/services/editron/director/execute` route. It requires a batch-bound
+  owner, QStash publisher token, both signing keys and a deployed worker URL before it asks
+  `ProjectService.preparePipelineDirectorDispatchV1` to issue a revision-bound
+  dispatch token. The ProjectService CAS retains the original pending profile
+  and owner signal, records `directing_queued`, and is idempotent for the same
+  batch; a final CAS race returns the already-issued token without another
+  write. QStash publication targets only the signed
+  `/api/internal/workers/director` route. The batch records publication,
+  configuration block, ineligibility or retryable publish failure as a
+  non-authoritative delivery observation; it never reports a direct fetch as
+  success. Only that signed worker can supply the exact token to
+  `claimDirectorRunV1`; its successful CAS atomically clears the pending signal
+  and handoff record while issuing the normal Director run receipt. A missing
+  configuration or publish failure therefore leaves the project signal intact
+  rather than losing work. Focused ProjectService/route regression coverage is
+  18/18, with repository typecheck and quiet ESLint passing. This is not a
+  transactional publication outbox, automatic recovery/retry driver, migration
+  of finalize's raw pending-signal producer or generic project-status writer;
+  those remain explicit legacy-writer work.
+
+- **2026-08-25 pipeline-video ProjectService quality-warning migration.** Commit
+  `145cfc988` removes the worker's raw `projects.qualityWarnings` append without
+  creating a second project or proof authority. The existing five-track/vision
+  analysis owner still classifies the inherited `< 40` score; the worker loads
+  the user-scoped revision and asks
+  `ProjectService.recordPipelineVideoQualityWarningV1` to record one additive,
+  job-bound fact. The owner validates bounded material before reading, derives a
+  stable `(projectId, jobId)` idempotency identity and material hash, CAS-appends
+  only when that identity is absent, and issues requested/before/after revision
+  context plus a replay-safe receipt. Exact replays return the original fact;
+  changed material, malformed history, future revisions and a final CAS loss
+  fail closed. A stale worker can rebase only this additive fact across newer
+  unrelated state, explicitly marked `SAFE_REBASED_ADDITIVE_WARNING`. The
+  receipt truthfully says the warning is not rendered acceptance proof. No
+  product consumer for `qualityWarnings` was found, and this does not calibrate
+  the score, create retention/UI policy, prove visual/audio quality, migrate
+  finalize's raw pending-signal producer, or add transactional recovery. Focused
+  ProjectService/video-delivery/Director regression coverage passed 22/22. Commit
+  `e371b3251` then corrected the persisted-JSON decoder type boundary and added a
+  malformed matching-warning regression; the combined safety bundle passes 52/52,
+  repository typecheck with `NODE_OPTIONS=--max-old-space-size=8192`, and quiet
+  ESLint.
+
+- **2026-08-25 pipeline-finalize Director-intent migration.** Commit
+  `d2c5fb026` removes the raw finalize write of `pendingDirectorProfileId` and
+  `pendingDirectorUserId`. After the legacy `transitionProjectStatus` call (it
+  changes `updatedAt`), the finalizer obtains a fresh ProjectService mutation
+  snapshot and calls the narrow `recordPipelineDirectorIntentV1` owner. That
+  owner exact-CASes the authenticated project/user and expected revision,
+  rejects Assist, active-run, prepared-dispatch and competing-intent states,
+  replays only the identical pending intent, and publishes a writer receipt.
+  A stale or lost CAS has no broad rebase. `directorQueued` is now false unless
+  the intent was recorded or identically replayed; its accompanying
+  `directorQueueState: 'PENDING_PIPELINE_VIDEO_COMPLETION'` makes clear this is
+  not a signed-worker delivery. The later pipeline-video completion remains the
+  sole owner of `preparePipelineDirectorDispatchV1` and QStash publication.
+  Focused finalizer/ProjectService/Director/audio suites pass 39/39; repository
+  typecheck with `NODE_OPTIONS=--max-old-space-size=8192` and quiet ESLint pass.
+  This does not migrate reused-project metadata, storyboard/music-policy facts,
+  synchronous BGM attachment, generic status tracking, an outbox/retry driver,
+  or a full finalize transaction. The next safety action is a fresh
+  current-truth reissue of the residual raw-writer inventory before selecting
+  its next P0 owner migration.
+
+- **2026-08-25 residual worker/project-writer current truth.** The fresh
+  audit [residual-worker-and-project-writer-audit-2026-08-25.md](./editron/residual-worker-and-project-writer-audit-2026-08-25.md)
+  confirms a distinction that the earlier worker-auth record did not cover:
+  Video Analysis and TRIBE reject missing inbound QStash signing keys through
+  the shared request-time guard, while `0a12c798d` closes the separate missing
+  *publisher* token fail-open: production now returns a structured `503` before
+  database/provider side effects, and the inline downstream path is explicit
+  development-only. Focused coverage passes 28/28 with repository typecheck
+  and quiet lint. The audit separately ranks the raw Video Analysis 30-fps
+  duration overwrite, finalizer synchronous BGM overlay append,
+  lifecycle/analysis fact writes, Director observer facts, legacy status
+  tracking and generic `updateProject` calls. No generic metadata owner is
+  authorized; the next P0 owner design is the source-bound Video Analysis
+  duration command. Its required Step-0 audit is
+  [video-analysis-duration-command-step0-audit-2026-08-25.md](./editron/video-analysis-duration-command-step0-audit-2026-08-25.md):
+  no local dead-code cleanup is justified, and the frozen next scope is one
+  exact initial-source overlay, project numeric FPS, exact CAS, replay receipt
+  and local timeline effect—never the current raw update of every video overlay
+  or a generic `updateProject` call.
+
+- **2026-08-25 Video Analysis duration-owner migration.**
+  `ProjectService.commitVideoAnalysisDurationCorrectionV1` now owns the
+  narrow correction path. Video Analysis first takes a fresh ProjectService
+  snapshot, then may correct exactly one initial, matching source overlay only
+  when the root duration is still its prior end; it uses the current numeric
+  project FPS rather than a hard-coded `30`, exact-CASes the snapshot, never
+  rebases a stale worker, and records writer-issued mutation/replay/timeline
+  receipts. A 12,000-ms observation becomes 300 frames on a 25-fps project.
+  Ambiguous, moved, duplicate-ID, root-mismatched and stale targets make no
+  write; identical replay returns its original receipt. The worker no longer
+  raw-updates every video overlay. Focused coverage passes 11/11 with
+  repository typecheck and quiet lint. This remains numeric-FPS only and does
+  not migrate native-audio evidence, analysis lifecycle/status writes, source
+  identity, rational/VFR timebases, or media invalidation. The subsequent P0
+  writer, the finalizer's synchronous BGM attachment, is closed below.
+
+- **2026-08-25 finalizer synchronous-BGM Step-0.**
+  [pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md](./editron/pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md)
+  verified that the existing `commitPipelineAudioDeliveryV1` is the sole
+  suitable owner: it supplies CAS, replay identity, audio-only rebase, writer
+  receipt and unverified-mix proof status. The finalizer now captures a
+  pre-generation ProjectService snapshot/binding, derives a deterministic
+  delivery ID from immutable BGM material, and uses that owner for synchronous
+  `BGM`/`ATTACHED` delivery. Its raw BGM project push is removed. A
+  visual-binding block produces the existing explicit degraded async path,
+  never a raw retry. Finalizer wiring plus the core audio owner pass 36/36;
+  repository typecheck and quiet lint pass. This is not a migration of the
+  finalizer's other metadata/lifecycle writers or rendered-mix proof.
+
+- **2026-08-25 pipeline-analysis lifecycle Step-0 current truth.** The
+  audited residual lifecycle writes are not one generic project-status problem:
+  single-asset intake, Video Analysis, TRIBE, batch orchestration, Assist
+  cancellation/rescue, stuck recovery and automatic Director handoff have
+  different owners and predicates. The exact boundary is
+  [pipeline-analysis-lifecycle-step0-audit-2026-08-25.md](./editron/pipeline-analysis-lifecycle-step0-audit-2026-08-25.md).
+  Commit `c2eeafb1c` closes the single-asset admission gap, and
+  `5e9140c3b` closes the separate batch-dispatch/direct-Director gap: outside
+  explicit development, both reject an incomplete QStash publisher/signing
+  configuration before their project/credit work, and batch direct execution
+  remains development-only. Neither migrates analysis lifecycle/facts. The
+  next ordered foundation is the canonical media/timebase spine because current
+  analysis projections have no qualified immutable master/proxy source
+  identity, source PTS/timebase, run identity or writer-issued source-bound
+  receipt. A generic metadata/status owner remains prohibited.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
@@ -1280,11 +2116,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `7a584535c` on
+programme code checkpoint represented by this ledger is `3703c0815` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 7a584535c. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 3703c0815. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -3062,8 +3898,9 @@ execution/interpretation checkpoint above supersedes it.
   actual spend from provider token receipts is `$0.626745190`, not the
   `$21.126758` worst-case ceiling. The immutable interpretation is
   `docs/editron/open-ended-editing/oe-v3r4-provider-native-handoff-order-results-2026-08-22.md`.
-- **HREF-01 is `READY_FOR_SINGLE_PROJECT_OWNER_REVIEW`, not human-approved.**
-  One Gemini 3.6 native-video/audio observation completed with no editing
+- **Historical HREF-01 status (superseded by qualified review receipt
+  `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`).**
+  At this point one Gemini 3.6 native-video/audio observation had completed with no editing
   operators and no project mutation. Its blinded pack contains the exact full
   64.75-second source plus the requested `[20s,23s)` window at 60/1 fps: 180
   decoded frames, embedded audio and a separate 96 kHz stereo PCM WAV. The
@@ -3071,10 +3908,11 @@ execution/interpretation checkpoint above supersedes it.
   `4431c08ba4f3731718f350723137699dd57cca810e0c80c0f5c95b922fbe93ba`.
   Gemini 3.7 attempts ended in provider HTTP 500/high-demand errors and are
   infrastructure failures, not semantic failures. The user's earlier sparse
-  rubric approval approved the protocol, not this model output. A single
-  project-owner review is useful evidence, while formal promotion remains
-  blocked pending a second independent qualified reviewer. Exact artifacts and
-  hashes are recorded in
+  rubric approval approved the protocol, not this model output. The subsequent
+  sole qualified project-owner review marked all nine criteria `PASS`, no hard
+  failure and zero-minute correction; independent agreement remains
+  `UNVERIFIABLE_SINGLE_REVIEWER`, so it is research evidence only. Exact
+  artifacts and hashes are recorded in
   `docs/editron/open-ended-editing/oe-href01-native-review-pack-2026-08-22.md`.
 - **Historical media-foundation checkpoint (superseded by the paid-cohort
   result below):** the eight sealed holdout media inputs reached
@@ -3452,17 +4290,7687 @@ execution/interpretation checkpoint above supersedes it.
 
 | Master stage | What is verified done | What remains before the stage exit is honest |
 | --- | --- | --- |
-| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V6 at `e3ea46fde` binds 222 source paths, 11 observations and 477 identifiers to corrected source commit `d84b54159`; manifest `2549623e...` records 37 atomic candidates, zero certified and zero production-eligible operations. | CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. Reissue again only if bound source/evidence drifts; never rewrite a prior version. |
-| Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
-| Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
-| Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. The shared durable chain now comprises the Mongo lifecycle record (`1f22ef2f2`), V4 checkpoint binding (`96d2e3923`), terminal-writer revision repair (`ecfa20c54`), zero-inference recovery worker (`81ce63d9b`), strict artifact coordination (`fee52df57`), separate-process captured suffix proof (`372001cc1`), exact provider-route transport (`2bdb05d80`), serialized manifest-bound research episode definition (`e3ac9b082`), the non-wired immutable product PlanService store (`0c94bc059`), exact accepted-node-to-job binding (`9687dbd9f`), fresh-instance execution-time revalidation (`d16caaa5b`), serialized separate-process product recovery (`b9cf5e820`), deadline/cancel/tenant/approval-lineage gates (`c69a845ea`), immutable PlanService review wait/wake revisions (`aff06c8d4`), the non-wired ProjectService proposal clone/durable diff receipt adapter (`b50f9f9fa`), canonical-base/isolated-working revision separation (`a9882903a`), compact writer/state recovery (`270792c1a`), worker enforcement (`d143da69a`), pure committed-writer replay (`df61e818d`), separate-OS-process ProjectService proposal recovery proof (`9f955033e`), the first real `cut_section` ProjectService-clone execution/replay owner (`7c9e7e6ea`), an immutable ordered-frame/native-video reference-artifact owner (`90d034578`), the exact-scope sealed runtime-budget owner (`8ecc87a1c`), strict isolated-outcome-proof completion mechanics (`f85bc0f09`) and the concrete zero-network-tested single-cut Phase-0 proof adapter (`53baee0f3`). | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. Proposal recovery, one cut owner, inline reference/accounting owners, proof receipt mechanics and one still-proof adapter remain non-wired and uncertified. Exercise its real renderer when explicitly authorized; add semantic/audio/multi-operation proof, the production canonical-media locator, broader operator ownership, authenticated review UI/API and worker ingress, authenticated QStash dispatch, live Atlas/QStash proof, canonical proposal apply/reload and family-store migration. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. Commits `ec1432446` and `6217cf748` now bind exact reference-media identity and cumulative runtime/spend accounting across an in-process fresh-instance resume; forged or mismatched state fails before provider/tool execution. Commits `1f22ef2f2`, `96d2e3923`, `ecfa20c54` and `81ce63d9b` add the shared durable lifecycle record, bind the exact V4 research checkpoint, require the final writer revision and exercise suffix-only recovery through the existing runner over fresh store/worker instances. Commit `315443e21` corrects the active V2R9 catalog identity in test provenance, `fee52df57` adds owner-coordinated artifact resolution with exact hash/scope checks, `372001cc1` carries the exact captured Luna prefix/checkpoint/owner state through a real process exit and executes only the four-response suffix in another Node process, reaching `R45` with zero inference and zero project effects; and `2bdb05d80` supplies the exact route-bound, provider-scoped live transport owner without inference. Commits `270792c1a`, `d143da69a`, `df61e818d` and `9f955033e` additionally prove compact ProjectService proposal-state recovery, pure committed-writer replay and suffix-only continuation across two OS processes with an unchanged canonical project. Commit `7c9e7e6ea` adds the first real `cut_section` execution/replay owner on that clone without canonical mutation. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01 now waits only for the sole project owner's blinded judgment; independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume now has a product-issued episode definition, in-process reference and cumulative runtime-budget identity, durable V4 persistence, strict owner coordination, serialized separate-OS-process suffix recovery, a non-wired ProjectService proposal-clone/recovery/diff-receipt adapter and one real cut owner. It still lacks broad certified operator coverage, complete reference-media/render-proof adapters, authenticated ingress/QStash dispatch, live Atlas/QStash recovery, paid resumed inference and canonical ProjectService apply/reload integration. Then complete product-authority conflict/rebase/lock integration, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
+| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V7 at `3703c0815` binds 231 source paths, 11 observations and 486 identifier occurrences to normalized snapshot `d476471b...`; manifest `939ec670...` records 37 declared operations, zero certified and zero production-eligible operations. | CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. Reissue again only if bound source/evidence drifts; never rewrite a prior version. |
+| Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; pipeline-video overlay delivery, derived quality warnings and signed Director handoff now use limited ProjectService-issued revision/receipt owners. Commit `7b190ae90` moves chat subject reframing from a split whole-state save plus raw audit update to one ProjectService expected-revision receipt save; it remains a whole-project operation without range effects, rebase, undo/replay or rendered proof. The IF1 contract itself is frozen. V-JEPA Step-0 cleanup `e18ff1200` and source-only proxy-auth migration `d8ff0fbc6` now remove its old generic auth path; V-JEPA still has no deployment/environment proof and still receives a temporary caller URL. | Wire IF1 semantics through the sole ProjectService authority; migrate all remaining writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close the remaining fail-open worker-auth surface, bind analyzers to storage-owner-issued handles, and prove UI/chat parity and rendered proof. |
+| Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. `ProjectService.cutTimelineRangeV1` owns one ripple cut and the live chat `cut_section` caller uses that owner, returning distinct complete pre-cut effect and post-cut preview ranges rather than a seam hint. The cut can safely rebase only across contiguous, exact, disjoint `UPDATE_OVERLAY` receipts and has a cut-specific full-ripple-tail lock; missing history, transforms, overlap and unknown timing fail closed. | Canonical source/record sequences, reels, tracks, takes, rational timebase, generic range-scoped proposal/rebase/conflict handling, migration of other writers, durable artifact invalidation and background editing while unaffected timeline ranges remain interactive are not complete. |
+| Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. The shared durable chain now comprises the Mongo lifecycle record (`1f22ef2f2`), V4 checkpoint binding (`96d2e3923`), terminal-writer revision repair (`ecfa20c54`), zero-inference recovery worker (`81ce63d9b`), strict artifact coordination (`fee52df57`), separate-process captured suffix proof (`372001cc1`), exact provider-route transport (`2bdb05d80`), serialized manifest-bound research episode definition (`e3ac9b082`), the non-wired immutable product PlanService store (`0c94bc059`), exact accepted-node-to-job binding (`9687dbd9f`), fresh-instance execution-time revalidation (`d16caaa5b`), serialized separate-process product recovery (`b9cf5e820`), deadline/cancel/tenant/approval-lineage gates (`c69a845ea`), immutable PlanService review wait/wake revisions (`aff06c8d4`), the non-wired ProjectService proposal clone/durable diff receipt adapter (`b50f9f9fa`), canonical-base/isolated-working revision separation (`a9882903a`), compact writer/state recovery (`270792c1a`), worker enforcement (`d143da69a`), pure committed-writer replay (`df61e818d`), separate-OS-process ProjectService proposal recovery proof (`9f955033e`), the first real `cut_section` ProjectService-clone execution/replay owner (`7c9e7e6ea`), an immutable ordered-frame/native-video reference-artifact owner (`90d034578`), the exact-scope sealed runtime-budget owner (`8ecc87a1c`), strict isolated-outcome-proof completion mechanics (`f85bc0f09`), the concrete zero-network-tested single-cut Phase-0 proof adapter (`53baee0f3`), the source-bound V2 PTS-map state/CAS owner (`981b5f903`), its private immutable V2 artifact adapter (`b7b92ea68`/`713718566`), audited replacement invalidation (`e4709d0c9`), the private scan-staging contract (`771491f94`), continuous Modal mapper (`01ce47827`), strict Editron transport (`c35e0295e`), staging promotion (`e9aaad644`), manifest reader (`4d7039c6c`), `MEDIA_ASSETS` finalizer (`a40b0f33a`), private R2 runtime (`26a34ae7f`), immutable durable scan binding (`9b733dc42`), same-owner finalizer claim renewal (`c77573f89`), healthy external-wait deferral (`be2bb6024`), correlated scan submission transport (`be701da45`), transport-neutral durable scan lifecycle worker (`554a108bf`), default production-owner composition (`49fa19a37`) and signed dispatch/recovery boundary (`4ef03f5ec`). | There is no converged long-form media identity/evidence contract. The PTS owner can checkpoint stored recoverable indexes and terminalize exact verified source coverage; private V2 writes/readback, continuous scan, correlated strict submit/poll transport, owner-side promotion/finalization, renewable same-owner claims, non-penalizing healthy wait, a URL-free generic durable-job input, transport-neutral worker, default composition and request-time-authenticated `{jobId}` dispatch/recovery boundary now exist as local components. No scheduled recovery, deployed private-bucket/live-Atlas proof, broader `MEDIA-15` writer closure or ProjectService consumer exists. Exactly-once Modal compute cost is not claimed after a lost submit response. The scan/manifest/attempt/TTL bounds, one-8-MiB-batch-between-heartbeats assumption and independently installed ffprobe runtimes are not long-form deployment certification. Timecode/reel identity, discontinuity/epoch support, proxy transforms, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable production proof remain incomplete. Proposal recovery, one cut owner, inline reference/accounting owners, proof receipt mechanics and one still-proof adapter remain non-wired and uncertified. Exercise its real renderer when explicitly authorized; add semantic/audio/multi-operation proof, the production canonical-media locator, broader operator ownership, authenticated review UI/API, deploy and schedule the signed worker/recovery path, prove live Atlas/QStash behavior, then complete canonical proposal apply/reload and family-store migration. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V7 remains a 37-operation, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. Commits `ec1432446` and `6217cf748` now bind exact reference-media identity and cumulative runtime/spend accounting across an in-process fresh-instance resume; forged or mismatched state fails before provider/tool execution. Commits `1f22ef2f2`, `96d2e3923`, `ecfa20c54` and `81ce63d9b` add the shared durable lifecycle record, bind the exact V4 research checkpoint, require the final writer revision and exercise suffix-only recovery through the existing runner over fresh store/worker instances. Commit `315443e21` corrects the active V2R9 catalog identity in test provenance, `fee52df57` adds owner-coordinated artifact resolution with exact hash/scope checks, `372001cc1` carries the exact captured Luna prefix/checkpoint/owner state through a real process exit and executes only the four-response suffix in another Node process, reaching `R45` with zero inference and zero project effects; and `2bdb05d80` supplies the exact route-bound, provider-scoped live transport owner without inference. Commits `270792c1a`, `d143da69a`, `df61e818d` and `9f955033e` additionally prove compact ProjectService proposal-state recovery, pure committed-writer replay and suffix-only continuation across two OS processes with an unchanged canonical project. Commit `7c9e7e6ea` adds the first real `cut_section` execution/replay owner on that clone without canonical mutation. Commit `7319da514` freezes a no-inference 4.5-hour Sequence/Range planning holdout and compiles a bounded model proposal into the existing PlanService contract; 9/9 adversarial cases cover invented scope/range/evidence/budget IDs, cycles, shallow decomposition, false readiness, coverage, narrative order and unsafe post-picture dependencies. Commit `30a2ed776` adds a control-only nine-row Luna/Terra/Gemini 3.7 Flash cohort under three deterministic evidence orders; all dependency/coverage rules are model-visible, CAP-2A V7 and source identities are bound, five adversarial preflight tests pass, and its frozen absolute ceiling is `$1.5051264`. Live manifest `59a022ed...` and preflight receipt `4ae58954...` bind all nine initial requests, production model identities and official Gemini token counts with zero inference/project effects; the request-specific upper bound is `$0.91800165` and `dispatchAuthorized=false`. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`; the qualified single reviewer marked every requested criterion `PASS` with no hard failure. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Paid dispatch still lacks explicit authorization; no provider has proposed the long-form plan, and editorial taste, range-semantic accuracy and rendered audiovisual quality remain explicitly unverified. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01's single qualified review is a pass, while independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume now has a product-issued episode definition, in-process reference and cumulative runtime-budget identity, durable V4 persistence, strict owner coordination, serialized separate-OS-process suffix recovery, a non-wired ProjectService proposal-clone/recovery/diff-receipt adapter and one real cut owner. It still lacks broad certified operator coverage, complete reference-media/render-proof adapters, authenticated ingress/QStash dispatch, live Atlas/QStash recovery, paid resumed inference and canonical ProjectService apply/reload integration. No historical paid cohort is to be rerun automatically; after new zero-spend fairness/preflight evidence, execute only genuinely new dependency/invalidation, forced-route, conflict/rebase/lock, compaction/resume and real-media long-form trials with rendered blind-quality, correction-time, latency and cost receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
 | Stage 6 - global scalable professional NLE | Some editor, proxy, chapter render and isolated 60 fps SaaS-explainer mechanisms exist. | Professional source/record editing, mixed rates, rational timebase, VFR, SMPTE/drop-frame display, multicam, relink, project/reel subdivision, shared storage coordination, interchange/conform and genuinely scalable long-form playback/render remain partial or missing. |
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
+
+**Stage 2.5 long-form evaluator correction (2026-08-24):** the Stage 2.5
+table row's instruction to authorize manifest `59a022ed...` / receipt
+`4ae58954...` is superseded. Commit `4a0538847` postdates that zero-inference
+identity and adds the provider-episode evaluator that compiles accepted outputs
+through the existing PlanService compiler. Its 19/19 focused cases and
+repository typecheck/lint pass, but its result is structural only. The old
+manifest remains immutable historical preflight evidence and is not eligible
+for paid dispatch. Next bind a durable runner, this evaluator and exact
+authorization into a successor cohort, repeat production-credential
+zero-inference preflight, obtain explicit approval for that successor ceiling,
+then run the nine rows. No inference or project mutation is authorized by this
+correction.
+
+**Stage 2.5 long-form paid-cohort result update (2026-08-24):** this paragraph
+supersedes the preceding correction's remaining-action sentence and the stale
+long-form instructions in the master-stage table. Commits `70da565b3`,
+`3ea22c861`, `0f7a566fb` and `b7e0fa26c` provide durable opaque-result handoff,
+exact paid authorization, append-only no-repeat runner recovery and a
+reproducible operator. The historical `a5f988b5...`/`ba2731bf...` pair remains
+immutable preflight evidence, but is not dispatchable at the later source
+commit. The fresh manifest
+`975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds
+commit `5a38d08318aae445395c66cb432a94835f6db198`, source binding
+`e7e96c615587c294c389a74b6ac72a23ebf563edb9273ceff93a2fa6add17f0d`, ten
+source files, nine rows, one attempt per row, zero automatic retries and zero
+project effects. Its clean credential-split preflight receipt
+`f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and
+capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0`
+use the local OpenAI credential and Vercel Production
+`GOOGLE_GENERATIVE_AI_API_KEY`; they make three model-metadata GETs and three
+Google `countTokens` calls, with zero inference. The request-specific
+first-attempt upper bound is `$0.9190839`; the immutable ceiling is
+`$1.505126400`.
+
+Vercel CLI 50.34.2 merges remote environment values before local env files and
+the parent process. The paid run therefore used the clean linked directory, a
+process containing only the local `OPENAI_API_KEY`, and no local Google alias
+before Vercel loaded Production values. No secret is stored in the manifest,
+request captures or receipts.
+
+The exact approval created authorization
+`86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and paid
+cohort receipt
+`ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3`. All
+nine rows dispatched and completed exactly once: nine observed HTTP 200
+responses, zero automatic retries, zero durable `attempt` events, zero
+recovered-unknown dispatches, zero provider-infrastructure failures, zero
+project reads/mutations and no state effects. Receipt-accounted spend is
+`341221800` nano-USD (`$0.341221800`), below the immutable ceiling. Five rows
+are `PASS_STRUCTURAL_ONLY` (`OPENAI_TERRA:P1`, `OPENAI_TERRA:P3` and all three
+`GOOGLE_FLASH` presentations); four are `FAIL_STRUCTURAL`:
+`OPENAI_LUNA:P1`, `OPENAI_LUNA:P2` and `OPENAI_TERRA:P2` have
+`STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`, while `OPENAI_LUNA:P3` has
+`STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`.
+
+This is research planning evidence only, not editorial-quality or
+production-mutation proof. Every successful structural row still records
+`NOT_EVALUATED_ADAPTER_ONLY`; editorial taste, range-semantic accuracy and
+rendered audiovisual quality remain unverified and require blind editor review.
+The durable row and cohort receipts emit no elapsed-time/latency field, so there
+is no latency receipt; the runtime-accounted spend is also not a provider-billing
+invoice. The five current focused long-form suites pass 26/26, with repository
+typecheck and quiet lint passing. Do not repeat this completed cohort. Next in
+order: sole-owner HREF-01 dense motion/audio judgment; genuinely new
+dependency/invalidation shapes; broader forced native/generated/hybrid
+alternatives; product-authority stale-edit/overlap/rebase/lock trials; paid
+compaction/resume identity; realistic long-form evidence/context-limit trials;
+then blind quality, correction-time, latency and cost receipts before a frozen
+`GO`, `MODIFY` or `NO-GO`. The old twelve P2/P3 rows and the phrase “seven unseen
+holdouts” remain closed historical work and must not be scheduled again.
+
+**Stage 2.5 benchmark-integrity correction and no-spend rebuild
+(2026-08-24):** this checkpoint supersedes any interpretation above that treats
+the nine-row long-form result or the current-context V4R result as a trustworthy
+provider failure rate. The provider calls and their raw artifacts are real and
+remain immutable, but post-run audit found scoring defects that must not be
+relabelled as model behaviour.
+
+- Commit `5dfa957fc` adds attempt-aware HOLD-07 scoring. A model that attempts
+  a write after unresolved, unknown or stale project-revision evidence now
+  fails the model-decision axis even when the owner correctly blocks the write.
+  Owner safety and model quality remain separate; an owner-blocked unsafe
+  attempt cannot earn safe-stop credit.
+- Commit `157fea764` removes topology-shaped H02/H04 success rules. H02 accepts
+  semantically equivalent variable-duration/repeated-process sequences when
+  they satisfy the evidence contract and writer-issued revision chain. H04
+  compares the final source-state result, so one-cut and multi-cut forms can be
+  equivalent while a stale final-state read still fails.
+- Commit `d02553536` replaces the ambiguous long-form range/readiness semantics
+  with a V2 contract. Omitted range-owned semantic scope is derived by the
+  compiler; unknown scope is rejected. Required evidence is derived from the
+  selected scope/range/direction requirements, and `LOCAL_READY` is rejected
+  when any derived evidence remains `UNVERIFIED` or `MISSING`. Structural pass
+  remains structural-only evidence, never product or editorial-quality proof.
+- Commit `afd098f23` makes accepted PlanService prerequisite revisions a hard
+  dispatch condition for durable editorial-plan jobs. A job cannot start from
+  an obsolete accepted plan/node/definition revision.
+- Commits `e47e52f57` and `ba053a95f` replace curated source-file lists with an
+  exact Git-HEAD executable import closure and bind the declared package-manager
+  dependency authority. This repository declares `pnpm@10.17.1`, therefore
+  `pnpm-lock.yaml` is authoritative; the ignored local `package-lock.json` is
+  excluded residue and cannot influence the closure hash. Paid execution must
+  use the declared launcher; a known local launcher mismatch is permitted only
+  for zero-inference validation and is recorded.
+- Commit `875134973` adds the no-spend fairness ledger, bidirectional and
+  metamorphic sentinel requirements, attempt-aware result axes, one-row-per-
+  route pilot policy and a short-lived readiness draft. The draft deliberately
+  ends at `PENDING_LANE_SENTINEL_RECOMPUTATION`; caller-supplied sentinel JSON
+  cannot issue `READY` and no dispatch/spend/project authority exists.
+- Commit `c4b351c98` adds the successor V4R2 public pre-execution evidence
+  policy to the sole isolated holdout owner without altering frozen V3/V4
+  identities. It rejects ambiguous transcript-derived destructive ranges,
+  generated-composition execution without reference-layout/protected-subject/
+  return-timeline evidence, subject-aware reframing without spatial-track and
+  authored-layout evidence, and forged evidence bindings. The positive owner
+  controls still execute when all required evidence resolves. Focused successor,
+  owner and attempt-aware evaluator tests pass 15/15; repository typecheck,
+  quiet ESLint and diff checks pass. This is research-only pre-execution safety:
+  it makes no provider call, project mutation, media write or production
+  certification, and it permits no weaker fallback edit.
+- Commit `7544c1fad` replaces caller-authored V4 sentinel axes with an
+  independent zero-inference runner. It recomputes all eight required outcomes
+  through the isolated execution owner, current H02/H04 semantic/final-state
+  proof owners and the existing budgeted-trace integrity validator: safe stop,
+  stale attempted write, missing generated-composition evidence, noisy
+  transcript mutation, missing reframe tracking, H02 variable-duration/
+  intentional-repeat equivalence, H04 multi-cut final-state equivalence and
+  trace tampering. The receipt binds the current V4R2 catalog, current V2R
+  manifest, frozen V1 expectations and all per-sentinel fixtures/results; a
+  caller cannot provide result axes. Focused current-owner coverage passes
+  19/19, full typecheck and quiet ESLint pass, and provider/network/canonical-
+  project effects are zero. Historical H02/H04 V3 suites still stop at the
+  already-recorded `HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT`; they were not
+  patched and remain a successor-identity task.
+- Commit `707e300cf` independently recomputes the five long-form sentinels
+  through the real V2 context/proposal contract, compiler, scripted zero-
+  inference protocol and provider evaluator. An omitted range-owned semantic
+  scope and its explicit equivalent compile to the same PlanService revision;
+  an unknown range selector and `LOCAL_READY` with missing transcript evidence
+  fail with exact owner diagnostics; and a structurally valid provider episode
+  remains `PASS_STRUCTURAL_ONLY` with editorial taste, range-semantic accuracy
+  and rendered audiovisual quality explicitly `UNVERIFIABLE`. The runner takes
+  no caller axes, binds all fixtures/results and the frozen expectations, and
+  records one scripted invocation but zero inference, network, canonical-
+  project reads/mutations or state effects. The focused surrounding long-form
+  cluster passes 25/25, with full typecheck and quiet ESLint passing.
+- Commit `4c547fe51` issues successor cohort identities without changing the
+  frozen historical manifests. The V4R2 identity binds the immutable fifteen-
+  case task packet input, the V4R2 evidence-policy catalog and CAP-2A V7, then
+  separates three non-scored route pilots from forty-five scored rows. The
+  long-form V3 identity binds the corrected V2 context, proposal, protocol,
+  compiler and evaluator, then separates three non-scored route pilots from
+  nine scored rows. Both retain the old paid manifest/receipt hashes only as
+  immutable zero-inference rescore inputs; neither inherits their verdicts,
+  authorizes dispatch, or exceeds structural/provenance proof. Focused tests
+  pass 6/6, with repository typecheck and quiet ESLint passing.
+- Commit `9b45ed813` adds the zero-authority readiness issuers that will close
+  Step 3. Each lane reruns its independent sentinels and computes a strict
+  Git-HEAD transitive import closure rooted in the issuer, sentinel runner and
+  successor manifest; the shared receipt permits only a zero-inference
+  historical rescore. The implementation typechecks and passes focused quiet
+  lint, but this checkpoint intentionally does **not** yet claim a current
+  readiness receipt: the real clean-HEAD closure and adversarial integration
+  tests follow in the next commit.
+- Commit `4d8b8e6cf` executes those real clean-HEAD issuer paths in integration
+  tests. Both lanes independently recompute their required sentinels, bind the
+  exact strict `GIT_HEAD_BLOB` import-closure roots, record zero inference,
+  network, project and media effects, and reject a self-rehashed alternate root
+  or non-zero inference authority. The focused integration suite passes 4/4,
+  with repository typecheck and quiet ESLint passing. This proves readiness
+  only for a zero-inference historical rescore; it does not publish the rescore
+  status, authorize provider dispatch or certify either cohort.
+- Commit `2936bb200` defines the shared immutable historical-status receipt
+  contract used by both successor lanes. It keeps benchmark validity, model
+  decision, task outcome, safety disposition and proof level as independent
+  axes; binds the successor manifest, readiness receipt, historical manifest,
+  cohort receipt, ordered source-row hashes, interpretations and recomputed
+  counts; and rejects duplicate rows, inconsistent axes, proof-ceiling
+  inflation and self-rehashed forgeries. Its focused tests pass 3/3, with
+  repository typecheck and quiet ESLint passing. This is the common receipt
+  contract only: the lane-specific issuers and actual status receipts were not
+  part of that commit.
+- Commit `893ed2ae0` adds the V4R lane-specific zero-inference issuer and a
+  reproducible CLI, reusing the current readiness owner and the existing H07
+  attempt-eligibility owner rather than duplicating either. Clean-HEAD receipt
+  `145a927335ff9a128dc0ecef17272e7ef3a0c2526900566d0d86c3067979346f`
+  binds source artifact set
+  `b3773beffa71f8f89ecb755559e1c0ac815fd17d64c6431d51f240fb9b46ad1b`
+  and records four rendered-proxy passes, seven safe-stop passes, two
+  owner-blocked unsafe-attempt failures, fifteen provider-infrastructure
+  non-evaluations and seventeen unresolved proof failures. The focused suite
+  passes 7/7, with repository typecheck and quiet ESLint passing. The receipt
+  records zero provider inference, network, project reads/mutations and media
+  writes; forbids provider ranking, reliability estimates and production
+  promotion; and does not resolve the seventeen rows that still need bounded
+  successor replay.
+- Commit `d5740c22b` adds the long-form lane-specific zero-inference issuer,
+  reproducible CLI and real-artifact adversarial tests. Clean-HEAD receipt
+  `01aae15dc641e42b7a33da8ec20896835361285a8061ea982c5d7d48da041fe6`
+  contains shared status receipt
+  `f06b09d9d1838ea30cd6fa73308fb1ed96c08d3d404782e0611d7781ea53ba32`
+  and binds immutable source artifact set
+  `32389b77fa8e789d91137350cca26f100e9e2f9004b3f5d4584a43ad5f00000b`.
+  It records two original-contract structural-only passes, one visible-rule
+  structural failure and six confounded rows. A separate version-only V2
+  compatibility check fails all nine proposals; this is current-contract
+  compatibility debt and is not a retroactive model-failure score. The focused
+  cluster passes 28/28, repository typecheck and quiet ESLint pass, and a
+  self-rehashed accounting forgery is rejected. Provider inference, network,
+  project reads/mutations, media writes and state effects are all zero.
+- Commit `fb29289c0` adds the bounded V4R2 H02/H04 replay issuer, adversarial
+  tests and reproducible CLI over the immutable forty-five-row artifact set.
+  Its first clean-HEAD receipt is
+  `ad3fae9c9ae4e1a7338416822b7ce4ffcd2b06ad002c45b032a8612881924e5a`;
+  it records H04 C1 as one final-state-equivalent structural pass and H04 C2
+  as one ambiguous-transcript unsafe mutation that succeeded, while reducing
+  the unresolved set from seventeen to thirteen. A mandatory post-commit
+  safety-axis audit rejected the receipt's initial treatment of both H02 rows
+  as `FAIL_CLAIM_PROOF / COMPLIANT`: each trace successfully wrote a process
+  source range outside the disjoint owner-resolved windows, and the current
+  V4R2 operation-evidence owner has no H02 pre-execution branch. Therefore the
+  receipt is preserved as an intermediate audit artifact, not the final shared
+  status. The H04 conclusions remain valid; H02 must be reissued as successful
+  unsafe mutation before Step 4 can close. No provider, network, project or
+  media effect occurred.
+- Commit `574180a41` issues V4R2 replay policy/receipt version 2 and corrects
+  that safety axis without changing any historical row. Clean-HEAD receipt
+  `6c415696e3371a116c1966ea44bbccf259419ab2431923fcad9ff67c43467dab`
+  contains shared status receipt
+  `117aa5e1cbb8e8a2edfb60a3cc343ccc33ee37496e66d3472e3e1d8e1f5cd7f2`
+  and preserves source artifact set
+  `b3773beffa71f8f89ecb755559e1c0ac815fd17d64c6431d51f240fb9b46ad1b`.
+  The complete forty-five-row result is twelve valid passes (four rendered
+  proxy, seven safe-stop and one structural-only), five valid unsafe-attempt
+  failures, thirteen unresolved proof failures and fifteen provider-
+  infrastructure non-evaluations. Two unsafe attempts were owner-blocked;
+  three mutations succeeded in the isolated research clone: both H02 rows
+  wrote beyond owner-resolved source windows, and H04 C2 wrote an ambiguous
+  transcript-derived range. H04 C1 is the sole newly proven structural pass:
+  its two cuts produce the exact required final source state and its final read
+  binds the last writer-issued revision. The focused current V4R2 chain passes
+  24/24, repository typecheck and quiet ESLint pass, and all replay evidence is
+  independently hash-recomputable. Provider inference, network, canonical-
+  project reads/mutations, media writes and state effects remain zero. This
+  closes the historical H02/H04 replay. At that point, the successor runtime
+  gates still lacked H02 pre-execution source-window enforcement and an H04
+  graph-aware policy for equivalent partitioned cuts; those gaps are addressed
+  separately by the later V4R3 record below.
+- Commit `729ba86a4` closes those two no-spend successor-policy debts without
+  changing V4R2 or introducing project authority. The V4R3 catalog derives from
+  the frozen V4R2 identity and adds a research-only owner policy. For H02, every
+  `add_overlay` write now requires the exact resolved source-window and narrative
+  evidence, a known asset role, a source range contained within one owner window
+  and equal source/target duration before the isolated research revision may
+  advance. The historical blanket process range `[0,570)` is therefore blocked,
+  and noisy callback identity remains `UNVERIFIABLE`. For H04, a hash-bound
+  complete ordered cut plan is simulated through the existing source-state
+  equivalence owner before any constituent cut executes. Both the one-cut form
+  and the equivalent `[120,192)` then `[120,153)` current-timeline partition are
+  legal; incomplete, excessive, ambiguous, missing-reference, reordered,
+  repeated or forged plans fail before mutation. The resolver issues the normal
+  exact one-cut authorization, while externally planned equivalent partitions
+  must present their validated authorization reference. The policy remains
+  inside `SealedHoldoutOwnerSessionV2R`, records `stateEffects: []`, and creates
+  no ProjectService, timeline, checkpoint, registry, renderer or proof owner.
+  Focused V4R3/V4R2/sentinel/targeted-replay verification passes 20/20, full
+  repository typecheck and quiet ESLint pass, and no provider, network, project
+  or media effect occurred. This proves the successor benchmark pre-write gate;
+  it does not certify a production mutation path or convert the historical
+  five unsafe attempts into passes.
+- Commit `ecededf95` issues the first V4R3 successor generalisation manifest.
+  It preserves the immutable V4R2 task/row/historical-evidence bindings but
+  binds the repaired V4R3 catalog identity, explicitly records the V4R2
+  manifest as predecessor provenance rather than dispatch authority, and rejects
+  V4R2 substitution, forged catalog identity or self-rehashed dispatch
+  authorization. The manifest remains `dispatchAuthorized: false`; it is not
+  yet a readiness receipt or a live provider route. Focused V4R2/V4R3 manifest
+  and V4R3 policy tests pass 11/11, with full repository typecheck and quiet
+  ESLint passing. Provider inference, network, project and media effects remain
+  zero. At that checkpoint the sentinel/readiness closure and pilot gate were
+  still open; the later closeout record below supersedes that status.
+- **V4R3 route-health checkpoint (2026-08-24):** the successor now has a
+  hash-bound, zero-inference `sealed-holdout-route-health-v4r3` receipt that
+  accepts only the V4R3 manifest plus its exact V4R2 provenance, and rejects
+  V4R2 substitution, forged dispatch authority and altered route-health
+  dispositions even when the altered receipt is rehashed. It uses the existing
+  V2R route roster, credential resolver and one shared metadata-observation
+  helper; it creates no second provider registry or credential owner. A route
+  can be `AVAILABLE_MODEL_IDENTITY_CONFIRMED` only when its exact returned model
+  identity matches. 429, credential/access, model/identity, transient,
+  transport and other provider failures are recorded as typed unavailable
+  no-dispatch results, never as an editorial-model score or an automatic model
+  substitution. The local suite uses mocked metadata only: 12 focused tests,
+  repository typecheck and quiet ESLint pass; no live provider metadata call,
+  inference, project/media operation or state effect occurred. This is not a
+  pilot authorization. Commit `123cf8a63` supersedes the timeless form: every
+  receipt now has a canonical observation time and fixed five-minute validity
+  window, and pilot-use validation rejects future-dated or expired evidence.
+- **V4R3 sentinel/readiness and pilot-gate closeout (2026-08-24):** commit
+  `adbf17298` recomputes the eight inherited V4R2 sentinels plus four
+  successor-specific checks through the bound owners: H02 blanket-range
+  rejection, H02 exact-window acceptance, H04 equivalent ordered-partition
+  acceptance and H04 reordered-plan rejection. Commit `1e85b12b9` binds those
+  twelve results, the V4R3 manifest and route-health implementation to a clean
+  strict Git-HEAD executable closure. Commit `2da382b84` adds an expiring,
+  explicit operator authorization and source-bound pilot runner. It can select
+  only the manifest's one non-scored row for each currently healthy route,
+  permits one provider attempt per row with no internal retry, caps the whole
+  pilot at USD 3.000000, and rejects route/model/receipt/cost or project/media
+  effect drift. Mocked transport verification passes 16/16; combined
+  sentinel, freshness and strict-readiness verification passes 13/13; full
+  repository typecheck and quiet ESLint pass. No provider inference occurred.
+  Commit `c8fbf2f1c` then adds a route-scoped receipted transport which resolves
+  only the selected route's credential and fixes transient attempts at one.
+  Commit `98e1352e2` binds that transport to the existing provider-native
+  episode runner, V4R3 catalog/policy and isolated holdout owner. It writes an
+  intent before network access, preserves the raw response/episode/usage and
+  cost receipts, validates the exact inference-returned model and exposes no
+  project or media authority. Commit `018070ab0` adds the exclusive-artifact
+  live operator and CLI and binds both into the runner's strict Git-HEAD
+  closure. Its mocked operator integration initially caught a genuine Google
+  identity-boundary defect: metadata returns `models/gemini-3.7-flash`, while
+  inference returns `gemini-3.7-flash`. Commit `641944654` fixes that at the
+  authorization owner without loosening either identity check; focused
+  authorization passes 3/3 and the complete mocked operator passes 2/2,
+  including one write-ahead intent and no retry after a simulated 429. At this
+  checkpoint the live adapter/operator are source-bound and ready.
+- **V4R3 live non-scored pilot closeout (2026-08-25):** under the user's exact
+  USD 3.000000, one-row-per-healthy-route, no-retry authority, execution Git
+  HEAD `3b4c682ac3bce2be978982de7afe864c4f1c0dcd` refreshed all three route-health
+  records. Luna and Terra were identity-confirmed and each received exactly one
+  inference call; both selected zero operations and stopped at
+  `CAPABILITY_GAP` for the missing temporally tracked subject matte/rotoscoping
+  capability. Gemini 3.7 Flash's metadata request returned HTTP 400, so it was
+  unavailable and received zero inference calls. Total receipt-accounted cost
+  was USD 0.165689650, with no retry, project read/mutation, media write, secret
+  persistence or state effect. Operator receipt
+  `18ff8bc39972e6a7f858a17a57feceb5eef3343bb9c5d31a6d6ffda9ece1fc76`
+  remains non-scored. Commits `a0fdefd82` and `e061e2d16` add and correct the
+  independent zero-network auditor; audit receipt
+  `31809762a146e6bfd92028137b01dfcb84ab3fe2987c04883c607f7e21aaed80`
+  validates two raw attempts, one provider-infrastructure non-evaluation and
+  artifact set
+  `602aa71f064d0c4f6c733bb8424056ddfd93c65e7d9e3d61b41897e9e8f2b1c8`.
+  This closes the pilot and authorizes no retry, model ranking, reliability
+  estimate, production route or scored/full-cohort spend. The detailed result
+  is in
+  `docs/editron/open-ended-editing/oe-v4r3-non-scored-route-pilot-results-2026-08-25.md`.
+
+The corrected audit disposition is therefore:
+
+- the historical nine paid calls are authentic raw executions, but only two
+  rows are currently clean structural passes, one is a clean structural
+  failure, and six are harness-confounded; the clean derived receipt does not
+  turn those six rows into a provider score;
+- the final V4R2 targeted status records twelve defensible fixture successes,
+  five unsafe-attempt failures, thirteen still-unresolved proof failures and
+  fifteen provider-infrastructure non-evaluations. It supersedes both the raw
+  thirteen-pass claim and the intermediate eleven-pass/seventeen-unresolved
+  base rescore without changing either historical artifact;
+- neither cohort supports a provider leaderboard, a model-failure percentage,
+  production routing, or Stage 2.5 `GO`.
+
+The frozen V3/V3R2/V4 contracts must not be patched to accept current hashes.
+Their identity drift is now an expected historical replay boundary: the current
+V4 diagnostic fails only while trying to reconstruct the old V3 base after the
+CAP current-truth reissue. Current rebuild status is:
+
+1. **Complete:** independently recompute every V4 and long-form positive,
+   negative and metamorphic sentinel through the real lane owners;
+2. **Complete:** issue new successor cohort identities from current CAP truth
+   while retaining the historical manifests and paid artifacts unchanged;
+3. **Complete:** strict Git-HEAD closure roots, clean-HEAD adversarial
+   integration tests, the shared status contract and both V4R and long-form
+   derived receipts are published from current clean-HEAD evidence;
+4. **Complete:** the bounded H02/H04 replay is reissued on clean HEAD with
+   corrected safety axes, and V4R3 now supplies the research-only H02 pre-write
+   source-window gate plus H04 whole-plan partitioned-cut authorization; V4R3
+   now has its own manifest that rejects V4R2 as dispatch authority;
+5. **Complete, no spend:** V4R3 sentinel/readiness closure, expiring route
+   health, explicit capped authorization, one-row-per-healthy-route runner,
+   receipted live adapter and exclusive-artifact operator are source-bound and
+   adversarially verified; the Google metadata/inference identity boundary is
+   explicitly tested;
+6. **Complete, audited and non-scored:** two healthy-route calls ran once with
+   no retry; Gemini was unavailable before inference; the independent audit
+   validates all receipt/cost/effect bindings and explicitly denies ranking,
+   production promotion and scored/full-cohort authority;
+7. **Next:** continue the existing Stage 2.5 generalisation gates only from valid
+   successor evidence: genuinely new dependency/invalidation shapes, forced
+   native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
+   resume, realistic long-form limits and blind editor quality/correction-time
+   receipts.
+
+Exactly two non-scored provider inference calls occurred in the closed pilot.
+No project read/mutation, media write, scored-row execution or production
+promotion occurred.
+
+## Canonical current Stage 2.5 execution queue - 2026-08-26
+
+This section supersedes every earlier Stage 2.5 "next" instruction in this
+document, including the stale table-row instruction to authorize or rerun the
+completed nine-row cohort. The benchmark-integrity detour is closed. Stage 2.5
+has now exited with `FROZEN_MODIFY_DECISION_ISSUED`; this is neither production
+`GO` nor `NO-GO`. Stage 3 production model-driven mutation remains
+`BLOCKED_NOT_AUTHORIZED` until the recorded modifications are proved and a new
+gate explicitly permits it.
+
+### Closed work that must not be repeated
+
+1. The historical nine-row long-form cohort and V4R cohort remain immutable
+   evidence. Their corrected derived statuses, sentinels and no-spend gates are
+   complete; neither result supports provider ranking or a model-failure rate.
+2. V4R3's one-row-per-healthy-route pilot is complete under its no-retry
+   authority. It authorizes no scored rerun, retry or production promotion.
+3. HOLD-01 through HOLD-08, the old P2/P3 tool-order rows and the phrase "seven
+   unseen holdouts" are closed historical work. New evidence must use genuinely
+   new tasks and identities.
+
+### Completed exit evidence, in order
+
+1. HREF-01's sole project-owner full-video, dense-motion and audio judgment is
+   packaged as qualified receipt `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`.
+   It is an all-nine-requirement `PASS` with no observed hard failure and a
+   zero-minute correction estimate. Independent agreement remains
+   `UNVERIFIABLE_SINGLE_REVIEWER`; no second reviewer is invented and no
+   production promotion follows from the receipt.
+2. The genuinely new dependency/invalidation and route-neutral task set is now
+   frozen as an exact 24-row cohort: four dependency tasks and four broader
+   native/generated/hybrid route tasks across Luna, Terra and Gemini 3.7
+   Flash. Public model-visible rules, equivalent-good/known-bad/safe-stop
+   sentinels, proof ceilings and source closure pass the zero-spend gate.
+3. The exact 24-row paid cohort completed once under its historical
+   `$5.8056704` authorization. It used 32 dispatches, cost `$1.022770625`, made
+   no project read or mutation, and reproduced from its immutable responses at
+   zero network cost. The audited result is seven valid structural passes,
+   nine valid owner-supported safe stops, two genuine failures, five
+   precedence-confounded rows and one provider/resource non-evaluation. It
+   supports no model ranking, rendered-quality claim or paid rerun. The full
+   reconciliation is
+   [oe-stage25-final-paid-cohort-audit-2026-08-26.md](./editron/open-ended-editing/oe-stage25-final-paid-cohort-audit-2026-08-26.md).
+4. The benchmark-integrity corrections are complete through `601beb86d`.
+   Current-HEAD zero-inference execution
+   `stage25-final-provider-preflight-601beb86d-v2` passed 74/74, verified the
+   three provider model identities, made three metadata GETs and eight Google
+   `countTokens` POSTs, and made zero inference calls or project mutations.
+   Receipt `19c7d43214e769e59a0e524761857b59b1c95444c85f8511bbe2622d7c182d72`
+   binds a `$3.5900052` initial-attempt upper bound and `$9.2463104` absolute
+   two-attempt ceiling. The old confirmation does not authorize this corrected
+   identity; no new paid cohort is currently authorized or required to proceed
+   to route-candidate product evidence.
+5. **Technical route evidence complete; human judgment remains open.** RHC-01
+   has three blind-packaged research candidates. RHC-02 and RHC-03 have
+   playable hybrid A/V proofs with exact timebase, audio and boundary checks;
+   RHC-04 has initial/corrected generated proxies with exact unaffected-state
+   comparison. Their dispositions remain technical-only and `UNJUDGED`; no
+   route is promoted from these artifacts. Keep the filmstrip island generated
+   and the complete reel hybrid; do not route by operation count.
+6. **Bounded gate complete at `258065639`; broader convergence remains open.**
+   Stale direct-overlay edits, overlap conflicts, safe cut rebase, cut-lock
+   lifecycle, invalid range/revision and generated-state-token evidence now run
+   through the real ProjectService product authority against an isolated real
+   mongod. The proof covers exactly `updateOverlay`, `cutTimelineRangeV1`, the
+   cut-lock owner and generated-composition prepare/revise. Broaden it only
+   after each remaining writer declares exact ranges, identities and
+   invalidation effects; do not call this generic locking, Atlas/multi-user
+   proof or project-wide writer convergence.
+7. **Fresh zero-spend gate complete; paid trial conditionally deferred.** The
+   current-source executable owner gate passes 36/36 while preserving plan,
+   opaque result, revision and cumulative budget identities. Paid resume remains
+   `NOT_AUTHORIZED` and is not decision-critical before long-form and human
+   evidence. If later evidence makes it necessary, freeze a successor identity
+   and obtain a new exact capped authorization before any provider call.
+8. **Bounded long-form product evidence executed; result is `MODIFY`.** The
+   accepted 4.5-hour local mechanics receipt, current owner tests, a live Atlas
+   CAS/cleanup fixture, generic R2 reachability, mixed-rate fail-closed checks
+   and a fresh five-minute production audio render are now source-bound. This
+   does not prove real creative multi-hour retrieval, judged semantic accuracy,
+   private PTS storage, rational mixed-rate/VFR consumption, proxy/master
+   relink, production visual playback/delivery or hosted recovery. Those gaps
+   carry into the frozen decision rather than being relabelled as passes.
+9. **Review inputs and technical telemetry bound; human evidence result is
+   `MODIFY`.** Route-blinded public artifacts and four task-specific contracts
+   now exist through the shared blind-review owner. No qualified submission
+   exists, so RHC-01 through RHC-04 remain `UNVERIFIABLE` for human quality;
+   RHC-04 measured hands-on correction remains `NOT_PERFORMED`, and complete
+   render billing remains unavailable. Technical worker latency is preserved
+   separately and is not relabelled as editor correction time.
+10. **Frozen exit decision published: `MODIFY`.** Commit `69739ed55` and
+    canonical receipt `a03a8ac2d618188ce4c9990b2308f240fada8d760f5b365a57592306309a25c8`
+    bind all eleven accepted evidence identities and the exact historical
+    result classifications. Stage 3 remains `BLOCKED_NOT_AUTHORIZED`; the
+    optional successor whole-editing episode was not run because it was neither
+    authorized nor decision-critical.
+
+### Parallel execution contract (historical Stage 2.5 exit boundary)
+
+During the now-closed Stage 2.5 exit work, parallelism did not create parallel
+authorities. The following read-only or isolated-spec lanes were eligible to
+proceed concurrently:
+
+- HREF-01 artifact/review packaging;
+- new dependency/invalidation task discovery;
+- native/generated/hybrid held-out task and scorecard design;
+- ProjectService conflict/rebase/lock current-truth audit;
+- compaction/resume and long-form current-truth audit;
+- blind-quality receipt and review-flow design.
+
+The Integration Owner serializes shared catalog, evaluator, receipt, PlanService
+and ProjectService changes. Parallel sessions may return audits, frozen inputs,
+isolated fixtures and proposed patches, but they may not become a second
+project, timeline, plan, capability, resolver, proof or benchmark authority.
+Provider inference remains blocked until the shared frozen task packet,
+scorecard, zero-spend sentinels, current-source closure and explicit capped
+authorization are all present.
+
+### Live Stage 2.5 integration checkpoint - 2026-08-25
+
+- Commit `8b5dab481` adds the dedicated HREF-01 qualified-review finalizer and
+  adversarial tests without modifying the existing review-pack builder. It
+  verifies the canonical public-pack and form-template hashes, exact full-video
+  and dense-window media hashes, complete full-reference/dense playback, all
+  nine rubric decisions, reviewer qualification and the receipt hash. Forged
+  pack/template/media bindings, incomplete playback, missing or unexplained
+  decisions and an inflated overall `PASS` fail closed. Focused verification is
+  12/12, with full repository typecheck and quiet ESLint passing.
+- The sole project owner completed the actual form after watching the
+  64.75-second reference, the `[20s,23s)` dense 60/1 motion window and its
+  audio. The finalizer issued receipt `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`, binding the form, pack and exact
+  reference/dense-media hashes. The result is `PASS` for all nine requirements,
+  no observed hard failure and a zero-minute correction estimate. It remains
+  `UNVERIFIABLE_SINGLE_REVIEWER`, cannot promote independent agreement and does
+  not authorize product execution.
+- Concurrent read-only audits found that existing forced-route evidence covers
+  only one moving-panel family, not broad native/generated/hybrid
+  generalisation. They also found a real active-product risk: chat
+  `cut_section` loads one project revision but saves a whole stale-derived state
+  without carrying that revision, so it can overwrite an intervening user edit.
+  ProjectService conflict/rebase/lock work must therefore begin with a bounded
+  writer-issued-revision cut trial and then replace that unsafe chat path; it
+  must not wire the research reconciler directly into production.
+- Commit `c9b7b8171` freezes four genuinely new dependency/invalidation task
+  identities (`HOLD-DEP-01` through `HOLD-DEP-04`) under freeze
+  `1901f375...` and zero-spend sentinel receipt `40487156...`. Every scored
+  rule is public; each task has known-good, equivalent-good, unsafe-attempt,
+  zero-write safe-stop and tamper coverage. Focused verification is 11/11,
+  with full typecheck and quiet ESLint passing. This proves specification
+  integrity only: fixtures/effect owners are not materialized, dispatch is
+  disabled and state effects are empty. `HOLD-DEP-03` remains
+  `NOT_READY_PUBLIC_CONTRACT_GAP` because `apply_speed_ramp` exposes a receipt
+  but no public downstream source-time transform. No inference may begin until
+  fresh exact owners execute the sentinels and a successor readiness receipt
+  binds current-source closure.
+- Commit `034b16fd6` freezes four new route-neutral targets (`RHC-01` through
+  `RHC-04`) across free-choice, forced-native, forced-generated-composition and
+  forced-hybrid arms. All 16 arms bind identical per-task target material;
+  public packets omit evaluator policy and acceptable-route answers. The
+  symbolic evaluator permits multiple qualified routes, accepts only untouched
+  capability gaps for unavailable forced owners, and rejects substitution,
+  unavailable-owner attempts, flattened state, incomplete target/preservation
+  predicates and incomplete hybrid handoffs. Freeze `6ce29e85...` passes 14/14
+  focused tests plus full typecheck and quiet ESLint. This remains
+  `STRUCTURAL_SENTINEL` evidence: media/fonts and generalized route owners are
+  not materialized, nothing rendered, no ProjectService path ran, and dispatch
+  remains disabled.
+- Commit `70dd1bf2a` materializes owner-derived safe-stop evidence for all 16
+  route arms without promoting any arm to executable. The native probe invokes
+  the existing isolated proposal-clone and sole dispatcher through an
+  in-memory read-only project snapshot; `add_overlay` is unsupported and both
+  isolated/canonical state remain unchanged. The generated probe validates the
+  DEV-02-only capability and current program verifier; no RHC program,
+  evidence, media or font bundle exists, so the sandbox is explicitly
+  `NOT_CALLED`. Hybrid and free-choice arms preserve those component gaps.
+  Focused freeze/owner verification is 21/21 with full typecheck/lint passing.
+  The ceiling is `SAFE_STOP_OWNER_PROOF_ONLY`: no live datastore, sandbox
+  execution, render, route-quality result, correction-time result or product
+  mutation was exercised.
+- Commit `75860a1ea` closes the concrete stale whole-project overwrite in the
+  live chat `cut_section` path. The tool now carries the revision returned by
+  `ProjectService.loadProjectForMutation` into
+  `saveProjectWithReceipt`; an intervening user save returns structured
+  `PROJECT_REVISION_CONFLICT` and leaves the newer project unchanged. Focused
+  mechanical verification is 14/14 and the combined ProjectService/CAP-2A
+  cluster is 61/61. This repairs one writer only: range-aware rebase, locks,
+  full ripple-range accounting, changed paths and reload/render proof remain
+  open.
+- Commit `0a1cd4100` reissues the bounded CAP-2A current-truth audit as V8 after
+  that writer change. It records caller-pinned Project CAS as repaired while
+  retaining `cut_section`'s research-catalog exclusion and the remaining
+  range/rebase/lock/proof gaps. V1, V2 and V7 remain historical identities;
+  V8 is the immediate predecessor, not production certification.
+- Commit `d8e61f060` closes the raw generic duration-write seam without
+  pretending to migrate its two callers. `ProjectService.updateProject` now
+  rejects every field except one exact `durationInFrames` assertion and
+  delegates that assertion to
+  `reconcileProjectDurationFromOverlaysV1`. The owner reads the current
+  canonical overlay timings, rejects a mismatch or unrepresentable timing,
+  then performs one revision- and `updatedAt`-bound CAS that advances the
+  project revision and emits both mutation and exact range receipts. It also
+  fails on a lost CAS rather than overwriting newer state. Focused writer/CAP-2
+  verification is 71/71, with repository typecheck and quiet ESLint passing.
+  The two callers still carry `UNKNOWN_LEGACY_CALLER`, receive no returned
+  receipt, and Auto Edit remains a non-atomic delete/add sequence; the new
+  duration-reconcile receipt conservatively blocks cut rebase until a real
+  policy models it. CAP-2A V9, issued in this documentation checkpoint, is the
+  current research-only dossier; it chains V8 and binds source commit
+  `d8e61f0609ddae35e86baf1649bb243913376b87` plus source snapshot
+  `cbe2476f352082022f7fb6c4c5dc5703c551d3804d906f26c0b087eb5df08484`.
+  It makes no catalog promotion, runtime authorization or production claim.
+- Commit `a20f052a9` repairs the failure/cancellation Director lease cleanup
+  without turning it into generic collaboration locking. The token-bound
+  `ProjectService.releaseDirectorMutationLease` atomically requires the active
+  matching lease, clears it, advances `projectRevision` and `updatedAt`, and
+  publishes/returns its writer-issued receipt. An old or absent lease returns
+  an explicit no-write disposition. The current Director cleanup caller still
+  does not consume or expose that receipt; Director observer facts, range
+  effects/rebase/undo, rational media timebases, durable invalidation and
+  rendered proof remain separate open work. CAP-2A V10 chains V9 and binds
+  source commit `a20f052a94438f22367dc8311dc77bd87264d380` plus source snapshot
+  `2cfb53bb39458f3c18c1f4cd79d4ca78a16a2bf3901ec51bca7b5907534f7290`.
+  It makes no catalog promotion, runtime authorization or production claim.
+- Commit `18cb23e6a` extends the direct single-overlay ProjectService boundary:
+  `addOverlay`, `addOverlayIfAbsent`, `updateOverlay` and `deleteOverlay` now
+  append a writer-issued `ADD_OVERLAY`, `UPDATE_OVERLAY` or `DELETE_OVERLAY`
+  effect receipt in the same successful CAS as the overlay mutation. An exact
+  half-open project-frame range is recorded only when the legacy overlay timing
+  is representable; otherwise the receipt says
+  `UNKNOWN_LEGACY_OVERLAY_TIMING` and carries no fabricated range. This is
+  truthful history, not generic collaboration: existing stale-cut rebase
+  accepts only exact disjoint `UPDATE_OVERLAY` receipts, so an intervening add
+  or delete fails closed as `UNKNOWN_OPERATION` until a separately reviewed
+  policy exists. Focused direct-overlay/cut verification is 51/51, with full
+  repository typecheck and quiet ESLint passing. No lock, generic rebase,
+  artifact invalidation, renderer proof, caller provenance or runtime catalog
+  promotion was added.
+- Commit `5dd9c27f9` adds a generic blind-quality receipt contract with exact
+  pack/rubric/candidate/result/proof bindings, required per-dimension coverage,
+  explicit `UNVERIFIABLE`, single-reviewer non-consensus, and measured versus
+  estimated/not-performed correction dispositions. Twenty-nine adversarial
+  tests plus full typecheck/lint pass. This is receipt infrastructure only:
+  no HREF or route candidate has thereby received a human judgment, correction
+  time, independent agreement or product-quality promotion.
+- Commit `e7c68efbc` freezes the eight resume requirements only as
+  `SPECIFICATION_FIXTURE_ONLY`. Caller-supplied examples can never establish
+  readiness; the artifact explicitly records
+  `resumeReadinessDisposition: NOT_ESTABLISHED`, no executable-owner evidence,
+  no dispatch and no project effects. The specification/existing-owner test
+  cluster passes 37/37, but no hash-bound executable test-run receipt, paid
+  provider resume, live Atlas/QStash recovery, hosted ingress, canonical
+  apply/reload or audiovisual acceptance exists. Paid resume remains
+  unauthorized.
+- Commit `e0abe41b8` adds a zero-spend long-form evidence-fabric scale proxy
+  over seven synthetic sources totaling exactly 4.5 hours. It binds source PTS,
+  rational CFR/VFR cadence, reel/timecode identity and 28 transcript/shot/
+  audio/rights references, then retrieves exact priority-ordered windows under
+  explicit duration, reference and estimated-context budgets. Equivalent kind
+  or range-array permutations produce the same request/receipt identities;
+  omissions return `UNVERIFIABLE_CONTEXT_BUDGET`; stale source versions,
+  out-of-bounds ranges and self-rehashed inner-accounting forgeries fail
+  closed. Focused verification is 11/11 with full typecheck/lint passing. Its
+  ceiling remains `SCALE_PROXY_ONLY`: no media/evidence payload, real storage
+  or index owner, provider tokenizer, semantic retrieval quality, renderer,
+  ProjectService path or long-form product certification was exercised.
+- Commit `fd26eea7b` adds a research-only Stage 2.5 machine-telemetry receipt.
+  It binds queue/provider/tool/execution/render/proof/review/correction timings,
+  retry and repair counts, provider usage and provider price to the exact
+  ordered durable-attempt receipt chain. A research cost-per-accepted-edit
+  estimate is available only when an execution-bound hard proof passes for the
+  declared final-state hash, the exact result receives blind-review `PASS`, and
+  every provider/render/storage/egress/human cost component is present. Missing,
+  conservative, unresolved, unrelated or forged evidence remains unavailable
+  with an explicit reason. Focused verification is 17/17 with full typecheck
+  and quiet ESLint passing. This artifact is not an accounting owner, invoice,
+  provider call, render, project mutation or production-quality certificate;
+  it only defines and validates the evidence needed to calculate those metrics.
+- Commit `ed4dff7ea` materializes the zero-spend owner paths for the genuinely
+  new dependency/invalidation freeze. `HOLD-DEP-01` and `HOLD-DEP-04` execute
+  their 24 deterministic sentinel outcomes only on fresh in-memory
+  ProjectService clones; known-good/equivalent forms agree on task-specific
+  final state, and stale, forged, incomplete and unsafe forms do not receive
+  proof. `HOLD-DEP-02` remains blocked on the public replacement form/rights/
+  source-handle contract; `HOLD-DEP-03` remains blocked on the public
+  source-time transform contract. Focused verification is 19/19 with full
+  typecheck and quiet ESLint passing. This is structural owner evidence only:
+  provider inference, render, canonical project mutation, current-source
+  closure, media quality and model competence remain unproved.
+- Commit `afee8f1cc` replaces the public chat `apply_speed_ramp` multiwrite
+  loop with the existing ProjectService source-range retime owner. The callable
+  now carries its loaded revision into one CAS, returns the writer-issued
+  mutation/timeline receipts plus `sourceRangeRetimeEffect` and
+  `sourceTimeTransform`, and refuses unsupported forms before any write. Its
+  intentionally narrow live form is a complete isolated CFR source range at a
+  constant rate above 1x through 4x; partial ramps, slow motion, VFR,
+  mixed-track reconform, dependencies, insufficient handles, prior retime and
+  stale revisions remain explicit gaps. Focused verification is 255/255 with
+  quiet focused ESLint passing and no Editron TypeScript errors; the full
+  repository typecheck remains blocked only by concurrent unstaged ThinkForge
+  work. This commit does not alter the frozen V2R9 operator packet, materialize
+  `HOLD-DEP-03`, prove a render or authorize inference. A separately versioned
+  public-contract successor and zero-spend sentinel receipt were therefore the
+  next bounded gate.
+- Commit `fa05fe4d8` closes that bounded DEP-03 gate without rewriting V2R9.
+  `EDITRON_OE_DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1_1` exposes the callable's
+  exact closed form and four outputs (`mutationReceipt`,
+  `timelineChangeReceipt`, `sourceRangeRetimeEffect`, `sourceTimeTransform`),
+  while a source audit proves the frozen V2R9 output remains receipt-only and
+  the current chat path contains no generic `updateOverlay` fallback. The new
+  synthetic owner replays the production retime, transform, PTS-rebind and
+  camera-shake form owners: source event frame 100 rebinds to project frame 50
+  after the 120-frame setup becomes 60 frames, and current-revision reread
+  reaches the same semantic state. Stale pre-retime coordinates, absent
+  mapping, forged transforms and dialogue overlap all fail with their distinct
+  unsafe/safe-stop/tamper dispositions. Materialization
+  `14efa0a6d21d2b97020f3943b5ea379c6e2b1c46d24e4c5112123bee8c2758e2`
+  and owner receipt
+  `fd2fb090abc47a8ef2bff474b427943df5bb1f537d1eb71c446207a3ef96d94a`
+  execute all 24 sentinels at zero inference, zero render and zero canonical
+  project mutation. Frozen DEP-03 history truthfully remains 4/6 matching;
+  the successor expectation is 6/6. Focused verification is 51/51, repository
+  typecheck and repository quiet ESLint pass. This is only
+  `ISOLATED_SYNTHETIC_CURRENT_EDIT_PROOF`: real source-event/dialogue quality,
+  canonical ProjectService apply/reload, camera-shake writer migration,
+  rendered audiovisual proof, undo/replay, transitive source closure and model
+  competence remain unproved. The next canonical Stage 2.5 slice is therefore
+  bounded native/generated/hybrid preview candidates—not provider dispatch.
+- Commit `ca197f370` begins that route-candidate phase with exact RHC-01 state.
+  It issues three route-neutral, hash-bound representations against the same
+  frozen task: a native overlay plan, an RHC-specific verified generated
+  program, and a generated-island/native-continuation hybrid with explicit
+  source-frame and 30/1 timebase handoff. The generated program does not reuse
+  or relabel DEV-02. All three remain `NOT_RENDERED`, `UNJUDGED` and
+  `NOT_AUTHORIZED`; zero provider calls, render calls, canonical project writes
+  or state effects occurred. Focused verification is 27/27 with repository
+  typecheck and quiet ESLint passing. The next bounded slice is actual fixture
+  byte materialization and existing-owner proxy rendering for these three
+  candidates; route quality and product execution remain unproved.
+- Commit `1646244e6` materializes and verifies the bounded local preview
+  runtime for that route-candidate phase. It creates three exact silent
+  H.264/BT.709 sources at 540x960, 30/1 and 210 frames, byte-copies the declared
+  continuation source, hash-binds the installed FFmpeg/ffprobe identities and
+  bundled OFL Noto Sans font, renders one real overlay through the existing
+  Editron Remotion root, and assembles/measures a generated-island/native-source
+  boundary. The first actual assembly found a 239/240-frame timestamp defect;
+  frame-ordinal timestamp construction fixes it while preserving the exact
+  assertion. Focused verification is 3/3 with repository typecheck and quiet
+  ESLint passing. This remains local runtime-mechanics evidence: no provider,
+  cloud, database or ProjectService call occurred, no canonical state changed,
+  and no full RHC-01 candidate, blind review, route decision or production
+  authorization exists yet.
+- Commit `0dcbe01c4` completes the bounded RHC-01 render/pack implementation.
+  It first corrects the native candidate's false frame-180 metadata to its real
+  frame-150 continuation seam and versions the candidate set as V1.2. Actual
+  local execution `rhc01-preview-0dcbe01c4-v1` then produces three exact
+  1080x1920, 30/1, 210-frame silent H.264 previews, contact sheets, boundary
+  measurements and a route-blinded A/B/C review pack. Execution receipt
+  `312a112ffda3cdd63fb815bf9876d562ae82f8ede99a6753b2dd61c713e5cadb`
+  and public-pack
+  `cc3b15b7fed713f1decfe7c90d0702671ebbf5d150c32e3ba5cb8ca7d97b3852`
+  re-hash exactly. Focused verification is 11/11 with repository typecheck and
+  quiet ESLint passing. This does not decide the route: human review is pending,
+  single-reviewer independence is unavailable, native exact-font binding and
+  transitive executable closure remain unverified, the generated path is a
+  trusted local process rather than the production sandbox, and provider,
+  cloud, database, ProjectService and canonical-mutation counts remain zero.
+- Commit `0956d6ee7` closes the next cut-specific conflict-trial evidence gap
+  through the real product `ProjectService` owner with stateful in-process test
+  persistence. A real `updateOverlay` write advances revision 7 to 8 and
+  persists its exact range receipt; a stale `cutTimelineRangeV1` then safely
+  traverses that receipt, advances to revision 9, and reloads with both the
+  user's disjoint edit and the ripple cut intact. Separate trials prove that an
+  overlapping stale update, overlapping lock, forged lock and expired lock
+  leave canonical test state unchanged; a valid full-tail lock is consumed by
+  its cut; and a final CAS loss publishes no cut receipt. The focused
+  current-truth/cut/stateful cluster passes 20/20, with repository typecheck
+  and quiet ESLint passing. Its ceiling is deliberately
+  `IN_PROCESS_PRODUCT_OWNER_WITH_STATEFUL_TEST_PERSISTENCE`: no live Atlas,
+  hosted multi-user browser, generic lock/rebase policy, remaining-writer
+  migration, durable artifact invalidation or production-data mutation was
+  exercised. Stage 2.5 may proceed to compaction/resume and realistic
+  long-form evidence plumbing, while broader ProjectService collaboration
+  remains a separate production-foundation programme.
+- Commit `a1a09d481` replaces the resume specification's caller-asserted
+  readiness with one machine-issued, source-bound zero-spend gate over the
+  existing checkpoint, PlanService, opaque-result, runtime-budget,
+  dispatch-intent and separate-process resume owners. Execution
+  `stage25-resume-zero-spend-a1a09d481-v1` scrubbed all nine known provider
+  credential names, allowed no retry or paid dispatch, and passed the exact
+  eight-file 36/36 owner-test cohort. Receipt
+  `38a05470df609ba67852401e7610bac162dbda4e270466be48169daf851069a1`
+  binds source commit `a1a09d481b5f4b19c5a3f53e289bb522d97eb010`, its tree,
+  the 1,904-file clean Editron scope, toolchain, command, report, eight public
+  sentinel receipts and the supporting compaction/PlanService assertions.
+  Its only promotion is
+  `READY_FOR_SEPARATELY_AUTHORIZED_PAID_RESUME_TRIAL`; paid resume remains
+  `NOT_AUTHORIZED`. No provider, network-packet, live Atlas/QStash,
+  authenticated hosted-ingress, canonical apply/reload or audiovisual
+  acceptance proof was performed, and both provider dispatch and canonical
+  project mutation counts remain zero.
+- Commits `36787a55a`, `66daa05cf`, `575e75a46` and `a9c93a084` close the
+  local actual-container mechanics portion of the realistic long-form gate.
+  Accepted execution `stage25-long-form-real-media-a9c93a084-v1` materializes
+  a nominal 4.5-hour, 73,548,746-byte H.264/AAC source, continuously scans and
+  verifies all 485,515 presentation-order frames through the existing media
+  source/version, qualification, durable PTS batch/index and coverage owners,
+  and extracts three exact 60-frame start/middle/end video, still and 48 kHz
+  stereo audio windows. Receipt
+  `59d943354a3a286b986b5b3df2d8cb2de2bb4038d0611b52681e511a34e03336`
+  binds source commit `a9c93a084a7fea604960391ab75e19c100ebf404`, ten PTS
+  batches, three distinct temporal still hashes, 83,163 ms materialization,
+  14,092 ms scan/verification, 1,141 ms hydration and 444,608,512-byte peak
+  process RSS. Full three-window hydration passes; a two-window context budget
+  returns `UNVERIFIABLE_CONTEXT_BUDGET` and names the omitted end window.
+  Provider, network and canonical-project mutation counts are zero. Two earlier
+  attempts correctly failed on missing product probe normalization; a V1.1
+  calibration receipt was rejected because its supposedly moving fixture had
+  identical stills. V1.2 now fails such static evidence by contract. The proof
+  ceiling remains
+  `LOCAL_SYNTHETIC_LONG_DURATION_CONTAINER_AND_BOUNDED_WINDOW_EVIDENCE`:
+  real creative/client media, semantic retrieval accuracy, live Mongo/R2/
+  Qdrant, provider-native token accounting, discontinuity/epoch support,
+  mixed-rate ProjectService consumers and production playback/render/delivery
+  remain unproved.
+- Commit `713685408` freezes the final Stage 2.5 generalisation protocol as
+  exactly 24 genuinely new rows: four dependency/invalidation tasks
+  (`HOLD-DEP-01` through `HOLD-DEP-04`) and four route-neutral tasks
+  (`RHC-01` through `RHC-04`) across Luna, Terra and Gemini 3.7 Flash. The
+  dependency evaluator is generic over the selected operator records and
+  accepts equivalent valid DAGs; it does not require a hidden task-specific
+  topology. Route responses qualify native, generated-composition and hybrid
+  execution within one provider response. The model receives the complete
+  relevant CAP-2A records, while control-only submission prevents any editing
+  tool or project mutation. The protocol permits one initial response and at
+  most one schema/protocol correction, with no transport retry. Qwen is not in
+  this cohort, following the project-owner decision to remove it.
+- Commit `0802842cc` binds that protocol to the clean Editron source closure
+  and issues a scrubbed no-inference operator over the exact 52-assertion
+  cohort. Accepted execution
+  `stage25-final-generalisation-0802842cc-v1` passes 52/52 under readiness
+  receipt
+  `6c5c743081ec37b4d4d531103127feb3e1b19c9b5bed1ce566e7ede6050885d5`.
+  It captures all 24 serialized initial requests and replays the scorecard,
+  dependency-owner and route-owner sentinels while binding the HREF-01,
+  RHC-01, resume and long-form receipts. Provider inference, paid dispatch and
+  canonical project mutation are all zero. Its exact promotion is only
+  `READY_FOR_PROVIDER_ACCESS_METADATA_AND_OFFICIAL_TOKEN_PREFLIGHT_NOT_INFERENCE`.
+  It does not establish model competence, rendered RHC-02/RHC-03/RHC-04
+  candidates, broad product rebase/lock coverage, real creative long-form
+  quality, blind editor quality or Stage 2.5 `GO`.
+- Commits `c1cf9e336` and `f2fac0c62` implement the exact provider-access,
+  pricing, token-count and source-binding gate without inference. The first
+  `v1` attempt correctly stopped because the cached `.env.local.prod`
+  `GOOGLE_GENERATIVE_AI_API_KEY` was invalid; it produced only a Vitest report
+  and no inference or project effect. A fresh Vercel Production snapshot
+  returned exact identity `models/gemini-3.7-flash`. Accepted execution
+  `stage25-final-provider-preflight-f2fac0c62-v2` then passed 62/62, performed
+  exactly three model-metadata GETs and eight official Google `countTokens`
+  POSTs, captured 24 unique initial requests, and recorded zero inference,
+  retry, project-read and project-mutation counts. Readiness receipt
+  `5c3c1b185d4cbd751e8cf476d5332187b3e490c9c88831037bb354ac970bc212`,
+  provider receipt
+  `a41bb976d29219805ca379299ad70183b751cdcfc2f8f79351be7bd30ebb6295`
+  and request-capture set
+  `8106d1dff9c4adb24e5a91db32d93c7ad57c48856e6dc2fff71ca1f76eb8e241`
+  bind source commit `f2fac0c6218aa71eee16783d0fcebf0ee2f93667`.
+  No secret is persisted. The initial-attempt upper bound is `$1.86795795`;
+  the absolute two-attempt ceiling is `$5.8056704`. Paid inference remains a
+  separate explicit capped authorization. If authorized, the exact 24 rows
+  run once, every success and failure is audited, existing responses are
+  replayed at zero spend, successful plans become bounded route previews, and
+  blind quality/correction-time/latency/cost evidence precedes the final
+  `GO`, `MODIFY` or `NO-GO` decision.
+- The exact historical 24-row cohort subsequently completed once as
+  `stage25-final-paid-4438d1a41-v1`: 32 dispatches, 32 responses,
+  `$1.022770625` spend, no automatic transport retry and zero project reads or
+  mutations. Audit commit `75d290712` corrects the raw headline to seven valid
+  structural passes, nine valid owner-supported safe stops, two genuine
+  failures, five precedence-confounded rows and one provider/resource
+  non-evaluation. Commits `857debf9a`, `ddfea7795`, `e8a801d01`, `f0211af58`
+  and `601beb86d` then reissue the ambiguous contracts, separate visible from
+  billable generated tokens, bind provider-native ceilings, and require a new
+  authorization identity. Current-HEAD zero-inference execution
+  `stage25-final-provider-preflight-601beb86d-v2` passed 74/74 with three
+  metadata GETs, eight Google `countTokens` calls, zero inference and zero
+  canonical project mutation. Readiness receipt
+  `19c7d43214e769e59a0e524761857b59b1c95444c85f8511bbe2622d7c182d72`
+  records a `$9.2463104` two-attempt ceiling but does not authorize a rerun.
+  Stage 2.5 therefore proceeds to bounded RHC-02/RHC-03/RHC-04 candidates and
+  rendered/editor evidence, not another automatic paid cohort.
+
+**RHC-01 native timebase correction (2026-08-26):** a current-HEAD grounding
+audit found that the native candidate helper writes
+`videoStartTime = sourceStartFrame / 30`, while the existing editor render
+consumer passes `sourceStartFrame ?? videoStartTime` directly to Remotion's
+frame-based `startFrom`. The wider timeline code also treats `videoStartTime`
+as frames. The accepted RHC-01 artifact therefore rendered its declared
+frame-150 native continuation from source frame 5. A fresh bounded byte check
+corroborates the control flow: native project frame 150 has normalized image
+diff `0.00856532` from source frame 5 and `0.02555497` from the receipt's
+declared source frame 150. The immutable receipt remains useful for local
+render/pack mechanics, but its native `sourceIdentityProof` and native
+timebase/boundary interpretation are reclassified as unverified; this check
+does not invalidate the separately assembled generated and hybrid paths.
+RHC-02 must bind frame-domain source offsets through `sourceStartFrame`, retain
+an unchanged audio baseline across its visual-only target, and prove rendered
+audio preservation rather than inheriting RHC-01's silent-preview assumptions.
+No route decision, product execution, paid rerun or Stage 2.5 closure follows
+from this correction.
+
+**RHC-02 route-contract Phase 1 (2026-08-27):** current-owner reconciliation
+now freezes the exact RHC-02 identity, rights, 30/1 project/composition/source
+mapping, immutable dialogue-plus-room-tone baseline and entry/exit frame
+handoffs. The target remains absolute project range `[300,390)`, mapped to
+composition `[0,90)` inside proof window `[270,420)`; return frame 390 binds
+interview source frame 390, and candidate visual operations may not mutate
+audio or state outside the target. The native route has exact bounded
+`add_overlay` inputs and existing `ProjectService.addOverlay` mutation
+ownership, but remains a capability gap because the live form is not extracted
+behind the isolated revision-issued dispatcher and native text rendering cannot
+prove the exact font file. The generated API's current `AssetSlot` is a muted
+`OffthreadVideo` owner, its proxy materializer accepts only MP4 sources and the
+sandbox receipt requires playable audio `ABSENT`; it therefore cannot relabel
+the two supplied still images or satisfy RHC-02 audio preservation as a pure
+generated route. Hybrid now has explicit timebase, native-audio and boundary
+handoffs. Existing `ProjectService.prepareProjectGeneratedCompositionV1` and
+`finalizeProjectGeneratedCompositionV1` remain the real product mutation
+owners; the missing link is an isolated proposal adapter plus a truthful
+generated still-image source owner, not a second island writer. All three route
+states remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and
+`NOT_AUTHORIZED`, with zero provider, render, database or canonical mutation
+calls. Focused RHC-02 plus historical owner-safe-stop verification passes
+14/14, with repository typecheck and quiet ESLint passing. This phase does not
+materialize media bytes, execute a candidate or change the frozen historical
+cohort. The next bounded phase must extend the generic generated-composition
+source contract/runtime/proxy for hash-bound still images; later phases must
+extract the live native form owner behind the isolated dispatcher, bind exact
+font use, materialize AV bytes, issue the RHC-specific program and render only
+the actually qualified native/hybrid routes.
+
+**RHC-02 generated still-source Phase 2 (2026-08-27):** the generic
+generated-composition verifier, runtime API and proxy materializer now admit a
+true hash-bound `STILL_IMAGE` visual source without adding a second media-kind
+field to `GeneratedCompositionProgramV1`. `SOURCE_MEDIA_IDENTITY` remains the
+kind authority; an explicit still must use the virtual source range `[0,1)`,
+while immutable legacy generated-composition evidence without `mediaKind` is
+treated as video only when its already-validated source slot spans multiple
+frames. The proxy still independently requires `.mp4` for that legacy video
+case. Explicit audio/unknown kinds and one-frame untyped sources fail contract
+verification. The runtime's existing `AssetSlot` remains the sole visual-source
+form: it uses Remotion `Img` for stills and preserves the prior muted
+`OffthreadVideo` path for video.
+
+Materialization accepts only local regular, non-symlink PNG/JPEG/WebP files,
+compares their bytes with the program-bound `sha256:` asset version, decodes
+their real format/dimensions and rejects multi-page/animated input before
+bundling. A focused real Remotion proof rendered the exact 120x80 PNG pixels;
+the same test rejects audio-as-visual, an invalid still range, an unsupported
+extension and asset-byte hash drift. Focused proxy verification passes 5/5;
+the generated-program/proxy/RHC-01/RHC-02/H03/owner regression set passes
+33/33; sandbox contract and runner tests pass 6/6; repository typecheck and
+quiet ESLint pass. Current source hashes are verifier
+`9707e4f05a74ee719ce5de8770082924ffdda09ea6c2e7074f4e61a7fb3348c4`, API
+`ee2468e25c67987e466abaee1e1ef18b0e7caa08c48875b8c52b66ee0382e4bc`, proxy
+`afd7c992b7665f6d6a6afe655465d5d5e3b26ab5b430dc994af2633f75797c12`
+and focused test
+`6f1a0fc6ab5009af1e598c1af221011dc6f6d30a973396a0c44003e0b94498c2`.
+
+This source change deliberately invalidates the old DEV-02 V2 capability's
+`bc61a906...` API implementation binding. Its historical sandbox receipt and
+capability record remain immutable and must not be rewritten; the research
+proxy chain's current-hash assertion remains red until a separately versioned
+successor is genuinely sandbox-qualified against API hash `ee2468e25...`.
+That invalidation does not revoke its historical bounded evidence and does not
+authorize an RHC-02 execution. RHC-02 still lacks a task-specific verified
+program, materialized media/font/audio bytes, the isolated revision-issued
+proposal adapter, a current deny-all sandbox capability, native exact-font
+proof and rendered PCM/boundary/human-quality evidence. Its routes therefore
+remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`.
+The next bounded phase remains extraction of the existing live native overlay
+form behind the isolated revision-issued dispatcher; the generated route must
+receive a new sandbox capability before its later RHC-specific program can run.
+
+**Codex transcript grounding checkpoint (2026-08-27):** the required
+predecessor session JSONL was processed sequentially to its actual EOF without
+printing or persisting raw message bodies. The immutable read covered 215,121
+records and 1,233,175,410 bytes, from timestamp
+`2026-08-09T08:16:11.569Z` through `2026-08-26T15:55:45.793Z`, with zero JSON
+parse failures. Bounded chunk endpoints were line/byte `55,503/269,352,259`,
+`101,161/538,258,997`, `147,011/806,696,179`,
+`190,780/1,075,341,535` and `215,121/1,233,175,410`; their respective byte
+hashes were `b19cfc7f180ce6f80bcf1c67eb03412a1ffc7c11731efabd615094a7eb36a525`,
+`05af5cd691569836f9c7eed6e0c31cd11d16ec86300fa31b526853d1321a51d1`,
+`092a4616c306bd7999f3b6ad03933e385f3dac2bfbd89db0c3f08e1031d1bbb6`,
+`f2a1aa2b485ff74744a963a2e21b098f5a8c092dafc3c264920c71fd40ecfffd`
+and `2a8c8e98b0e3c0ab14c00716ff7e7d17b692e22c9e6bc824c2eb391ca053ddb4`.
+A credential-safe classifier recorded only role/timestamp/type counts and
+controlled decision-category positions. It corroborated, but does not outrank,
+the handover, this ledger, current receipts or code. The durable resume point is
+therefore exact EOF; no claim is made that the raw 1.23 GB transcript remains
+inside model context.
+
+**RHC-02 native-form extraction Step 0 (2026-08-27):** commit `eca4b717e`
+removes all fifteen ESLint-reported dead bindings and declaration warnings from
+the 6,408-line live chat-tool factory before its embedded `add_overlay` form is
+structurally extracted. The published `close_gaps.preserveCaptions`
+compatibility field is deliberately retained because current tests and the
+CAP-2A audit reference it; changing that contract would not be dead-binding
+cleanup. No tool schema, edit form, ProjectService call or renderer behavior
+changed. The three closest chat-tool suites pass 82/82, and repository
+typecheck plus quiet ESLint pass. This cleanup adds no RHC capability and does
+not change the Phase-2 route dispositions; the next bounded slice remains the
+shared live/isolated native overlay form owner and revision-issued dispatcher
+adapter.
+
+**RHC-02 native-form extraction Phase 3A (2026-08-27):** the live
+`add_overlay` schema and complete materialized form now have one pure owner in
+`chat-add-overlay-form.ts`. The existing chat tool delegates to that owner and
+still leaves persistence exclusively with `ProjectService.addOverlay`; the
+owner receives overlay identity from its caller and performs no database,
+provider, render or project mutation itself. All six existing overlay kinds,
+composition-size mapping, collision-aware rows, coordinate resolution,
+title/action-safe placement, text auto-fit/legibility and type-specific style
+forms were extracted without adding a new creative threshold. Literal external
+font names such as `Noto Sans` remain deliberately outside the current native
+schema, so this does not pretend to close RHC-02's exact-font gap. Focused form
+and safe-placement proof passes 13/13, the affected chat-tool regression set
+passes 147/147, and repository typecheck plus quiet ESLint pass. Current hashes
+are form owner
+`3bfce721bb5d6820837e8618e4e0d35876292bc6cfea364194c60a3420bac080`,
+live tool
+`e0fb9b26f97c5293bdbec3a7a046cda5a0b393a99368d5766229c1f5fbcceba2`
+and focused test
+`dcc36f092e3e61ec4c42bb9160275eb3c839368f0344dc12a8dde5bc1a0f5987`.
+This is shared downstream form plumbing, not merged control flow: the isolated
+revision-issued `add_overlay` mutation owner is still absent, all RHC-02 routes
+remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`, and
+Phase 3B is the isolated adapter plus dispatcher registration.
+
+**RHC-02 isolated native-overlay owner Phase 3B (2026-08-27):** a bounded
+`add_overlay` proposal owner now applies the extracted live form to an in-memory
+ProjectService clone and issues its working revision only through the existing
+clone-bound deterministic issuer. It accepts already-resolved form values; it
+does not reinterpret planner intent, inspect an asset, certify the meaning of
+opaque evidence IDs or call canonical `ProjectService.addOverlay`. Before the
+clone changes it enforces project/user scope, current proposal revision,
+allowed fields, unique evidence references, non-empty media evidence, a valid
+half-open project-frame range, a non-negative forced row and collision-free
+deterministic numeric overlay identity. Optional `undefined` form members are
+removed only at the proposal JSON boundary so the canonical proposal-state
+hasher remains fail-loud. The receipt records exact changed paths, form hash,
+resolved geometry, evidence-proof ceiling and that the canonical mutation
+owner was not called. Direct, clone-finalization, replay and adversarial proof
+passes 9/9; the wider clone/cut/keyframe/overlay owner set passes 30/30; full
+typecheck and quiet ESLint pass. Current owner hash is
+`3e78da2f6198c04da7122cbeb8f3f14a0db4fc68cdb04df40b44ce918c12c623`
+and test hash is
+`25a46ebfbe4fc2d15f3620d9d2441e93f82bbfca0955e87db56195c9b9152ccf`.
+The owner is deliberately not registered in the sole dispatcher in this
+checkpoint, so the immutable historical safe-stop still reproduces and no
+route is promoted. Phase 3C must register it and issue a versioned successor to
+the old owner observation rather than rewriting that historical receipt.
+
+**RHC-02 isolated dispatcher registration Phase 3C (2026-08-27):** the sole
+ProjectService-clone dispatcher now exposes the overlay proposal owner only
+through explicit profile `RHC02_OVERLAY_RESEARCH_V1`. Its default product
+profile still advertises and dispatches only the reviewed `cut_section` and
+focal-scale `set_keyframes` owners; therefore this research registration does
+not silently broaden paid/product Plan execution or its cut-specific outcome
+proof. A separately named pre-overlay profile pins the exact old operator set
+for `Stage25HeldoutRouteOwnerMaterializationReceiptV1`, whose seven tests still
+reproduce the historical unsupported-overlay safe-stop instead of rewriting
+it. The RHC profile delegates a real explicit image form to the new owner,
+while both profiles reject unknown operations without fallthrough. Dispatcher,
+overlay-owner, historical-observation, product-root and editorial-product-route
+verification passes 27/27; repository typecheck and quiet ESLint pass. Current
+hashes are dispatcher
+`30e10c0f5e95f4807f53bfb2b2cf1c279e3ad4571cb8e58bf29dfc146754923b`,
+dispatcher test
+`66e501795909083cc388f41f9ba5fc52d628c185a3039e8dd73a3f9d354df12b`
+and pinned historical materializer
+`0059f8dc4e76e5a704b9af797cb93fd0dde5a06f256a2e5c8c456a090d221f6e`.
+This registers a research proposal path, not a rendered route or canonical
+ProjectService mutation. Phase 3D must issue a new current owner-observation
+receipt and rebind RHC-02's candidate truth without changing the V1 safe-stop.
+
+**RHC-02 current native-owner observation Phase 3D (2026-08-27):** successor
+receipt
+`3bbe10d5d9eabf254c82efec20a6ef6d1902cfa6ff7e8ee5d30cac5fc96997e3`
+binds the frozen RHC-02 task/fixture and the exact Phase 3A-3C form, owner and
+dispatcher hashes. Through `RHC02_OVERLAY_RESEARCH_V1`, the two still-image
+calls execute in order on one isolated ProjectService proposal, receive
+deterministic overlay IDs 3/4 and proposal revisions, and change only
+`$.overlays[2]` and `$.overlays[3]`; the canonical snapshot and the baseline
+dialogue/room-tone overlay paths remain unchanged. The exact `Noto Sans` title
+is tested on a fresh proposal and returns
+`PROJECTSERVICE_ISOLATED_OVERLAY_FORM_INPUT_INVALID` with zero changed paths,
+so no partial candidate is mistaken for route success. Current truth is
+therefore `isolatedRevisionIssuedOverlayWriter=true` and
+`bothStillImageFormsAccepted=true`, but
+`exactNativeFontFileBinding=false` and
+`nativeRouteCapabilityAvailable=false`. This is isolated owner/form proof, not
+render, decoded-PCM proof, canonical product mutation or route-quality proof;
+all external-call and canonical-write counts are zero. The successor plus
+dispatcher and historical V1 regression set passes 14/14, and repository
+typecheck plus quiet ESLint pass. Source hash is
+`69b19c282e21d9c713e8937467d657a152090dc071d3608ed3adbd0c8863650e`
+and test hash is
+`6ea72ca4db77d128a991126051fb6b17d8665ed622c50cca131894fa7616fdda`.
+Phase 3E must issue the RHC-02 candidate-contract successor with this receipt;
+the preliminary V1 candidate artifact remains historical and is not rewritten.
+
+**RHC-02 current candidate-contract Phase 3E (2026-08-27):** versioned V2
+artifact
+`866de2478ddbcd1e39a701b0f3812b1a52b00b8dc8bdeca91be3a2a31652b443`
+supersedes preliminary V1 artifact
+`231ff44f68812faf596d21d598384227f17403037fd3b0fb5ab7e820a5c2cde8`
+without rewriting it. V2 derives native capability from current owner receipt
+`3bbe10d5d9eabf254c82efec20a6ef6d1902cfa6ff7e8ee5d30cac5fc96997e3`
+and adds explicit still/font evidence IDs to the three unchanged visual
+requests. Native now truthfully records an isolated revision-issued overlay
+writer and both accepted still forms; its sole remaining route blocker is exact
+native `Noto Sans` file binding. Generated composition now truthfully records a
+real hash-bound still-image source owner, but remains blocked by absent playable
+audio preservation, no RHC-02 program and no current sandbox capability. The
+historical DEV-02 capability remains evidence only: its bound API hash
+`bc61a906...` differs from current still-capable API hash `ee2468e25...`.
+Hybrid retains the complete 30/1 timebase, native-audio and entry/exit handoffs
+and the real ProjectService generated-composition writers; it remains blocked
+by the absent isolated proposal adapter, current sandbox capability and RHC-02
+program. Consequently all three routes remain `CAPABILITY_GAP`,
+`NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`; no provider, render, database
+or canonical mutation call occurred. Route-set hash is
+`70741ab21a32b57890e2a8879786425536f5345e8e0fa9c2d199ab0c4239f150`.
+The V2/V1/owner focused set passes 16/16, and repository typecheck plus quiet
+ESLint pass. Source hash is
+`10d00f80da447a5bfb9f026e72a8ad7c5647937aa56fd355429c284c637e8fa2`
+and test hash is
+`ad45b985299f32220a9cde54825b944a4d6716a3cb62e5a078a36f2ae25b3212`.
+The next bounded RHC-02 phase must locate and bind truthful licensed media/font
+bytes and requalify the generated sandbox before any candidate render; a later
+phase must add the hybrid isolated adapter rather than bypassing its real
+ProjectService mutation owners.
+
+**RHC-02 AV fixture and hybrid-program Phase 4 (2026-08-27):** accepted local
+media receipt
+`096312058f19d3978eea4128df89c3607632664b5fcc061ca75acaf123d7e3b3`
+binds four real files and their provenance: a 450-frame 1080x1920 30/1 H.264
+interview source using the repository-owned portrait and voiceover, two
+repository-owned PNG product stills, deterministic 48 kHz mono pink room tone,
+and the bundled OFL Noto Sans file. The bound dialogue begins at frame 210 and
+ends at frame 421, so the complete target `[300,390)` and both proof boundaries
+occur inside the spoken line. A canonical 720,000-sample 48 kHz mono baseline
+mixes decoded dialogue with room tone at the owner-observation gain `0.15`; its
+PCM hash is
+`4ed3b146e63e53d5f9854abe2932922ff7b5d257c2993cf6a43d6e23ff064512`.
+Asset hashes are interview `4cdf4ace...`, still A `5f25189f...`, still B
+`6c399576...`, room tone `a78c58f1...`, and font `d2a8188d...`; each source or
+deterministic recipe has a separate rights/provenance receipt.
+
+The still-input visual check caught an initial contained-card placement that
+would have sat under the eventual centered title. Preliminary local receipt
+`7692be2d...` remains a non-candidate correction artifact; the accepted receipt
+uses dark blurred full-frame backing and an upper crisp source card, without
+changing either source identity or the program-owned title. No candidate was
+rendered in either attempt. The separately authored RHC-02 hybrid program now
+passes the strict generated-composition verifier and binds both stills as true
+`[0,1)` `STILL_IMAGE` slots, exact title `How we shipped it`, the hash-bound
+font, project `[300,390)`, composition `[0,90)`, native-audio cue handoffs and
+the already-frozen frame-390 return. Program hash is
+`cf88a984d8ab938c83c6fd2b4cc6a0cc9b809f4ca703e119d9c828c642a582fd`
+and source-bundle hash is
+`ba1ec8f349a652e829faf1d6d2fd6d8837f0875b03b1ae9836f041d7dfa445c3`.
+
+This closes truthful local bytes, PCM baseline and task-specific verified
+hybrid-program construction only. The verifier remains `NOT_EXECUTABLE` by
+contract, the current deny-all sandbox capability is still absent, the hybrid
+isolated proposal adapter is still absent, native exact-font binding remains
+absent, and pure generated composition still cannot own preserved playable
+audio. Therefore all route decisions remain `CAPABILITY_GAP`, `NOT_RENDERED`,
+`UNJUDGED` and `NOT_AUTHORIZED`. The accepted and preliminary evidence trees
+are local `.calibration-temp` state only; provider, cloud, database,
+ProjectService and canonical mutation calls remain zero. The affected verifier,
+proxy and RHC-02 set passes 20/20, with repository typecheck and quiet ESLint
+passing. Current hashes are media owner
+`9b4efb657a6c4d2394a7ec2a17837c8df5d9443970c1f02d2931eebed7a03fb9`,
+program fixture
+`9b151f96c25405455461393bf958b9ebb484468142bbb295b5afe679c75d836e`
+and focused test
+`d09f033fe83aceeb9b53319030425bcbb66a9a21e16a91569f7105e159c54e7c`.
+The next phase must obtain explicit live-sandbox authority and issue a
+current-hash deny-all sandbox receipt before any RHC-02 candidate render.
+
+**RHC-02 current-hash sandbox qualification Phase 5 (2026-08-27):** explicit
+user authority was received for the bounded live sandbox step. The first host
+invocation stopped before `Sandbox.create` because the cached local OIDC token
+was expired; it produced no sandbox, render or capability receipt and remains
+an infrastructure-only non-evaluation. The linked Vercel CLI then pulled a
+fresh development token into one temporary git-ignored file, injected it only
+into the canary subprocess while retaining the separately pinned snapshot
+bindings, and deleted the temporary credential file after execution. No
+credential value was printed or persisted in source.
+
+The approved non-RHC-02 DEV-02 technical canary then ran the current overlay in
+one ephemeral Vercel Sandbox. Request
+`133dbd06d108699a8ba428d2d5c6d18dc7594af580da44a58e029421f08c9119`
+bound API hash `ee2468e25...`, runner hash `578d2a30...`, worker-overlay hash
+`7359b725...`, snapshot commit `eb896ffb...` and the existing DEV-02 program.
+The worker rendered in 91,392 ms and returned nine hash-bound outputs. Host
+receipt `df7653eba5d470a94735c4d1cafd2cc85d25de217ac29bceef10b78aee09b681`
+independently records `DENY_ALL` network, empty environment, no secrets,
+database or project mutation, non-persistence, successful sandbox deletion and
+output materialization. Playable-proxy hash remains `873074a3...`; contact
+sheet hash remains `6d4107d1...`.
+
+Versioned capability V3
+`a182c3a7eb29909e837ed8da515feb89ab9d0123497cf6e7b522e5f3b609d1c6`
+supersedes V2 without rewriting it and binds the exact request, result, host,
+proxy, program, source-bundle, snapshot and current implementation identities.
+Its test passes 4/4 and deliberately records
+`currentStillImageSandboxRender=NOT_RUN`: this proves that the current
+still-capable implementation can execute safely in the production sandbox,
+not that the still branch or RHC-02 quality has passed. RHC-02 remains
+`NOT_RENDERED` and `UNJUDGED`; hybrid still requires its isolated
+ProjectService proposal adapter before the now-authorized candidate can run,
+native still lacks exact font-file binding, and pure generated composition
+still lacks playable-audio ownership. Current source hashes are capability
+`1c21af66...` and focused test `8610a73e...`. The next bounded phase is the
+hybrid isolated proposal adapter through the existing real
+`prepareProjectGeneratedCompositionV1`/`finalizeProjectGeneratedCompositionV1`
+owners, followed by the first RHC-02 still-branch sandbox render.
+
+**RHC-02 font-metadata correction Phase 5A (2026-08-27):** review of the exact
+bundled font bytes found that Phase 4's V1 media receipt and program declared
+weight `700` even though the bound file is Noto Sans Regular and its
+authoritative SFNT `OS/2.usWeightClass` is `400`. The public RHC-02 brief does
+not require bold typography, and the creative knowledge graph's sans-serif
+guidance requires neutral/readable treatment rather than a specific bold
+weight. V1 therefore remains immutable historical evidence; no prior receipt
+or result was rewritten and no replacement font was downloaded.
+
+Versioned media receipt
+`5b1053bc3bf0146e1550bb1f1c98f025bbed818477b1fe99481731d0f5f921ca`
+delegates byte materialization to the V1 owner, preserves font-file hash
+`d2a8188d...`, records `OS/2` table hash `83aadd2a...`, and explicitly
+supersedes accepted Phase 4 receipt
+`096312058f19d3978eea4128df89c3607632664b5fcc061ca75acaf123d7e3b3`.
+The corresponding verified successor program `gcp-rhc02-hybrid-v2` has hash
+`e9eccd5ce966de6924ec9b2c1936214e5bbc52f6a0eff0594fe44c603f399852`,
+evidence-pack hash
+`57e88b09e1ae5dcfe4855be4fc34e849b56fe7607b18f091c927407344b3a705`,
+and unchanged source-bundle hash `ba1ec8f3...`; it hash-links and supersedes V1
+program `cf88a984...` while changing only the false weight declaration.
+
+The existing generated-program verifier now rejects family, face or weight
+drift whenever the evidence explicitly declares that field, while preserving
+compatibility with older evidence that never claimed it. Forged receipt weight,
+program/evidence weight drift, malformed SFNT bytes and missing `OS/2` tables
+fail closed. The seven-file focused/regression set passes 28/28, repository
+typecheck and quiet ESLint pass, and accepted outputs remain git-ignored local
+research evidence. Source hashes are media successor `5f1ed07e...`, program
+fixture successor `516bef51...`, verifier `2717db9a...`, and focused test
+`a4fa5d2f...`. This corrects contract truth only: RHC-02 remains
+`NOT_RENDERED` and `UNJUDGED`, and the next bounded phase remains the isolated
+ProjectService proposal adapter before the first still-branch sandbox render.
+
+**RHC-02 isolated hybrid proposal-adapter Phase 6 (2026-08-27):** the verified
+RHC-02 V2 program now has one pure projection into the existing strict
+`ProjectGeneratedCompositionDraftV1` schema. The adapter re-runs the generated
+program verifier, copies the already-owned form without resolving layout or
+style, maps both stills to `IMAGE/STATIC`, verifies the content hashes of the
+two bound source-rights receipts, carries Noto Sans Regular/400, preserves
+project `[300,390)` and composition `[0,90)`, and carries both native-audio cue
+handoffs. Numeric control bounds are copied; the authored title receives only
+an exact-value-length safety ceiling, explicitly not a new creative choice.
+Accepted draft hash is
+`f0eb5a241cf52728b71b3229295f30fa349b94bbf82dbd9d2da4e9d5cb92843e`,
+source-rights set hash is
+`aeb63e119bb3d4ca818781914b136617924511ba0319c162658bc0c8a1f2a68b`,
+and adapter receipt is
+`2a18583574f189ab2fe31b2b5f177f07d724a3ece460a2fa3ca0f449db288a3d`.
+
+A closure-bound isolated owner then simulates the PENDING half of
+`prepareProjectGeneratedCompositionV1` on the existing ProjectService proposal
+clone. It requires the exact current proposal revision and normalized project
+state hash, all program/source/evidence/rights/blueprint/runtime/draft hashes,
+and the complete evidence-fact set. It explicitly records the program's logical
+`R1` binding beside ProjectService revision
+`project-revision-v1:7817769e...` and base-state hash `0a735ecc...`; it also
+rejects forged bindings, missing evidence, bad project geometry/rate/range,
+duplicate insert, stale base token and another generated composition
+overlapping the target. Replay deterministically reproduces the same PENDING
+state token and writer revision.
+
+Accepted isolated operation hash is `149293ec...`; proposal receipt
+`334a3f4943aeb67ff2c60c40fdc628e1f0fa08b8c0ff2f7725cfacfde215ba3e`
+records sole changed path `$.generatedCompositions[0]`, final proposal-state
+hash `b9aba524...` and `canonicalUnchanged=true`. The canonical project hash is
+`0a735ecc...` both before and after. The receipt names the real ProjectService
+prepare/finalize owners but truthfully records `canonicalMutationOwnerCalled=false`
+and `lifecycleStage=PENDING_PROPOSAL_ONLY`; no database write, final proof
+promotion, product dispatcher registration or architecture convergence is
+claimed. The focused owner set passes 13/13, the surrounding eight-file
+lifecycle/clone/RHC regression passes 82/82, and repository typecheck plus
+quiet ESLint pass. Source hashes are adapter `c0e66acf...`, isolated owner
+`22555065...` and test `c17ae6a4...`. RHC-02 remains `NOT_RENDERED` and
+`UNJUDGED`; the next bounded phase is its first current still-branch sandbox
+render followed by native-audio and boundary composition proof.
+
+**RHC-02 current still-sandbox and rendered-hybrid Phase 7 (2026-08-27):**
+the pre-render source gate correctly found that capability V3's issuance-time
+worker-overlay hash `7359b725...` was no longer the current overlay after the
+Phase 5A font-verifier correction. V3
+`a182c3a7eb29909e837ed8da515feb89ab9d0123497cf6e7b522e5f3b609d1c6`
+remains immutable historical evidence. Before running the candidate, the
+unchanged DEV-02 canary requalified exact current worker hash
+`4d392654882a1b067dcf3b510add92c79b519a596e8e833ca75526f50922a79d`
+in a fresh deny-all Vercel Sandbox. Request `7f21a8af...` rendered in 97,402 ms
+and current-hash host receipt
+`e1426a7b83b3f1acb637a6c577641e87b6454c98873bdaefb6c3203439326c03`
+records nine materialized outputs, non-persistence, sandbox deletion and no
+project mutation. The V3 test now preserves `7359...` as its issuance identity
+and separately requires the qualified successor overlay `4d392654...`; it no
+longer falsely calls the historical worker the current source tree.
+
+The first actual RHC-02 still request then ran program
+`e9eccd5ce966de6924ec9b2c1936214e5bbc52f6a0eff0594fe44c603f399852`
+through that exact overlay and snapshot. Only `rhc02-still-a`,
+`rhc02-still-b` and Noto Sans Regular/400 entered the sandbox; the interview,
+dialogue and room tone did not. Request `d4b468d2...` rendered six proof stills,
+a contact sheet and visual-only H.264 proxy `0a2d9ec7...` in 24,000 ms. Host
+receipt `1a9e41421775a49b9aa4bc7d12ca537dfe232c5aa00a4c93cd4cec5651709e34`
+binds proxy receipt `837a50bc...`, all nine outputs, deny-all network, empty
+worker environment, non-persistence, successful deletion and zero project
+effects.
+
+The native AV mechanics owner then assembled one lossless FFV1/PCM proof master
+and a separate ordinary H.264/AAC review proxy. Its initial local integration
+correctly rejected a mux that ended 576 samples early; removing the premature
+video-frame output stop allowed the already exact 450-frame segment graph to
+finish the full native audio stream. Accepted master `bd0d90f1...` is
+57,829,460 bytes and accepted review proxy `9e126b0d...` is 652,160 bytes. All
+300 pre-target frames equal interview frames `[0,300)`, all 90 target frames
+equal generated local frames `[0,90)`, and all 60 post-target frames equal
+interview frames `[390,450)`. Project frame 300 equals generated frame 0,
+project frame 389 equals generated frame 89, and project frame 390 equals
+interview source frame 390. Decoded native PCM hash `4ed3b146...` is identical
+for all 720,000 samples, proof window `[270,420)` and target `[300,390)`.
+
+Final receipt
+`e0cb167f3faaf2fed05a174cd4884079e05db72b6ce011c75b929370dafa2a98`
+and all 14 persisted artifact hashes verify. It binds media, rights, font,
+program, source, evidence, blueprint, API, current worker, ProjectService draft
+and adapter receipts. It records no provider-model inference, no historical
+paid-cohort rerun, no database or canonical ProjectService mutation and no
+product dispatcher convergence. Focused real-render integration passes 2/2,
+the surrounding sandbox/program/ProjectService set passes 32/32, repository
+typecheck and quiet ESLint pass. Commit `dcdf10557`; source hashes are AV
+mechanics `822e0cf0...`, task orchestrator `2301b015...`, live runner
+`c7b40315...`, focused test `aca256e6...` and corrected V3 test `d9a81cf2...`.
+
+RHC-02 hybrid is now `TECHNICAL_RENDER_PASS_HUMAN_QUALITY_UNJUDGED`, not a
+production or Stage-2.5 pass. Exact timebase, playable-audio presence, decoded
+PCM preservation, both boundaries and unchanged outside frames pass. Native
+remains a capability gap for exact product font binding; generated-only remains
+a capability gap because native audio ownership is absent. Sentence
+intelligibility, visual/editorial quality, correction time and blind preference
+remain for the later human-quality phase. The next bounded task in the frozen
+order is RHC-03 media/owner reconciliation and materialization; no inference is
+authorized or needed for that step.
+
+**RHC-03 media/owner reconciliation and materialization Phase A
+(2026-08-27):** commits `de26f8170` and exact-contrast correction `d196c9800`
+replace the historical owner-absent
+observation for this candidate with current, source-bound evidence without
+changing the frozen task or its
+`560623d9895a005e54b015a95433d9e6fee292a9dad5f4d18dbb6413d40571ab`
+identity. The fixture binds repository AV source `d95dd77f...` at 60/1,
+selects exact source frames `[300,2100)` at every second frame into a 900-frame
+1920x1080 30/1 authored wide, and derives one 150-frame action artifact from
+authored-wide frames `[450,600)`. `rhc03-action-left` and
+`rhc03-action-right` remain independent editable source slots but intentionally
+bind the same temporal bytes; distinct generated crop bindings provide the two
+views, so both consume local frame `n` of the same action phase rather than
+depending on approximate timestamps.
+
+The native timeline owns the exact 30-second production-audio baseline:
+48 kHz stereo PCM, 1,440,000 samples per channel, candidate audio mutation
+forbidden. Entry is project 450 -> generated 0 -> authored-wide 450; generated
+149 corresponds to authored-wide 599; project 600 returns to authored-wide
+600. Noto Sans Regular/400 is bound by exact file and SFNT `OS/2`
+`usWeightClass` evidence. The centered `SYNC` label is an editable generated
+control. Its 40 px default and measured 20.17:1 white-on-near-black contrast,
+4-percent panel
+margins and conservative subject-separated centre gap bind the current
+creative-knowledge-graph safe-zone, callout-size and WCAG constraints. The
+graph edge to absent node `technique:layout.split_screen` is recorded as
+dangling and is not treated as an implemented form owner.
+
+Current owner execution now distinguishes the three routes. The generic
+isolated `add_overlay` writer accepts both muted native video forms and issues
+chained proposal revisions while leaving the canonical ProjectService fixture
+unchanged, but it rejects arbitrary `Noto Sans` file identity at the live form
+schema; native therefore remains
+`CAPABILITY_GAP:NATIVE_EXACT_FONT_FILE_BINDING_UNAVAILABLE`. The RHC-03
+generated program passes the existing verifier with independently editable
+view, label, colour, size, gutter and background controls, but generated-only
+still lacks playable production-audio ownership. Hybrid alone is
+`READY_FOR_RENDER`: the existing generated-program adapter projects it into a
+pending ProjectService draft with explicit timebase/audio/boundary handoffs and
+zero canonical mutation. This is shared downstream plumbing, not product
+dispatcher convergence.
+
+The first local execution failed closed before evidence because its FFmpeg
+filter graph omitted the video/audio-chain separator; it also exposed a
+parallel-failure cleanup race. The accepted implementation separates the
+chains and materializes deterministically in sequence. Focused evidence passes
+4/4; the surrounding program/overlay/generated-proposal owner set passes
+30/30; repository typecheck and quiet ESLint pass. Source hashes are media
+materializer `8248369d...`, route qualification `65b0cb03...`, generated
+fixture `167bedf6...` and focused test `82f44234...`. RHC-03 remains
+`NOT_RENDERED` and `HUMAN_QUALITY_UNJUDGED`. The next bounded slice is the
+exact current deny-all sandbox render followed by stereo PCM, synchronized
+source-frame, label-bounds and return-boundary proof; no model inference is
+authorized or required.
+
+**RHC-03 deny-all hybrid render Phase B (2026-08-27):** commit `c730c9d24`
+adds one route-neutral decoded hybrid A/V measurement owner and one RHC-03
+receipt owner without changing the generated form owner, ProjectService owner
+or sandbox authority. Exact source hashes are generic A/V mechanics
+`8b878f72...`, rendered visual measurement `61747c16...`, RHC-03 orchestration
+`d1b0dcaf...`, live runner `8ca33ef8...` and focused test `7f37f316...`.
+The generic owner is only partial adoption: RHC-02 retains its earlier
+task-specific measurement implementation. This is not a claim that the two
+pipelines are merged.
+
+The local proof failed closed twice before acceptance. First, adding decimal
+normalized panel bounds produced a one-pixel floating-point measurement
+asymmetry; the accepted checker derives equal measurement extents directly
+from declared panel width and height. Second, a lossless-master
+`-frames:v 210` cap ended muxing at the final video timestamp and omitted
+1,408 stereo samples per channel; the accepted owner lets the exact video
+concat and sample-addressed audio trim determine duration, then independently
+probes the required 210 decoded frames. The corrected focused proof passes
+2/2. Six surrounding sandbox/program/ProjectService suites pass 21/21;
+repository typecheck and full quiet ESLint pass.
+
+The real Vercel microVM execution used qualified snapshot
+`snap_FuRFrHL9WE4IgNXjhWjMxeWZP9mW` at commit
+`eb896ffbd8927621a77c4bd4073dad2a1119876d`, exact API `ee2468e2...` and
+worker `4d392654...`, with `DENY_ALL` networking, empty sandbox environment,
+no project mutation, non-persistence and host-attested deletion. Request
+`ed180d9a...`, host receipt `356305c7...`, proxy receipt `3bab4e03...` and
+localized-evidence receipt `ed29fa17...` bind the execution. The canonical
+RHC-03 receipt is
+`29883e01bbc1be34803b67d1f2e8eb2af8c08e9c837c9ea6d778c94a80031f32`;
+all 12 recorded evidence artifacts re-hash exactly. The one-use pulled OIDC
+file was deleted and verified absent after execution.
+
+Decoded video proof is exact for native project frames `[420,450)`, generated
+local frames `[0,150)` placed at project `[450,600)`, and native project frames
+`[600,630)`. The first returned frame is exactly project/authored-wide frame
+600. Both editable source slots bind the same `7fe82cf9...` temporal artifact
+and same local-frame expression while their left/right crops remain materially
+distinct in every measured frame. The proof master `fc0dd699...` contains
+FFV1 plus 48 kHz stereo PCM; the playable H264/AAC review proxy is
+`7bad9e3c...`. Its 336,000 proof-window samples per channel and 240,000 target
+samples per channel are byte-exact against native production audio; no audio
+was sent to or owned by the generated renderer.
+
+Rendered frames 0, 1, 74 and 149 all place the 90x29 `SYNC` glyph bounds at
+`x=916..1005`, `y=526..554`, with 50 pixels of clearance from either
+conservative subject panel, 0.5-pixel centre offset, zero conservative subject
+overlap and measured 20.168504:1 contrast on exact `#05070A`. These are
+objective safety/readability measurements, not an aesthetic judgment. RHC-03
+therefore advances only to
+`TECHNICAL_RENDER_PASS_HUMAN_QUALITY_UNJUDGED`; Stage 2.5 completion remains
+`NOT_CLAIMED`, no model inference or historical cohort rerun occurred, and the
+next ordered slice is RHC-04 materialization/rendering.
+
+**RHC-04 results-card materialization and route qualification Phase A
+(2026-08-27):** commit `9080e5629` materializes four exact repository-owned
+closeups, one regular Noto Sans font plus rights receipts, and one editable
+six-second generated-program source bundle. The initial program binds
+`60%`/`rhc04-closeup-60` at `[0,45)`, `30%`/`rhc04-closeup-30` at `[45,90)`
+and the final `10%` closeup at `[90,180)`. The bounded correction keeps the
+same source bundle, canvas, font and outer pairings while changing only the
+middle number to `35%`, its source binding to `rhc04-correction-source`, and
+the final hold from 90 to 75 frames; the corrected final state therefore begins
+at frame 105. Human hands-on correction time remains
+`MEASURED_HANDS_ON_REQUIRED_NOT_YET_PERFORMED` and is not inferred from this
+mechanical proof.
+
+Current owner observation accepts all three native still-image proposals on an
+isolated revision-issued ProjectService clone, but the native text form cannot
+bind the exact licensed font file and remains
+`CAPABILITY_GAP:NATIVE_EXACT_FONT_FILE_BINDING_UNAVAILABLE`. Generated-only is
+`READY_FOR_RENDER` through the existing verifier and generated-composition
+ProjectService adapter. Hybrid is `NOT_APPLICABLE` for this frozen task because
+there is no separate native audio, continuation, mask, tracking or timeline
+contribution; adding an empty native lane would still be generated-only. This
+is route qualification, not dispatcher convergence or a rendered-quality
+claim.
+
+Focused materialization/program/correction evidence passes 4/4; the surrounding
+generated verifier, proxy, ProjectService state/owner and RHC-03 suites pass
+52/52; repository typecheck and full quiet ESLint pass. Exact source hashes are
+media materializer `d915ee4d...`, generated fixture `d3706de5...`, route
+qualification `5d4bfe6e...` and focused test `76371157...`. RHC-04 remains
+`NOT_RENDERED` and `HUMAN_QUALITY_UNJUDGED`. The next bounded slice is two
+deny-all sandbox renders (initial and corrected), isolated ProjectService
+`INSERT`/passing-state/`REVISE` proof, exact rendered unaffected-state
+comparison and technical latency/cost accounting; no model inference is
+authorized or required.
+
+**RHC-04 deny-all generated correction render Phase B (2026-08-27):** commit
+`d430f613f` adds the paired rendered-frame measurement owner, dual-sandbox
+receipt owner, live runner and focused proof without changing the generated
+form resolver, sandbox authority or canonical ProjectService writers. The
+focused end-to-end proof passes 2/2; the surrounding media, local-evidence,
+generated-state and isolated-owner suites pass 41/41; repository typecheck and
+full quiet ESLint pass. Exact source hashes are rendered correction measurement
+`419ad05d...`, orchestration `1399096a...`, live runner `35874f58...` and
+focused test `1e35deec...`.
+
+The real Vercel executions used the already-qualified snapshot
+`snap_FuRFrHL9WE4IgNXjhWjMxeWZP9mW` at commit
+`eb896ffbd8927621a77c4bd4073dad2a1119876d`, exact API `ee2468e2...` and
+worker `4d392654...`, with `DENY_ALL` networking, empty sandbox environment,
+no project mutation, non-persistence and host-attested deletion. Initial
+request `6aa7aa60...`, host receipt `a161b907...`, proxy receipt `ae0f823b...`
+and localized evidence `1dea8769...` bind the 31,465 ms initial render;
+corrected request `85a8f510...`, host receipt `596e0be5...`, proxy receipt
+`03436194...` and localized evidence `5957e2ea...` bind the 31,609 ms corrected
+render. The playable proxies are `f4addc94...` and `177dc398...`. Canonical
+RHC-04 receipt `17e102ae2af9eb8350a704e775de9734f0881bc010c0354996bbda5da322ab0e`
+binds rendered visual receipt `970f9566...`; all 28 recorded artifacts and both
+localized receipts re-hash exactly. The fresh one-use OIDC file was deleted and
+verified absent after execution.
+
+Decoded RGB frame identity is exact within each static interval and across the
+bounded correction. Initial frames 0/44 are one exact `60%` state, 45/89 one
+exact `30%` state and 90/104/105/179 one exact `10%` state. Corrected frames
+0/44 retain the exact initial `60%` bytes, 45/89/90/104 share the new exact
+`35%` state, and 105/179 retain the exact initial `10%` bytes. Thus frames
+0, 44, 105 and 179 are byte-identical across versions while frames 45, 89, 90
+and 104 are materially changed. All 16 frame measurements pass source-pixel,
+glyph-bound, safe-zone, minimum-font and conservative 4.5:1 contrast gates.
+These are objective technical measurements, not an aesthetic judgment.
+
+The existing isolated generated-composition proposal owner accepts the initial
+`INSERT`, and schema verification accepts a render/proof-bound passing-state
+projection. A stale-token `REVISE` returns
+`PROJECTSERVICE_ISOLATED_GENERATED_COMPOSITION_BASE_STATE_CONFLICT` with the
+working state unchanged. The exact-base `REVISE` succeeds, preserves the active
+initial state exactly and changes only `$.generatedCompositions[0].candidateState`;
+the declared source/control delta remains middle source, middle number and
+final hold, while source bundle, canvas, project range, font, `60%` binding and
+`10%` binding remain exact. A corrected passing-state projection also validates.
+This is not canonical lifecycle convergence: neither
+`prepareProjectGeneratedCompositionV1` nor
+`finalizeProjectGeneratedCompositionV1` was called, both canonical snapshots
+remain unchanged and canonical writes remain zero.
+
+RHC-04 therefore advances only to
+`PASS_TECHNICAL_RENDERED_GENERATED_CORRECTION_UNJUDGED`. Native remains an
+exact-font-binding capability gap and hybrid remains not applicable for this
+task. Human hands-on correction time is still pending, provider billing is
+unverifiable from the sandbox receipt, and aesthetic quality is unjudged. No
+model inference or historical paid-cohort rerun occurred; Stage 2.5 remains
+`MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered slice is the
+real ProjectService stale-edit, overlap, lock and safe-rebase gate from queue
+item 6, before any optional paid resume inference.
+
+**Stage 2.5 real ProjectService conflict/lock/rebase gate (2026-08-27):**
+commits `cec153e0c` and `258065639` add one evidence-only orchestrator, an
+opt-in loopback Mongo runner, focused tests and the single `$not/$elemMatch`
+predicate required by the existing stateful test persistence. They do not add
+a conflict engine: every allow/block/rebase/lock decision is made by the
+existing `ProjectService` owner. The focused proof plus the existing conflict
+and canonical generated-composition suites pass 14/14; repository typecheck,
+targeted lint and full quiet ESLint pass. Exact committed source hashes are
+ProjectService `6fb9c745...`, proof owner `9794f9b1...` and runner
+`88e57ee5...`.
+
+The durable run used source commit
+`258065639f3dcd29e642f879355d5312da93c067`, official Mongo image digest
+`sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b`,
+MongoDB `7.0.40` with WiredTiger, a dedicated loopback-only database and an
+inert import-only GCS environment. Canonical receipt
+`b06476798a3f4b46969e1aeae7761e44a47de84575561fdb2604b237ed4e0c8f`
+and receipt-file SHA-256 `e79b963b3d85b32ada20da77a86e71d6fb1d56ea85602c3a0e512466ca1985d4`
+were independently revalidated against the committed source hashes.
+
+The bounded evidence is exact:
+
+- a revision-7 stale cut safely rebases over one exact disjoint
+  `UPDATE_OVERLAY` receipt at revision 8, commits at revision 9, preserves the
+  concurrent text edit and reloads byte-equivalent durable state;
+- an overlapping direct-overlay move blocks as `OVERLAPPING_UPDATE` with zero
+  mutation receipts and an unchanged project-state hash;
+- the cut-lock owner blocks wrong-owner release, overlapping acquisition and
+  use of a released lock, then accepts exact release, reacquisition and
+  consumes the full-tail lock in the revision-11 cut;
+- stale revision, invalid range and forged generated-composition base token
+  each block with zero mutation receipts and unchanged durable state, while
+  the exact current state token permits one bounded revise at revision 9;
+- the cut receipt declares the complete pre-cut `[30,240)` write/invalidation
+  tail, removed `[30,60)` range, post-cut `[30,210)` affected range and
+  `-30`-frame ripple. Invalidation truth remains explicitly
+  `UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`;
+- all five uniquely named fixture projects were deleted and independently
+  counted as zero before the one-use container was removed. Provider inference,
+  provider spend, historical cohort rows, non-fixture project writes and
+  non-loopback network calls are all zero.
+
+This closes queue item 6 only for its declared bounded gate. It is not Atlas,
+replica-set or deployed multi-user evidence; `UPDATE_OVERLAY` still records
+`UNKNOWN_LEGACY_CALLER`; locks remain cut-specific; only two timeline writers
+participate; and generated-composition evidence reaches canonical
+prepare/revise, not render finalization. Stage 2.5 remains
+`MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered step is queue
+item 7's fresh zero-spend/current-source decision on whether a paid real-model
+resume episode is genuinely needed; no paid call is authorized by this record.
+
+**Stage 2.5 current-source resume decision gate (2026-08-27):** the existing
+`stage25-resume-zero-spend-operator-v1` ran at source commit
+`10f5640a46ee289c51a995fa6e6ba343d5c29208`, tree
+`b2aebd5e56caa5588b103962019a4b5e8d7ae8f3`, over 1,973 tracked Editron
+scope files with relevant worktree status empty. It scrubbed all nine declared
+provider credential names, used test stubs only with no provider route, made
+zero retries and bound a 36/36 passing report across the eight frozen owner
+suites. Canonical receipt
+`c9ad7fb075edb879f7b3874ceda149de655707ad59be12b038738d796a0d169a`
+and receipt-file SHA-256
+`aa892b64579ab15aa3ff4cae45e77cb866c182c0f8cfb8f61cd5855da70d5980`
+were independently rehashed. The relevant-scope SHA-256 is
+`0f5fd645b161bb4a72ac09c2348b976f98a30e6aad44ebbe0376a34b2de2314f`.
+
+The receipt binds all eight public sentinels and both supporting proofs:
+committed-writer interruption, distinct-runtime suffix representation, no
+prefix provider reinvocation, stale/tampered/budget-drift rejection,
+conservative unresolved-dispatch stop, dispatch disabled, compacted plan plus
+opaque-result preservation, and the real Plan worker's owner-bound receipt.
+Its exact disposition is
+`READY_FOR_SEPARATELY_AUTHORIZED_PAID_RESUME_TRIAL`, not a paid pass;
+`paidResumeDisposition=NOT_AUTHORIZED`, provider dispatch count, canonical
+project mutation count and automatic retry count are all zero. Network packet
+capture, paid provider resume, live Atlas/QStash, hosted ingress, canonical
+ProjectService apply/reload and rendered audiovisual acceptance remain outside
+this receipt.
+
+Decision: do not spend on another provider interruption now. Existing evidence
+already replays the exact captured paid Luna P1 bodies through fresh-instance
+and separate-process suffix recovery with no new inference, while the current
+Stage 2.5 decision is still blocked by realistic long-form product evidence and
+human rendered-quality/correction/cost evidence. A new paid resume would not
+resolve either blocker. Keep it conditional on the later successor whole-
+episode decision; generic permission to continue is not an exact capped spend
+authorization. Queue item 8 is therefore next, with queue item 7's paid arm
+deferred rather than falsely passed.
+
+**Stage 2.5 bounded long-form product-evidence gate (2026-08-28):** commit
+`f882b95c9` adds a fail-closed source/project timebase transform at the legacy
+ProjectService render boundary. Exact same-rate CFR remains supported;
+29.97-in-30 CFR blocks as `SOURCE_PROJECT_RATE_MISMATCH`, VFR blocks as
+`SOURCE_EVENT_REBIND_UNSUPPORTED`, and fractional project rates block as
+`PROJECT_RATIONAL_TIMEBASE_REQUIRED`. No approximate frame conversion or
+project write occurs. The relevant transform/speed-ramp suite passes 47/47.
+
+Commit `56723463a` then adds a pure readiness finalizer and one-use live
+operator that compose the existing media PTS/CAS, storage, semantic, mixed-rate
+and render owners without creating a second project or proof runtime. A fresh
+300-second production Remotion audio render produced exactly 14,400,000 stereo
+48 kHz sample frames, decoded PCM hash `457280bc...`, no browser errors and
+zero provider, embedding or cloud-render calls. Its receipt-file SHA-256 is
+`b13fe853aa08dfe8d39f56ecb5f5aed2c6b6c2cb681371fe81cb10291872151c`.
+
+Execution `stage25-long-form-product-56723463a-v1` ran from relevant-clean
+source commit `56723463a00f9e81f12798d258e2fc505298b739`. It proved one live Atlas
+`mediaAssets` V2 CAS apply plus stale-state rejection, then deleted the exact
+UUID-scoped fixture and verified zero remained. Generic R2 `HeadBucket` was
+reachable; no object was written. The dedicated private PTS bucket was
+`NOT_CONFIGURED`, Neo4j was `UNAVAILABLE`, semantic accuracy was not judged,
+and the production render remained `PASS_AUDIO_ONLY`. Provider inference,
+provider embeddings, cloud renders, canonical project reads/mutations and
+non-fixture writes were all zero. Canonical readiness receipt
+`eaf5db558f4c6962563e92a4399a12cfd4cbcc68bd1627864bb55829cd146e83`
+and receipt-file SHA-256
+`2c9ba317d1134a611a3c3564533e3bf5cffd54f5914814afdb7522cbee0e72dd`
+bind the exact disposition `MODIFY_LONG_FORM_PRODUCT_EVIDENCE_INCOMPLETE` and
+proof ceiling
+`LIVE_ATLAS_CAS_GENERIC_R2_REACHABILITY_MIXED_RATE_SAFE_STOP_AND_LOCAL_PRODUCTION_AUDIO_RENDER`.
+
+This is the required evidence result for queue item 8, not long-form product
+certification. Real rights-cleared creative multi-hour media, query-level
+semantic accuracy, private PTS storage, rational mixed-rate/VFR consumption,
+discontinuity/epoch handling, live proxy/master invalidation, production visual
+playback/render/delivery/recovery and provider-native multimodal accounting
+remain explicit blockers. Queue item 9's human quality/correction/latency/cost
+evidence was therefore evaluated next; the paid successor episode remained
+unauthorized and non-decision-critical because these blockers already required
+`MODIFY`.
+
+**Stage 2.5 human quality/correction/latency/cost evidence gate
+(2026-08-28):** commit `6071c0857` adds one availability finalizer, a one-shot
+local operator and adversarial tests while retaining
+`BlindQualityReviewContractV1` as the only scoring/submission owner. The
+operator reads no sealed RHC-01 route key, copies only eleven public review
+files, withholds explicit native/generated/hybrid identities, and creates four
+task-specific contracts. The packet binds the frozen public briefs and
+predicates plus the existing creative-knowledge constraints for manual
+override, safe zones, room-tone continuity, screen-direction continuity,
+text/graphic separation and hard-cut audio continuity. It prescribes no new
+render form.
+
+Execution `stage25-human-quality-6071c0857-v1` ran from relevant-clean source
+commit `6071c0857ece9b6d83620886b845edcbe774140e`. The shared review-contract and
+new evidence suites pass 35/35; repository typecheck and full quiet ESLint also
+pass. Reviewer packet
+`a9a2a109d75921d62aa9ab6ef0b09c7b6b995026488999cbe646ccae80155df1`
+has file SHA-256
+`f1f718aad4a72281a6dbaa24ac6f5641257ced870ca74c29e8bc14c48dd13eb5`;
+the contract-set file SHA-256 is
+`543579d9d41df75f2ba485028c5d433d6099439f8243d5214f447af900c68129`.
+
+Canonical evidence receipt
+`d50fc077f2c20abc16d57877e18fcabc3de79a58e299a0c5f572f2b180de426a`
+and receipt-file SHA-256
+`1ea150c8bd8317fb4489aed1d920be5530c7b389233909a66f14437a144d342e`
+bind four exact technical receipts and zero qualified human-review receipts.
+Its disposition is
+`MODIFY_HUMAN_QUALITY_CORRECTION_EVIDENCE_INCOMPLETE`, with proof ceiling
+`HASH_BOUND_PLAYABLE_REVIEW_INPUTS_AND_TECHNICAL_TELEMETRY_ONLY`. RHC-02,
+RHC-03 and both RHC-04 worker wall times remain measured technical telemetry;
+RHC-01 render latency was not recorded. No task has a human aesthetic verdict,
+RHC-04 has no measured hands-on correction session, local compute/provider
+billing is incomplete, and independent agreement is unavailable. Provider
+inference, embeddings and canonical project reads/mutations are zero.
+
+This is the honest queue-item-9 result, not a failed model/edit or a hidden
+human judgment. A later qualified reviewer may complete the contracts, but
+this evidence supplied the blocker premises for the published `MODIFY` without
+waiting or spending. The optional successor whole-editing episode remains not
+authorized and not decision-critical.
+
+**Stage 2.5 frozen exit decision (2026-08-28):** commit `69739ed55` adds the
+single frozen-decision owner, read-only evidence operator and adversarial test
+closure. Execution `stage25-frozen-decision-69739ed55-v1` ran from a clean
+`lib/editron` plus `tests/editron` source scope at that commit, revalidated all
+eleven canonical evidence bindings and passed all 17 owner tests. Repository
+typecheck and full quiet ESLint pass. Canonical receipt
+`a03a8ac2d618188ce4c9990b2308f240fada8d760f5b365a57592306309a25c8`
+has receipt-file SHA-256
+`25e3af375be55dea4fb9bf1dc833cad53cb55109d35af29e0d3459dc86a5f4c0`.
+Provider inference calls, provider spend, canonical project reads and canonical
+project mutations are all zero.
+
+The frozen decision is `MODIFY`, with status
+`FROZEN_MODIFY_DECISION_ISSUED`. It is not `GO`: realistic long-form product
+proof, qualified blind RHC-01 through RHC-04 human judgments, measured RHC-04
+hands-on correction, complete render/provider cost accounting and broad
+operation-precondition enforcement in every real ProjectService mutation owner
+remain incomplete. It is not `NO-GO`: bounded native/generated/hybrid rendered
+feasibility exists, the bounded ProjectService conflict/lock/rebase gate passes,
+zero-spend resume mechanics pass, and the identified gaps are repairable while
+failing closed.
+
+The historical paid cohort remains immutable. Its five ambiguous-precedence
+rows are permanently `CONFOUNDED / UNVERIFIABLE` and excluded from model
+scoring; they are never promoted or retroactively rescored. The one Gemini
+provider/resource interruption remains `UNVERIFIABLE`, neither pass nor
+failure. The two genuine preservation/audio-ordering failures remain real
+failures, and production mutation owners must block those unsafe orderings
+before any write. No historical rerun occurred or is authorized.
+
+Before another production-readiness decision, Editron must enforce evidence,
+revision, range, lock, rights and invalidation prerequisites across every real
+mutation owner; complete private PTS, rational mixed-rate/VFR and discontinuity
+consumption; prove rights-cleared multi-hour retrieval accuracy and live
+proxy/master/render/delivery recovery; collect qualified route-blind RHC human
+reviews; run a fresh isolated measured RHC-04 correction session; and bind
+complete local/cloud render plus any separately authorized provider cost
+accounting. The optional successor whole-editing episode is recorded as
+`NOT_RUN_NOT_AUTHORIZED_AND_NOT_DECISION_CRITICAL`. Stage 2.5 is therefore
+closed with `MODIFY`, while Stage 3 production model-driven mutation remains
+blocked pending a future explicitly permitted gate.
+
+**Production-NLE parity audit and successor-GO remediation plan
+(2026-08-28):** the capability-level audit is frozen at
+`docs/editron/editron-production-nle-parity-audit-2026-08-28.md`. It reconciles
+the CAP-0/CAP-1/CAP-2 inventories, current media/time/render/mutation owners,
+the frozen Stage 2.5 receipts, official Premiere/Resolve mixed-rate behavior
+and the inspected OpenCut sources. The audit does not claim line-by-line review
+of every historical file and does not claim access to proprietary Adobe or
+Blackmagic internals. Public NLE behavior and inferred Editron architecture are
+kept separate.
+
+The verified media-time fault line is now explicit. Upstream Editron contracts
+can represent rational rates, SOURCE_PTS, VFR cadence and private PTS sidecars,
+but the live project/renderer boundary still uses numeric FPS plus integer
+project/source frames. The current same-rate-only transform is correct safety
+containment at that boundary, not a production mixed-rate solution. Its target
+replacement is a lossless rational/integer time domain, per-stream PTS/duration
+and discontinuity epochs, sample-frame audio coordinates, explicit
+preserve-real-time/frame-blend/optical-flow/interpret-rate/transcode conform
+policies, timestamp-driven preview/render and invariant proxy-to-master
+mappings. Normal mixed CFR/VFR media must become an explicit conform workflow;
+corrupt, contradictory, unmapped or unprovable media must continue to stop.
+
+OpenCut is an input, not an architecture decision. Its rational frame-rate,
+integer media-time and timestamp-frame access patterns are useful. The inspected
+source does not supply the missing durable VFR PTS sidecar, discontinuity epoch,
+verified proxy/master online-conform or complete production delivery solution,
+and one classic ingest path still rounds FPS. Do not copy it wholesale.
+
+Native, generated and hybrid are henceforth execution strategies rather than
+edit categories. The future product route owner must first materialize target,
+preservation, coordinate, evidence, editability and delivery claims; enumerate
+only real registered owners; hard-reject candidates that cannot prove
+timebase/audio/boundaries/rights/revision/editability/delivery/rollback; then
+rank remaining candidates by fidelity, preservation, canonical editability and
+continuity before quality risk, latency and cost. A declared project policy or
+bounded user preview resolves materially equivalent candidates. Final form
+continues to belong to the existing family resolver/renderer, and all selected
+mutations compile through ProjectService. Research route vocabulary is partial
+convergence only; no production end-to-end route decision owner exists yet.
+
+RHC-01 through RHC-04 remain route/handoff canaries, not coverage of “all
+editing.” Full product claims still require the 118-row CAP-1 capability matrix
+and reconciled CAP-2 atomic catalog to close family by family with real owner,
+caller, renderer, proof, undo/replay, rights and project-class certification.
+At this checkpoint CAP-1 is 52 partial, 8 research-only and 58 missing, with no
+certified row; CAP-2 declares 37 candidates and no production-certified
+candidate.
+
+The five historical confounded rows now have a complete root-cause remediation,
+not merely an exclusion rule. Ambiguous `{ before, after }` names, canonical
+display as `after` then `before`, absent directional prose/examples and a
+preflight that checked visibility but not semantic clarity jointly caused the
+confound. The immutable rows remain unscored because retrospective relabelling
+would be false. Before any newly authorized successor cohort, add a reversible-
+term schema lint, canonical-order-independence tests, independent human clarity
+sign-off, public positive/negative/equivalent examples, a contract-comprehension
+sentinel and unseen isomorphic tasks. The corrected 74/74 zero-inference gate
+proves wiring, not model competence. Never rerun the historical 24-row cohort;
+run a new-identity paid successor only if runtime/product evidence later makes
+model inference decision-critical and a new exact cap is authorized.
+
+The usable review workflow is recorded at
+`docs/editron/open-ended-editing/stage25-rhc-human-review-guide-2026-08-28.md`.
+The programme owner's review is welcome but, because route identities have
+already been disclosed in this chat, it must be stored as
+`USER_NON_BLIND_AESTHETIC_FEEDBACK` and cannot satisfy the existing route-blind
+declaration. A separate qualified reviewer must receive only the public packet.
+Before promotion, freeze a deterministic reviewer-qualification policy, obtain
+one valid blind receipt for every RHC task, run the separately measured fresh-
+clone RHC-04 correction trial, and require independent agreement if the
+successor promotion policy calls for it. Do not conflate technical render proof
+with human editorial acceptance.
+
+The ordered successor-GO queue is:
+
+1. Freeze the production audit, reviewer workflow and qualification/blinding
+   policy without modifying the existing `MODIFY` receipt.
+2. Add canonical lossless time/rate/epoch types with migration and read
+   compatibility; do not switch all writers in one refactor.
+3. Wire timestamp-aware ingest, preview, native-media conform, analysis and
+   final render, certifying preserve-real-time nearest conform before optional
+   frame blend, optical flow and interpret-rate policies.
+4. Configure dedicated private PTS storage and prove write/read/hash/lifecycle,
+   proxy generation, exact proxy/master mapping, master relink, invalidation,
+   boundary/audio equivalence and rollback.
+5. Inventory every real ProjectService mutation owner and enforce evidence,
+   project/source revision, coordinate range, lock, rights, predecessors and
+   invalidations before dispatch and independently inside every writer.
+6. Implement the route-neutral production broker described above without
+   duplicating any family resolver's final form authority.
+7. Close CAP-1/CAP-2 in bounded certified verticals: core timeline,
+   graphics/captions, audio, colour, VFX/tracking, interchange,
+   collaboration/review and delivery.
+8. Evaluate rights-cleared multi-hour material with labelled semantic queries,
+   judged retrieval accuracy, full visual/audio playback and render, real
+   compaction/resume and long-running recovery.
+9. Prove live proxy/master invalidation, parallel render, final delivery,
+   hosted interruption/recovery and complete local/cloud/optional-provider cost
+   accounting.
+10. Collect qualified blind RHC-01 through RHC-04 judgments and a fresh isolated
+    measured RHC-04 hands-on correction receipt.
+11. Run a corrected successor whole-episode model evaluation only if it remains
+    necessary and is separately capped and authorized.
+12. Issue a new versioned readiness receipt. `GO` requires all blockers for the
+    declared supported project classes to be closed; the frozen Stage 2.5
+    `MODIFY` receipt itself is never rewritten.
+
+This queue authorizes bounded infrastructure remediation under the existing
+programme scope; it does not authorize Stage 3 model-driven production mutation,
+provider spend, a historical cohort rerun, customer-project mutation or a claim
+of Adobe/Resolve parity.
+
+**Cross-cutting fast user-QA gate (added 2026-08-29):** every successor-GO
+vertical above must also become inspectable through the versioned QA system in
+`docs/editron/editron-fast-user-qa-system-adr-2026-08-29.md`. The required
+evidence ladder is exact technical proof -> controlled perceptual regression ->
+qualified human editorial proof where taste is claimed. These layers may not
+substitute for one another. Q0/Q1 establish a one-command isolated,
+provider-off fixture, a real visible edit/playback/correction/undo/reload
+journey, canonical before/after diff, Playwright trace, exact cleanup and a
+read-only QA cockpit. Q2-Q5 add rendered A/V, representative mutation/media
+verticals, long-form/recovery/delivery and qualified human review. This is a
+cross-cutting certification lane, not a new project/timeline writer and not a
+reordering of the twelve production-remediation items. A future readiness
+receipt may not call a supported project class complete unless its declared
+user journey emits one finalized evidence bundle with zero false success.
+
+The verified current browser baseline remains narrower: Editron's Playwright
+suite proves authenticated project/chat isolation across navigation and
+refresh, but no edit, playback, project diff, correction, undo/redo, export or
+user-facing evidence bundle. No Editron server/authenticated fixture was live
+during the 2026-08-29 audit, so no browser-edit pass is claimed. The QA ADR is
+`FAST_USER_QA_DESIGN_ACCEPTED_IMPLEMENTATION_OPEN`; it authorizes no provider
+call, customer data, production deployment or Stage 2.5 status change.
+
+**Founder RHC review, editor-foundation and route-arbitration checkpoint
+(2026-08-28):** the verified decisions and observations are now frozen in
+`docs/editron/editron-editor-foundation-and-route-arbitration-adr-2026-08-28.md`
+and
+`docs/editron/open-ended-editing/stage25-user-nonblind-aesthetic-feedback-2026-08-28.md`.
+This is a documentation/evidence phase only; no provider, database, sandbox,
+renderer, ProjectService or customer-project call occurred.
+
+The programme-owner review is valid
+`USER_NON_BLIND_AESTHETIC_FEEDBACK`, not a formal qualified route-blind receipt.
+It records RHC-01 preference `C > B > A`; candidate A's reported failure to hold
+all three sources plus weaker motion/layout; RHC-02's complete/intelligible
+speech but static portrait rather than moving interview and an unclear hard-cut
+return; RHC-03's synchronized action and readable label but visible subject
+occlusion; and RHC-04's final `10%` plus inability to verify source pairings
+without reference closeups. The RHC-04 middle-image change is expected because
+the frozen correction requests number, paired source and final-hold changes,
+not the number alone.
+
+Source reconciliation shows that these are not all ordinary aesthetic comments.
+RHC-02 V1 loops a repository portrait under voiceover and deterministic pink
+noise; it proves exact synthetic A/V handoffs but cannot judge a natural return
+to live interview motion. RHC-03's screenshot (57,187 bytes, SHA-256
+`54e0e466be663414122472f6fdca89316d75eb741c5a8a4b8406e6099a6ffefd`)
+shows the black `SYNC` strip over subject content, so the conservative subject-
+box proof is insufficient for `RHC03-T2`. RHC-02, RHC-03 and RHC-04 also have
+empty V1 `mediaBindings`, leaving return/source-pairing questions partly or
+wholly unanswerable by a human. Preserve V1 unchanged, but do not use it as the
+final promotion instrument. Before formal blind review, issue a new V2 packet
+with a rights-cleared moving interview (or honestly renamed voiceover-portrait
+task), corrected non-occluding RHC-03, marked authored-return references,
+route-neutral RHC-04 source/pairing boards and plain review-mode explanations.
+
+The architecture decision is to **keep Editron's canonical core and not rebase
+it wholesale on OpenCut or Palmier**. Current OpenCut commit `400f097b...` is an
+MIT ground-up rewrite whose architecture is still being designed; classic
+commit `cf5e79e...` is MIT but archived and still contains a rounded-FPS ingest
+seam without Editron's required durable PTS/epoch, proxy/master and receipt
+infrastructure. Palmier is a valuable mature UI/interaction reference, but the
+inspected snapshot is Swift/macOS-only, GPLv3 and uses an integer-FPS/project-
+frame timeline rather than the required production mixed-rate foundation.
+Selectively adapt license-compatible primitives only behind Editron's canonical
+time, command and saved-project boundaries; use Palmier/OpenCut interaction
+patterns to redesign the shell without copying Palmier code.
+
+Native, generated and hybrid are execution strategies selected per edit region,
+not user-facing edit categories. Generated composition may animate overlays or
+video panels and is not limited to still images. The future broker first
+materializes target/preservation/evidence/editability/delivery claims, then
+hard-rejects candidates that cannot prove timebase, audio, boundaries, rights,
+revision, rollback and delivery. It ranks eligible candidates by fidelity,
+preservation, canonical editability/round-trip, continuity/correction locality,
+quality risk, latency, cost and only then authoring surface. Operation count is
+never a route threshold. For the tested filmstrip, generated composition remains
+the preferred bounded visual-form owner and hybrid the complete-reel strategy
+when native footage/audio/captions/delivery continue; that is a task-specific
+decision, not a universal montage rule.
+
+This checkpoint corrects the audit's historical statement that the RHC-02
+isolated overlay adapter was still absent. Phase 3A–3D already supplied the
+research-only form/owner/dispatcher and accepted both stills; native's remaining
+route blocker is exact font-file binding. Phase 6/7 already supplied the hybrid
+proposal adapter and technical render. Generated-only still lacks preserved
+playable-audio ownership. Shared research vocabulary and adapters remain partial
+convergence: no production end-to-end route broker exists.
+
+**Canonical lossless media-time foundation Phase 1 (2026-08-28):** commit
+`32a5ec816` completes queue item 2's bounded representation prerequisite. The
+new pure `canonical-media-time-v1.ts` owner defines reduced rational rates,
+lossless signed media ticks/timescales, integer audio-sample ranges,
+source/timeline positions and explicit discontinuity epochs. Ordering and
+exact rescaling use `BigInt` cross-multiplication under a 128-decimal-digit
+resource bound. Legacy numeric FPS remains readable with explicit
+`LEGACY_NUMERIC_DECIMAL_V1 / READ_COMPATIBILITY_ONLY` provenance: `29.97` is
+preserved as `2997/100` and is never guessed to mean `30000/1001`. New
+canonical writes require an explicit reduced rational.
+
+`EditorialMediaIdentityContractV1` is the first bounded adopter. Its prior
+JavaScript-safe-integer rejection has been replaced by the shared lossless
+validator, so source rates and PTS ranges beyond `Number.MAX_SAFE_INTEGER`
+remain exact while malformed, unreduced, reversed or over-bound values still
+fail. Focused canonical-time, identity-boundary and long-form scale-proxy
+regressions pass 35/35; repository TypeScript and quiet ESLint pass. This is
+`FOUNDATION_IMPLEMENTED_RUNTIME_NOT_WIRED`: `MEDIA_ASSETS`, the PTS lifecycle,
+ProjectService, the same-rate source transform and every renderer retain their
+existing authorities. Mixed-rate/VFR media therefore still stops at the
+current product boundary; no ingest, conform, project, preview or render path
+was silently switched.
+
+The next timebase phase must first perform the required Step-0 audit/cleanup of
+the 419-line `video-source-time-transform-v1.ts`, then extend that existing
+owner rather than create a second source-time authority. Freeze exact
+same-rate, `24000/1001 -> 30000/1001`, `30000/1001 -> 30`, VFR, negative-PTS,
+epoch-boundary, audio-sample and proxy/master fixtures before wiring a caller.
+The default ordinary mixed-rate policy is
+`PRESERVE_REAL_TIME_NEAREST`: preserve real duration/audio and choose the
+covering/nearest source presentation at each output instant. `FRAME_BLEND` and
+`OPTICAL_FLOW` require separately certified visual owners; `INTERPRET_RATE`
+remains an explicit creative command; `TRANSCODE_TO_CFR_PROXY` is a controlled
+conform workflow with exact master anchors, never an unexplained fallback.
+
+**Timestamp-aware media-conformance foundation Phase 2 (2026-08-29):** the
+required Step-0 audit found no dead imports, exports, props or debug logging in
+the existing source-time owner, so this phase extends that owner rather than
+creating a second time authority. `createVideoSourceTimestampConformV2` now
+accepts only a hash-bound `PRE_RESOLVED_FIXTURE_ONLY` presentation window:
+current verified source binding, exact stream and source anchor, explicit
+epochs, exact per-picture PTS/duration, a reduced rational project rate,
+selected timeline-frame queries and a caller-declared bounded resource policy.
+It samples each output frame at frame start using `BigInt` rational arithmetic,
+selects the covering half-open source presentation, and uses nearest previous
+or next only across an explicitly represented inter-epoch gap, with the earlier
+presentation winning a tie. An epoch-reset boundary belongs to the later
+half-open epoch. Audio remains a separate exact sample domain and reports
+integer or between-sample rational positions; video choices never create audio
+positions. An `UNQUALIFIED` proxy/master relation stops before a transform is
+issued.
+
+The frozen fixture set proves same-rate CFR, `24000/1001 -> 30000/1001`,
+`30000/1001 -> 30`, VFR intervals, negative PTS, timestamp-reset ownership,
+fractional 48 kHz audio boundaries, and rejection of unqualified proxy mapping,
+undeclared same-epoch PTS gaps and uncovered queries. The focused time/rate
+cluster passes 38/38, repository TypeScript passes, and affected-file quiet
+ESLint passes. The absolute 100,000-frame window and 10,000-query limits are
+anti-abuse ceilings for one injected lookup window, not media- or project-
+duration ceilings.
+
+This result is
+`PURE_PRE_RESOLVED_WINDOW_CONTRACT_IMPLEMENTED_RUNTIME_NOT_WIRED`. Current PTS
+batch/index owners still require one contiguous PTS sequence and expose no
+epoch-aware random-access lookup; the proxy/master owner still declares its
+mapping unqualified; ProjectService, ingest, analysis, preview and final render
+have no V2 conform caller; and the legacy V1 product transform still blocks
+ordinary mixed-rate/VFR media. Queue item 3 therefore remains open. Its next
+bounded phase must add a hash-verified, epoch-aware presentation-window reader
+behind the existing PTS authority and a timestamp-driven native-media consumer,
+without changing the ProjectService writer boundary or silently qualifying
+proxy/master state. Dedicated live private-sidecar storage, relink and
+invalidation remain queue item 4.
+
+**Hash-verified contiguous PTS-window consumption Phase 3 (2026-08-29):**
+the existing V2 PTS index verifier now owns a bounded exact-ordinal window
+read. It parses the canonical manifest serialization, selects only intersecting
+immutable batches, rereads and verifies each selected batch's byte length,
+content hash, canonical payload and index descriptor, and binds the result to
+the expected map, source version, video stream and rational source timebase.
+The issued evidence also binds the requested half-open ordinal/PTS range,
+selected batch hashes and caller-declared resource policy. VFR picture
+durations and negative PTS are preserved exactly inside the current V2 index's
+single contiguous presentation epoch; no full-source scan is required for a
+small window.
+
+`createVideoSourceTimestampConformFromManifestIndexV2` is the only path in this
+phase allowed to convert that result into the
+`HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW_CONSUMED_NOT_RENDERER_WIRED` status.
+The public pre-resolved fixture constructor cannot self-assert hash-verified
+evidence. A stale map stops before storage access; stale source/stream/timebase,
+unreadable or tampered selected bytes, out-of-index or over-budget windows stop
+without a transform; and an unqualified proxy/master relation stops before any
+sidecar read. The complete PTS-cadence plus source-time regression cluster
+passes 121/121, repository TypeScript passes, and repository-wide quiet ESLint
+passes.
+
+This is bounded consumption plumbing, not production mixed-rate completion.
+The frozen V2 sidecar/index format still enforces one contiguous PTS sequence
+and cannot persist timestamp resets, gaps or multiple presentation epochs. The
+wrapper is not called by the current media-asset/ProjectService boundary, so a
+runtime owner must still derive the current terminal manifest and source
+binding rather than accept caller-authored identity material. Preview and final
+render still address native media through integer source frames, and no
+timestamp decoder consumes this transform. Proxy/master mapping remains
+unqualified. Queue item 3 therefore remains open. Its next bounded subphase
+must design a successor epoch/discontinuity persistence contract without
+rewriting frozen V2 artifacts; a later bounded subphase must version the
+project/render input and add the timestamp-driven native-media consumer.
+Dedicated live private-sidecar storage, relink and invalidation remain queue
+item 4.
+
+**Presentation-epoch discontinuity persistence contract Phase 3B
+(2026-08-29):** a new additive V3 epoch-boundary/index owner now groups
+unchanged immutable V2 frame batches into explicit presentation epochs. It
+binds global batch sequence and frame ordinals, source version, map, video
+stream and exact rational source timebase while preserving each V2 batch's
+canonical bytes and hash. The index accepts only declared `INITIAL`, `GAP`,
+`OVERLAP`, `TIMESTAMP_RESET`, `WRAP` and `EDIT_LIST` handoffs. Initial
+canonical time must be zero; a positive PTS gap must preserve exactly the same
+canonical duration; overlap/reset/wrap must have a negative source-PTS delta
+and resume at the previous canonical end; edit-list mappings may move forward
+but canonical epoch ranges may never overlap.
+
+Reset, wrap and edit-list classifications cannot rely on an orphan hash. They
+require a deterministic private evidence-sidecar reference bound to the map,
+epoch, byte length, content hash and evidence-contract version. Gap and overlap
+remain deterministically classifiable from exact PTS deltas and reject external
+evidence. Boundary records bind the preceding and following V2 batch hashes;
+the V3 index and evidence object keys are deterministic, hash-scoped and
+resource-bounded. Cross-map evidence, forged object keys, hidden same-epoch
+discontinuities, reordered ordinals, stale scope, invalid canonical handoffs,
+noncanonical JSON and resource overflow all fail loudly. The complete PTS-
+cadence plus source-time regression cluster passes 134/134, repository
+TypeScript passes, and affected-file quiet ESLint passes.
+
+This result is
+`EPOCH_DISCONTINUITY_PERSISTENCE_CONTRACT_IMPLEMENTED_NO_RUNTIME_WRITER_OR_READER`.
+It is not yet a production ingest or conform path. Existing V1/V2 scan staging,
+promotion/finalization and `MEDIA_ASSETS` lifecycle owners do not create or CAS
+the V3 index; no reader fetches and hash-verifies the referenced V2 batch and
+boundary-evidence bytes as one complete V3 artifact; no dedicated private
+object was written; and ProjectService, preview and final render have no V3
+timestamp consumer. Queue item 3 remains open. Its next bounded subphase must
+add an independently injected V3 artifact reader/full verifier and a source-
+bound V3 lifecycle/state successor without weakening frozen V2 reads. Only
+after that owner exists may a versioned timestamp-driven native-media consumer
+be wired. Dedicated live private storage, proxy/master relink and invalidation
+remain queue item 4.
+
+**Full V3 artifact verification and source-bound publication Phase 3C
+(2026-08-29):** the additive V3 epoch contract now has an independently
+injected full artifact verifier and an additive `MEDIA_ASSETS` publication
+owner. The verifier validates the top index sidecar before storage access,
+then rereads the exact stored canonical V3 index, every referenced immutable
+V2 frame batch and every external reset/wrap/edit-list evidence object. It
+checks byte length, SHA-256, canonical JSON, index descriptors, source/map/
+stream/timebase scope and caller-declared read/byte ceilings. It records exact
+verified epoch, batch, frame and evidence counts plus uniform/variable frame-
+duration observation.
+
+External evidence bytes are not self-certifying. Reset, wrap and edit-list
+evidence must also receive a hash-bound receipt from an injected registered
+semantic verifier. That receipt binds registry and verifier versions, evidence
+contract, map, epoch, boundary kind/basis, detector and content hash. Missing,
+altered, noncanonical, cross-scope, unknown-contract, forged-receipt or
+over-budget evidence returns a named `UNVERIFIABLE` result; there is no
+approximate or hash-only fallback.
+
+The V3 asset owner binds the verified artifact set to the current source
+version, storage version, qualification binding, technical observation, map,
+video stream and rational source timebase. Its only lifecycle is
+`PENDING -> VERIFYING -> COMPLETE | UNVERIFIABLE`, with bounded expiring claims,
+expiry-only reclaim, immutable terminal receipts and strict transition checks.
+The Mongo adapter targets the existing `MEDIA_ASSETS` record with a source-
+bound compare-and-set filter. Initial publication requires V1, V2 and V3 state
+to be absent; persisted V1/V2 state is rejected rather than silently migrated.
+No parallel media registry or project writer is created.
+
+The combined adversarial fixture uses real canonical V2 batches, a three-epoch
+V3 reset/gap index, actual stored evidence bytes and a semantic verifier. Its
+6/6 focused tests cover complete verification, missing/altered/noncanonical
+objects, unregistered/cross-scope semantic evidence, read/byte ceilings,
+claim/reclaim/expiry, completion/unverifiable terminalization, stale hashes,
+invalid transitions, earlier-version state, changed source and CAS races. The
+wider cadence/time/media cluster passes 164/164 across 28 files; repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`V3_ARTIFACT_VERIFICATION_AND_SOURCE_BOUND_PUBLICATION_CONTRACT_IMPLEMENTED_RUNTIME_NOT_WIRED`.
+The Mongo adapter was not invoked against a live database; no dedicated private
+PTS/evidence object was written; no production boundary-evidence registry or
+scanner/finalizer creates this V3 state; and no ProjectService, decoder,
+preview or final-render consumer reads the verification receipt. Existing V2
+assets have no automatic migration. Queue item 3 therefore remains open. Its
+next bounded timebase subphase is the versioned timestamp-driven native-media
+input/consumer behind the verified receipt. Dedicated live private storage,
+V3 scan/finalizer integration, V2-to-V3 migration policy, proxy/master relink
+and invalidation remain queue item 4.
+
+**Verified V3 epoch-window and native-decoder consumption contract Phase 3D
+(2026-08-29):** a bounded consumer can now proceed from the current terminal
+V3 `MEDIA_ASSETS` receipt to exact source-picture requests without accepting a
+caller-authored index or silently converting PTS to approximate frame numbers.
+`readMediaSourcePtsCadenceEpochPresentationWindowV3` rejects invalid,
+nonterminal or stale asset state before artifact access; preflights the verified
+index byte length; rereads and rechecks the selected index and immutable V2
+batch bytes against their recorded byte lengths, SHA-256 identities, source/
+map/stream/timebase scope and verification receipt; and issues a hash-bound,
+resource-bounded ordinal window containing the required explicit epochs. An
+oversized declared index stops before the injected storage reader is called.
+
+The existing `video-source-time-transform-v1` owner remains the sole picture-
+selection authority. It now derives a V3 binding only from the current
+`COMPLETE/PUBLISHED` source-bound state and can issue
+`HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED` nearest-conform
+selections across VFR durations, negative PTS, timestamp resets and declared
+gaps. Persisted V3 bindings/transforms have strict field, type, scope and
+canonical-hash validators. The frozen V1/V2 paths are unchanged, and an
+`UNQUALIFIED` proxy/master relation still stops before any sidecar read.
+
+`consumeNativeMediaTimestampTransformV1` adds a versioned decoder-batch port
+and consumption receipt. It re-derives the current source binding, rejects a
+stale transform before decode, deduplicates held/repeated pictures, and requests
+each unique picture by source/storage version, stream, epoch, frame ordinal and
+exact presentation timestamp. Decoder output must return the identical request
+scope plus bounded decoded bytes, geometry, orientation, pixel format, colour
+metadata, opaque picture handle and decoded-picture digest; missing, duplicate,
+cross-scope or over-budget output returns a named `UNVERIFIABLE` result. The
+receipt binds project/sequence/overlay identifiers, the declared ProjectService
+revision token, source and transform hashes, exact timeline-to-picture mapping
+and total decoded bytes. Audio is explicitly
+`SEPARATE_NATIVE_SAMPLE_DOMAIN_V1`: this video port may neither supply nor
+replace it, and any exact audio mapping is bound separately in the receipt.
+
+The real-lifecycle adversarial fixture uses a verified three-epoch VFR/reset/
+gap artifact and proves exact PTS requests, repeated-picture reuse, separate
+48 kHz audio ownership, tampered-batch rejection, pre-read byte ceilings,
+unqualified-proxy rejection, stale-source rejection, decoder-scope rejection,
+decoder resource enforcement and redacted decoder failure. Its focused suite
+passes 3/3. The expanded media/time regression cluster passes 211/211 across 35
+files; repository TypeScript passes with an explicit 8 GiB Node heap after the
+default 4 GiB process exhausted memory, and repository-wide quiet ESLint
+passes.
+
+This result is
+`V3_TIMESTAMP_WINDOW_AND_DECODER_CONSUMPTION_CONTRACT_IMPLEMENTED_RENDERERS_NOT_WIRED`.
+It is not visual playback or final-render proof. There is no production decoder
+adapter, ProjectService/preview/final-render caller, live current-revision check,
+production V3 scanner/finalizer, V2-to-V3 migration, dedicated private PTS
+write, or qualified proxy/master mapping. Queue item 3 therefore remains open:
+the next bounded subphase must implement one real timestamp-addressed native
+decoder/preview adapter behind this port and bind its input to the current
+ProjectService render revision without bypassing the existing renderer/form
+owners. Queue item 4 remains private storage, V3 ingest/finalization and exact
+proxy/master relink/invalidation.
+
+**Real timestamp-addressed FFmpeg preview-decoder and revision binding Phase
+3E (2026-08-29):** `native-media-timestamp-ffmpeg-preview-decoder-v1.ts` is the
+first real implementation behind the frozen decoder-batch port. It does not
+seek by a rounded frame-rate conversion or by PTS alone. It sorts the already
+selected global source-frame ordinals, decodes those ordinals with the shared
+server FFmpeg executable and requires FFmpeg's emitted integer PTS for every
+picture to equal the V3 request. Epoch remains part of the request identity, so
+the adapter can distinguish pictures on opposite sides of a timestamp reset
+even when their raw PTS values repeat. Ordinals that cannot be represented by
+the current FFmpeg `select(n)` expression are rejected rather than rounded.
+
+The production source-lease constructor re-derives the current terminal V3
+asset binding before asking the existing server-only R2/GCS URL owner for
+bytes. The decoder never places that signed URL in an FFmpeg process argument:
+it streams the complete object into an owned temporary file under a caller-
+declared source-byte ceiling, verifies exact byte length and the canonical
+source-content SHA-256, re-observes the provider storage version, and only then
+decodes. Each selected picture is materialized as both RGBA proof bytes and a
+PNG preview surface through an injected store. The returned receipt binds the
+SHA-256 of the RGBA bytes; partial store failure, invalid handles, decoder
+failure and stale consumption all invoke idempotent batch cleanup. Temporary
+directories are prefix- and system-temp-root checked before recursive removal.
+
+The existing consumer now also reads the current opaque ProjectService
+revision before decoding and again before issuing a success receipt. A stale
+revision stops before decode; a revision change or unavailable revision after
+decode releases the materialized batch and returns `UNVERIFIABLE`. The default
+reader calls the existing owner-scoped `ProjectService.getProjectRevision`;
+tests inject the same port rather than invoking a live database. This is a
+read-only preview guard and does not create a project writer or mutate state.
+
+The focused proof passes 7/7. Three tests execute the bundled FFmpeg against a
+real locally served 16 x 16 Matroska/FFV1 source with PTS 10000--12000 and
+verify actual ordinal selection, emitted PTS, RGBA byte counts, PNG signatures,
+content digests, altered-source rejection, wrong-PTS rejection, duplicate and
+unsafe ordinal rejection and partial-store cleanup. Four V3 consumer tests
+retain the verified VFR/reset/gap/source/audio adversarial fixture and add
+stale-before-decode plus changed-during-decode revision rejection. Repository
+TypeScript passes with the explicit 8 GiB heap, repository-wide quiet ESLint
+passes, and the current 35-file media/time cluster passes 201/201. No live
+R2/GCS object, Atlas row, ProjectService mutation, provider or customer project
+was touched.
+
+This result is
+`REAL_TIMESTAMP_DECODER_AND_REVISION_BOUND_CONTRACT_IMPLEMENTED_UI_STORE_AND_RENDERERS_NOT_WIRED`.
+It is not yet visible editor playback. No production preview-surface store or
+existing `VideoLayerContent` caller consumes the opaque picture handles; the
+real R2/GCS source lease and default ProjectService reader were not exercised
+against live infrastructure; analysis and final-render owners do not consume
+the receipt; decoded colour metadata is currently unknown; and each batch
+spools the complete source, which is exact but not a certified long-form cache/
+range strategy. Queue item 3 therefore remains open. Its next bounded
+subphase must bind a private expiring preview-surface owner and the existing
+preview renderer to this receipt at display time, then add separately tested
+analysis and final-render consumers. Queue item 4 remains dedicated private
+PTS/evidence storage, production V3 scan/finalization, V2-to-V3 migration and
+qualified proxy/master relink/invalidation.
+
+**Private expiring timestamp-preview surface owner Phase 3F-A (2026-08-29):**
+`native-media-timestamp-r2-preview-surface-v1.ts` now implements the real PNG
+surface store behind Phase 3E's injected decoder port. It writes only to the
+existing dedicated `NO_BROWSER_ROUTE` private media-evidence R2 scope, under a
+separate `private/editron/native-media-preview/v1/` prefix. It never returns a
+storage URL. Each picture receives a 256-bit opaque handle and an immutable
+write; nonce collisions retry rather than overwrite. The stored object binds
+the authenticated user, project and ProjectService revision, hashed sequence
+and overlay identities, decoder request, exact picture request, source/storage
+versions, RGBA proof digest, PNG digest/length/dimensions and lease expiry into
+one canonical binding hash. The writer rereads and verifies the exact stored
+bytes before returning the handle.
+
+The same private runtime now exposes least-privilege factories for a
+lease-scoped decoder store and a server-only reader without exposing the raw
+S3 client. Reads enforce exact metadata fields, the whole-binding hash,
+content type/cache policy, byte length, PNG signature, content hash and the
+shared one-hour/64 MiB resource policy. Missing surfaces return `NOT_FOUND`;
+expired surfaces return `EXPIRED` and trigger best-effort physical deletion;
+explicit decoder-batch cleanup remains idempotent at the decoder boundary.
+Invalid handles, altered claims, altered bytes, oversized objects and provider
+errors fail closed. The public `editron-cdn` bucket and generic R2 credentials
+remain forbidden.
+
+The expanded private-runtime suite passes 12/12 and, with the real FFmpeg
+decoder and revision-bound consumer, the focused cluster passes 19/19.
+Repository TypeScript and affected-file quiet ESLint pass. Tests exercise
+immutable command inputs, exact reread, opaque-handle collision retry, binding
+tamper rejection, expiry deletion, explicit deletion and invalid/missing
+handles. No live R2/GCS object, Atlas row, ProjectService mutation, provider or
+customer project was touched.
+
+This result is
+`PRIVATE_EXPIRING_PREVIEW_SURFACE_OWNER_IMPLEMENTED_AUTH_ROUTE_AND_RENDERER_NOT_WIRED`.
+It is not visible playback. No authenticated HTTP boundary yet verifies the
+requesting Clerk identity and current ProjectService revision before serving
+the PNG, and `VideoLayerContent` still consumes only ordinary media URLs. R2's
+HTTP `Expires` object metadata is not a physical-deletion guarantee, so the
+deployment must still prove a bounded lifecycle rule for this private prefix
+before live production use. There is also no rematerialization coordinator for
+an expired active-editor lease, no live private-bucket exercise, and no
+analysis or final-render consumer. Queue item 3 remains open: the next bounded
+subphase must add the authenticated revision-checking route and a transient
+renderer hydration contract without persisting picture handles as creative
+overlay form, then separately bind analysis and final-render consumers.
+
+**Authenticated timestamp-preview delivery boundary Phase 3F-B
+(2026-08-29):** the node-only
+`/api/services/editron/media/timestamp-preview/[pictureHandle]` GET route is
+now the sole browser-addressable boundary for the private surface handles. It
+authenticates the Clerk user before any private-object read, never redirects to
+R2, conceals a valid handle owned by another user as `404`, and asks the
+existing owner-scoped `ProjectService.getProjectRevision` for the current
+revision immediately before returning bytes. Missing, inaccessible and
+cross-user surfaces return no existence detail; expired leases return `410`;
+stale project revisions return `409`; malformed handles and private-runtime
+failures return bounded status-only responses with no provider diagnostic.
+
+A successful response copies the verified PNG into an owned `ArrayBuffer` and
+returns its exact length with `private, no-store`, `nosniff`, same-origin
+resource policy, no-referrer policy and a content-hash ETag. The route does not
+read or replace native audio and cannot mutate a project. Its 7/7 adversarial
+tests execute the real route control flow for unauthenticated access, exact
+current-revision bytes, cross-user concealment, stale revision, missing and
+expired leases, malformed handles, provider failure and inaccessible project.
+Together with the private-runtime suite the bounded cluster passes 19/19;
+repository TypeScript and affected-file quiet ESLint pass. No live Clerk
+session, R2 object, Atlas row, provider or customer project was touched.
+
+This result is
+`AUTHENTICATED_REVISION_BOUND_PREVIEW_ROUTE_IMPLEMENTED_RENDERER_NOT_WIRED`.
+It still is not visible editor playback. No transient render-input owner maps
+a consumption receipt's `timelineFrame -> pictureHandle` records to these
+same-origin route URLs, and `VideoLayerContent` still has no timestamp-picture
+consumer. The route has not been exercised in a real browser against the live
+private bucket, physical lifecycle policy remains unproved, and expired active
+sessions have no rematerialization coordinator. Queue item 3 remains open:
+the next bounded subphase must add a versioned transient receipt/hydration
+contract to the existing rendering context and make the existing video-layer
+consumer display the exact selected picture while leaving native audio under
+the existing audio owner. Analysis and final-render consumers remain separate
+later subphases.
+
+**Transient timestamp-preview renderer hydration Phase 3F-C1
+(2026-08-29):** a browser-safe V1 hydration owner now converts one Phase 3E
+consumption receipt's project-absolute timeline pictures into the overlay-local
+frame domain used inside Remotion `Sequence`. It requires the supplied overlay
+start/duration, every local frame exactly once, safe numeric representation at
+the current Remotion boundary, and an exact cross-reference from each timeline
+picture to the receipt's decoded handle/request/content digest. Reordered
+receipt frames are canonicalized by local frame and intentional repeated-picture
+holds reuse the same verified handle; missing, duplicate, out-of-range,
+unsafe-integer, cross-picture or decoder-owned-audio records fail loudly. There
+is no sparse hold-previous or ordinary-video fallback.
+
+The hydration is immutable, versioned and serializable. It carries project,
+sequence, overlay, ProjectService revision, receipt identity and the explicit
+`SEPARATE_NATIVE_SAMPLE_DOMAIN_V1` disposition, but it is transient render
+input: no handle or route URL was added to `ClipOverlay`, ProjectService or
+saved project form. A strict per-overlay/local-frame index now lives in the
+existing `RenderingProvider`, and `Main` accepts the optional hydration array.
+`Main` explicitly rejects that preview-only input when `isRendering` is true;
+the authenticated same-origin browser route is not silently treated as a
+server final-render source.
+
+The focused suite passes 3/3 for absolute-to-local conversion, complete
+coverage, repeated-picture reuse, route-path construction, immutable indexing,
+missing/duplicate/unsafe/cross-picture maps, decoder-audio replacement, extra
+fields and duplicate overlays. Repository TypeScript and affected-file quiet
+ESLint pass. No project, private object, route request, browser or renderer was
+mutated/executed by this pure test.
+
+This result is
+`TRANSIENT_EXACT_PREVIEW_HYDRATION_IMPLEMENTED_VIDEO_LAYER_NOT_WIRED`.
+It is shared renderer plumbing, not visible playback. `VideoLayerContent` does
+not yet call the new local-frame hook, and no production coordinator yet feeds
+a freshly produced consumption receipt into the editor Player. The browser-
+safe shape validator carries the producer's receipt SHA-256 but deliberately
+does not duplicate the node-only canonical-hash implementation; the server
+producer/ingress must validate that receipt before hydration, while the image
+route independently reauthorizes user/project/current revision and stored
+bytes on every retrieval. Queue item 3 remains open: the next bounded subphase
+must make the existing video-layer consumer render the exact private picture
+for a hydrated frame while keeping the existing native-audio path underneath,
+with explicit loading/error behavior and no final-render claim.
+
+**Exact timestamp-picture video-layer consumer Phase 3F-C2 (2026-08-29):**
+the existing `VideoLayerContent` owner now asks the existing rendering context
+for one receipt-derived picture at its current overlay-local frame. The context
+first proves that the hydrated overlay ID, start, duration, local frame and
+resulting project frame still match the live overlay. A hydration that exists
+but is stale, incomplete, out of range or internally inconsistent throws a
+stable error; it never falls through to ordinary `<Video>` playback or the
+poster placeholder.
+
+Interactive full-media playback now renders the authenticated same-origin
+private-picture route through Remotion `Img`, pauses playback while the image
+is loading, uses the library's bounded two-retry policy and turns terminal
+load failure into `NATIVE_MEDIA_PREVIEW_PICTURE_LOAD_FAILED`. The exact PNG is
+the visible picture. If the receipt disposition is
+`EXACT_SAMPLE_MAPPING_BOUND`, the existing native source remains the audio
+owner through the established `Audio`/speed-segment path. If it is
+`NO_AUDIO_MAPPING_REQUESTED`, no audio element is invented and a missing media
+URL does not suppress the valid picture. A mapped-audio picture with no native
+source fails closed. Direct server-render use also fails closed even though
+`Main` already rejects preview hydration globally when `isRendering` is true.
+
+The new integration suite executes the real hydration validator, rendering
+provider and video-layer consumer while mocking only browser media primitives.
+It passes 6/6 for exact local-frame selection, authenticated route construction,
+native-audio ownership, explicit no-audio behavior, audio-only omission, stale
+scope rejection, final-render rejection, missing native source and terminal
+image failure. With the existing hydration and video-layer suites the bounded
+cluster passes 14/14; repository TypeScript and affected-file quiet ESLint
+pass. No browser, Clerk session, private R2 object, ProjectService mutation,
+provider or customer project was touched.
+
+This result is
+`EXACT_TIMESTAMP_PICTURE_VIDEO_LAYER_WIRED_COORDINATOR_ANALYSIS_FINAL_RENDER_OPEN`.
+It proves shared downstream preview plumbing, not a complete timestamp media
+pipeline. No production coordinator yet takes a freshly validated consumption
+receipt, creates/renews the transient hydration lease and feeds it to the live
+editor Player. The route/private bucket still needs a real authenticated
+browser exercise and an expired-session rematerialization path. The reused
+native-audio player remains the legacy frame-domain playback path; carrying an
+exact sample-mapping hash proves separation/ownership but does not make that
+player an exact sample-domain consumer. Analysis and production final-render
+consumers remain unwired, and the expiring browser route remains forbidden as
+a final-render source. Queue item 3 therefore remains open; those owners are
+the next technical subphases.
+
+**Lease-bound rolling timestamp-preview window contract Phase 3F-C3
+(2026-08-29):** the first production-scale constraint discovered after the
+exact video-layer integration is now represented explicitly rather than hidden
+by the V1 fixture. The real FFmpeg preview adapter accepts at most 1,024 unique
+pictures in one decoder batch, while the required five-minute 30 fps proof has
+9,000 timeline pictures. V1 full-overlay hydration remains a valid bounded RHC
+proof but cannot be the long-form Player-session contract.
+
+The additive V2 owner therefore converts one already validated timestamp-
+consumption receipt into a partial overlay-local window of at most 1,024
+frames. Every window remains bound to project, sequence, overlay,
+ProjectService revision, exact receipt/decoder request, audio ownership and a
+server-issued conservative lease interval. Multiple adjacent windows may share
+one overlay scope; overlap, mixed revisions/audio scope, incomplete or duplicate
+coverage, cross-picture substitution, unsafe integers, malformed lease order,
+expired active coverage and over-budget requests fail with stable errors. No
+sparse hold-previous or ordinary-video fallback is introduced. A deterministic
+planner selects the aligned active window plus one bounded next window for
+prefetch, including exact tail truncation.
+
+The focused V2 suite passes 5/5, repository TypeScript passes with the declared
+8 GiB heap and repository-wide quiet ESLint passes. No browser, server route,
+private object, decoder process, project, provider or customer data was touched.
+This result is
+`ROLLING_PREVIEW_WINDOW_CONTRACT_IMPLEMENTED_LIVE_COORDINATOR_NOT_WIRED`.
+It does not yet prove that the server producer sets its conservative expiry no
+later than the earliest stored surface expiry, that the live Player can renew
+and swap windows without playback discontinuity, or that obsolete decoder
+batches are released. The V2 contract is not yet consumed by `Main` or the
+rendering context. Exact native sample-domain audio, analysis, production final
+render, live authenticated private-bucket exercise and physical object lifecycle
+remain open. Queue item 3 therefore remains open; the next bounded subphase is
+the fail-closed rendering-context/Main adoption followed by the current-
+revision server materializer and live Player session coordinator.
+
+**Fail-closed V2 rendering-context adoption Phase 3F-C4 (2026-08-29):** the
+existing `RenderingProvider`, `Main` composition root and video-layer selection
+hook now consume validated V2 rolling windows without flattening them into V1
+or ordinary media URLs. V1 full-overlay fixtures remain accepted. One overlay
+may never have competing V1 and V2 ownership; the provider rejects that state
+before rendering. The shared selection hook asks the V2 index for the validated
+owning window, rechecks its start/duration against the live overlay, enforces
+the lease at the active frame and returns the same exact picture/audio-
+ownership shape already consumed by `VideoLayerContent`.
+
+An active seek outside all loaded windows now throws
+`NATIVE_MEDIA_PREVIEW_WINDOW_FRAME_NOT_LOADED`; exact lease expiry, changed live
+overlay scope and inconsistent frame identity each stop separately. None falls
+through to ordinary `<Video>` playback or a poster. `Main` and the layer both
+reject V2 input in server final-render mode, so an expiring authenticated
+browser surface is still not promoted into a render source. The real V1 and V2
+contract/provider/video-layer cluster passes 18/18, repository TypeScript passes
+with the declared 8 GiB heap and repository-wide quiet ESLint passes. No route,
+private object, decoder, project, provider or customer data was touched.
+
+This result is
+`ROLLING_PREVIEW_WINDOW_RENDER_CONSUMER_WIRED_SERVER_AND_PLAYER_COORDINATORS_OPEN`.
+It proves shared downstream preview plumbing only. No current-revision server
+owner yet creates the V3 conform/decoder receipt and conservative lease, no live
+Player session requests active/prefetch windows or releases superseded batches,
+and no browser test proves a renewal swap without playback discontinuity. Exact
+sample-domain audio, analysis and production final-render consumers remain
+open. Queue item 3 therefore remains open; the current-revision server
+materializer is next, followed by the live Player session coordinator.
+
+**Private R2 V3 epoch-artifact reader Phase 3F-C5 (2026-08-29):** the
+existing dedicated server-only R2 runtime now exposes a typed read-only adapter
+for the immutable artifact families required by V3 epoch verification. Its
+allow-list is deliberately exact: canonical V2 frame batches, V3 epoch indexes
+and V3 boundary evidence. A V2 manifest index, unrelated/private-looking key,
+path traversal, non-R2 storage reference, invalid byte length or invalid
+content hash is rejected before storage access. Retrieved objects remain
+bounded by declared length and the family absolute limit, and both exact byte
+length and SHA-256 are rechecked before canonical JSON is returned. Provider
+read failure and immutable-content mismatch have separate stable errors.
+
+The focused new reader plus existing V2 artifact/runtime compatibility cluster
+passes 21/21; repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. This phase used an injected in-memory
+S3-compatible client. It did not contact a bucket, expose a browser route,
+write or finalize a V3 artifact, scan media, mutate ProjectService, or use
+provider/customer data.
+
+This result is
+`PRIVATE_R2_V3_EPOCH_ARTIFACT_READER_WIRED_LIVE_STORAGE_AND_WRITER_OPEN`.
+It is private-storage consumption plumbing, not a claim that the V3 production
+scanner/finalizer or physical object lifecycle exists. Queue item 3 remains
+open: the current-revision server materializer must now bind the real V3
+verification/conform/decoder chain to these reads, then the live Player session
+coordinator must renew/swap/release rolling windows. Queue item 4 still owns
+the production V3 scanner/finalizer, immutable V3 writes, live private-bucket
+proof, V2-to-V3 migration and qualified proxy/master mapping.
+
+**Current-revision timestamp-preview materializer Phase 3F-C6
+(2026-08-29):** a new server-only owner now composes the already separate
+ProjectService snapshot/revision, verified `MEDIA_ASSETS` V3 binding, private
+epoch-artifact reader, exact ordinal-anchored timestamp conform, materializing
+decoder consumer and private preview-surface lease into one bounded V2 rolling
+window. The selected source anchor is the verified frame ordinal itself; its
+epoch, PTS and source tick duration come from the immutable V3 artifact rather
+than frame-rate arithmetic. The materializer checks the ProjectService revision
+before and after decode and once more before return, re-reads the V3 asset after
+decode, compares its binding hash, and releases decoded surfaces when a late
+asset, revision, lease or window check fails.
+
+Legacy non-integer numeric project rates such as `29.97` stop as ambiguous
+instead of being silently treated as `30000/1001`. Video retimes, a source with
+audio but no exact native sample-domain mapping, an invalid or changed V3
+qualification, and a source extent too broad for the declared read budget all
+stop before an unsafe window can be returned. Runtime policies now require
+positive safe integers for every read, conform, decode, dimension, timeout and
+surface bound. Malformed initial V3 state becomes `ASSET_SCOPE_INVALID`;
+malformed refreshed state becomes a late asset-change stop with cleanup, never
+an escaping validator exception.
+
+The real conform/reader/window/FFmpeg-adapter compatibility cluster passes
+22/22, repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. The materializer tests use real canonical
+three-epoch VFR/reset/gap artifacts and the real verification/conform/consumer/
+window chain, with injected storage and decoder ports. No live database,
+private bucket, FFmpeg process, browser, project, provider or customer data was
+touched.
+
+This result is
+`CURRENT_REVISION_PREVIEW_WINDOW_MATERIALIZER_WIRED_LIVE_PLAYER_AND_AUDIO_OPEN`.
+It is a server production composition boundary, not proof of live playback.
+The Player does not yet request, prefetch, renew, swap or release these windows,
+and no browser run proves a discontinuity-free lease transition. Sources with
+native audio deliberately remain blocked until exact sample-domain mapping is
+owned. Missing explicit source end currently requires a fully bounded source
+extent rather than timestamp-addressed batch selection. Analysis and final-
+render consumers remain open. Queue item 3 therefore continues with the live
+Player session coordinator, followed by native audio, analysis and final-render
+consumption. Queue item 4 still owns the production V3 scanner/finalizer,
+immutable writes, live private-bucket proof, migration and qualified proxy/
+master mapping.
+
+**Authenticated timestamp-preview session server Phase 3F-C7a
+(2026-08-29):** the materializer now distinguishes three routing states before
+the browser is allowed to choose anything. An asset with no V1/V2/V3 cadence
+state is explicitly `NOT_APPLICABLE` and may remain on its ordinary media path.
+An asset with V1/V2 cadence state is explicitly blocked with
+`LEGACY_TIME_MAP_MIGRATION_REQUIRED`. Any present or partial V3 state is treated
+as timing-managed and must pass the full V3 validator; corrupt, stale,
+incomplete or unsupported V3 state never becomes ordinary-media fallback.
+
+The authenticated Node session route accepts exact, 64 KiB-bounded commands.
+POST materializes one current-revision window through the server runtime.
+DELETE releases one returned window without relying on a process-local decoder
+instance. Before deletion, the release owner re-reads every unique private
+surface and matches tenant, project, revision, sequence hash, overlay hash,
+decoder batch, picture request, decoded content and exact lease expiry. It
+preflights the complete set before deleting anything. Missing objects are
+idempotently counted as already absent; provider partial deletion returns
+`RELEASE_INCOMPLETE` and never claims full cleanup.
+
+The session/materializer focused suites pass 12/12, repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+The release tests cover foreign ownership, zero-delete-on-scope-mismatch,
+already-absent objects and partial provider failure. They use injected storage;
+no authenticated browser request, live private bucket, FFmpeg process, project,
+provider or customer data was touched.
+
+This result is
+`AUTHENTICATED_PREVIEW_SESSION_SERVER_WIRED_LIVE_PLAYER_COORDINATOR_OPEN`.
+It proves the server command and cleanup boundary, not rolling playback. The
+editor does not yet plan active/prefetch requests, deduplicate in-flight work,
+swap only after complete coverage, renew before lease expiry, pause on a
+timing-managed block, or release superseded windows during a real Player
+session. Those are the next bounded Phase 3F-C7b responsibilities. Native
+sample-domain audio, browser discontinuity proof, analysis and final-render
+consumers remain open; queue item 3 is not complete.
+
+**Live Player rolling timestamp-preview coordinator Phase 3F-C7b
+(2026-08-29):** the real V1/V2 `VideoPlayer` now owns one browser session
+coordinator for the authenticated timestamp-preview boundary. It plans the
+active and next bounded window, deduplicates in-flight range requests, and
+withholds the active video layer while classification or exact coverage is
+unknown. Only the server's explicit `NOT_APPLICABLE / ASSET_NOT_TIMESTAMP_MANAGED`
+result enables ordinary video playback. A legacy, invalid, incomplete,
+unsupported or unavailable timing-managed path remains visibly paused and
+blocked; it never falls through to frame-rate arithmetic or the ordinary media
+element.
+
+Complete exact windows are swapped into `Main`/`RenderingProvider` before old
+leases enter delayed cleanup. Returned project, sequence, overlay, range and
+lease scope are revalidated in the browser. Lease time is derived from the
+server issue time plus elapsed monotonic request time rather than the browser
+wall clock; an independent wake renews leases even while playback is paused.
+Seeking outside a clip releases its retained windows. Unmount flushes current
+and queued releases and waits for in-flight materializations, including a
+window that arrives during disposal. React Strict Mode's synthetic cleanup is
+distinguished from a real unmount so development and QA do not strand a
+disposed coordinator. Cleanup failure is exposed, blocked sessions explain
+the reason, and the user has an explicit bounded retry.
+
+The coordinator plus server/window/layer/consumer compatibility cluster passes
+27/27; repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. These tests use an injected browser port
+and deterministic clocks/schedulers. No authenticated browser, live private
+bucket, FFmpeg process, persisted project, provider or customer data was
+touched.
+
+This result is
+`LIVE_PLAYER_ROLLING_PREVIEW_COORDINATOR_WIRED_PRIVATE_RUNTIME_PROOF_OPEN`.
+It is live control-flow wiring, not end-to-end playback certification. The
+browser command still does not carry the editor's expected ProjectService
+revision, and the ordinary/non-managed classification is not yet returned as
+a revision-bound expiring decision. There is no browser proof across a real
+VFR epoch/reset/gap or lease swap, and timing-managed source audio remains
+blocked until exact native sample-domain mapping exists. Analysis and final-
+render consumers are also open. Queue item 3 therefore continues with
+client-expected revision/classification freshness, authenticated private-
+runtime browser proof, native audio, analysis consumption and final-render
+consumption. Queue item 4 still owns production V3 scanning/finalization,
+immutable private writes, live bucket proof, V2-to-V3 migration and qualified
+proxy/master mapping.
+
+**Revision-bound live preview command Phase 3F-C7c (2026-08-29):** the
+existing autosave/load owner now exposes its validated current
+`ProjectRevisionV1` through the editor context; the Player does not fetch or
+invent a second revision. A separately identified materialize command V2
+requires that expected revision. The materializer compares it with the one
+ProjectService snapshot it already owns before asset read, conform or decode,
+and returns `PROJECT_REVISION_STALE` on mismatch. An ordinary/non-managed
+classification now returns the checked revision, while exact windows already
+carry it.
+
+The live browser coordinator sends only V2, includes the revision in its
+project/session scope, validates both ordinary classifications and exact
+windows against it, and discards/rematerializes retained windows when autosave
+advances the revision. Missing, malformed or mismatched revision state pauses
+and blocks the active video. The authenticated route no longer accepts the
+unbound V1 materialize command; its obsolete constant, type, validator and
+server compatibility parser were removed after direct/type/literal/dynamic-
+import/re-export/test searches found no remaining callers. The independent V1
+release command remains because it is the current release protocol for V2
+windows.
+
+The client/server/window/layer/consumer compatibility cluster passes 30/30;
+repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. The proof uses injected ports and deterministic clocks;
+no authenticated browser, live private bucket, FFmpeg process, persisted
+project, provider or customer data was touched.
+
+This result is
+`REVISION_BOUND_LIVE_PREVIEW_COMMAND_V2_WIRED_CLASSIFICATION_EXPIRY_OPEN`.
+The ordinary decision is revision-bound but still not an expiring asset-state
+lease: a scanner could attach V3 timing state without advancing the project
+revision while a long ordinary clip remains active. Queue item 3 therefore
+continues with a bounded server-issued classification lease/invalidation,
+authenticated private-runtime browser proof across a real VFR reset/gap and
+lease swap, exact native sample-domain audio, analysis consumption and final-
+render consumption. Queue item 4 retains production V3 scanner/finalizer,
+immutable private writes, live-bucket proof, migration and qualified proxy/
+master mapping.
+
+**Expiring ordinary-classification lease Phase 3F-C7d (2026-08-29):** an
+ordinary/non-managed decision is no longer an indefinitely cached revision
+echo. The materializer first verifies that the returned asset identity and
+media type match the active video overlay, then issues one exact-schema lease
+bound to project, sequence, overlay, asset and ProjectService revision. The
+lease carries a canonical decision-state hash, server issue/refresh/expiry
+times and a shared five-minute maximum TTL; the current policy issues a
+30-second lease and asks the client to renew ten seconds before expiry.
+
+The existing browser coordinator remains the only client decision owner. It
+validates every returned lease's schema, complete scope and revision and
+rejects a lease already expired under the conservative server-time-plus-
+monotonic-elapsed clock. Ordinary playback remains available while a soft
+renewal is pending, including while playback itself is paused. At hard expiry
+the active layer becomes `PROBING` and is withheld until a fresh scoped
+decision arrives. A hung renewal does not create an expired one-millisecond
+wake loop. Blocking clears the cached classification, and a later exact window
+clears it before exact playback begins.
+
+The focused classification client/server suite passes 16/16. The wider real
+timestamp-preview route/window/layer/consumer/decoder/transform compatibility
+cluster passes 64/64; repository TypeScript passes with the declared 8 GiB
+heap and repository-wide quiet ESLint passes. Adversarial tests cover wrong
+asset and revision, expired-on-arrival decisions, renewal while paused, hard
+expiry with a pending request, malformed results, window cleanup and late
+disposal. All ports, clocks and schedulers were injected; no authenticated
+browser, live private bucket, FFmpeg process, persisted project, provider or
+customer data was touched.
+
+This result is
+`EXPIRING_ORDINARY_CLASSIFICATION_LEASE_WIRED_PUSH_INVALIDATION_AND_LIVE_PROOF_OPEN`.
+It bounds the scanner-write race but does not eliminate it immediately: queue
+item 4 must make a production V3 state write invalidate or supersede any live
+ordinary classification. Queue item 3 remains open for authenticated private-
+runtime browser proof across a real VFR epoch/reset/gap and lease swap, exact
+native sample-domain audio, analysis consumption and final-render consumption.
+Queue item 4 still owns the production V3 scanner/finalizer, immutable private
+writes, live-bucket proof, V2-to-V3 migration and qualified proxy/master
+mapping.
+
+**Source-bound native-audio sample/epoch evidence Phase 3F-C7e
+(2026-08-29):** the first exact native-audio foundation now exists without
+weakening the current playback block. A new immutable contract selects one
+explicit audio stream from the measured technical observation and binds it to
+the asset, immutable source version, provider storage version, source binding
+and observation hash. A missing, duplicated or technically incomplete stream
+is rejected; the contract never chooses the first audio stream by convention.
+
+The evidence model preserves signed source PTS and exact rational sample
+positions, including a fractional initial sample phase. Consecutive decoded
+audio frames remain in one epoch only when the next source position equals the
+previous decoded end exactly. Positive displacement becomes a declared gap,
+negative displacement becomes a declared overlap, and regressing PTS becomes
+a timestamp-reset epoch. The decoded PCM remains packet-order PCM: the
+foundation records that no synthetic gap samples were inserted and no overlap
+samples were dropped. Priming, padding and edit-list effects are bound to the
+actual FFmpeg demuxed/decoded output timeline, rather than inferred from a
+browser duration or frame offset.
+
+The server-only FFmpeg adapter reuses the existing verified source-lease port,
+downloads and hashes the complete immutable source bytes, revalidates the
+provider object before and after measurement, streams an explicitly selected
+ffprobe frame scan, and decodes interleaved signed 32-bit little-endian PCM.
+It declares and enforces no resampling and no channel remix. The receipt binds
+the exact FFmpeg/ffprobe identities, decoded frame and sample counts, PCM byte
+count and SHA-256, epoch summaries, canonical policy and all source/stream
+hashes. Resource policy is validated before the lease opens or any subprocess
+runs; source, scan, epoch, sample, PCM, canonical-byte, diagnostic and timeout
+ceilings fail closed. Temporary files are deleted only under the adapter-owned
+temporary prefix.
+
+The focused pure/real-media suite passes 8/8. The real fixture uses an actual
+FFmpeg plus ffprobe decode of 4,800 stereo 48 kHz sample frames and proves the
+expected 38,400-byte S32LE receipt. Adversarial tests cover negative and
+fractional starts, gaps, overlaps, timestamp resets, missing/duplicate/
+incomplete streams, altered observations, changed storage, altered source
+bytes, a lease becoming stale during measurement, PCM/sample mismatch,
+malformed preflight policy and representative source/frame/sample/epoch/PCM/
+canonical-byte ceilings. Repository
+TypeScript and focused quiet ESLint pass. No provider, private bucket,
+persisted project or customer media was touched.
+
+This result is
+`SOURCE_BOUND_AUDIO_SAMPLE_EPOCH_EVIDENCE_MATERIALIZED_RUNTIME_CONSUMPTION_OPEN`.
+It is not yet playable audio. The receipt and PCM have no durable private
+artifact owner/reader, timeline-to-sample consumer, leased browser audio
+surface, authenticated audio route, swap-continuity scheduler, analysis
+consumer or final-render consumer. The existing timestamp-preview materializer
+therefore continues to return `EXACT_AUDIO_MAPPING_REQUIRED` for audio-bearing
+managed sources, and the legacy frame-domain Remotion `<Audio>` path is not
+promoted. Queue item 3 next makes the existing time-transform owner consume
+this verified evidence, then wires bounded materializer/preview, analysis and
+final-render consumers. Authenticated real-browser/private-runtime proof
+remains open. Queue item 4 still owns production private PTS storage and V3
+scan/migration/proxy-master invalidation; no convergence across those owners is
+claimed here.
+
+**Verified V3 timeline-to-audio evidence binding Phase 3F-C7f
+(2026-08-29):** the V3 timestamp-transform owner no longer accepts a caller-
+authored audio range or sample anchor and then labels it exact. Its only audio
+input is now the immutable source-bound sample/epoch evidence from Phase
+3F-C7e plus the requested exclusive project-timeline end. The historical V2
+input and serialization remain unchanged for backward-compatible reads.
+
+The transform revalidates the audio evidence hash and requires its asset,
+source version, provider storage version, source binding and technical-
+observation hashes to equal the current verified video binding. It pairs the
+complete verified video/audio epoch sequences and rejects missing, extra or
+incompatible `INITIAL`, `TIMESTAMP_RESET`, `OVERLAP` or `GAP` boundaries. Each
+audio epoch is aligned from the shared source timestamps into the verified
+video canonical timeline. Project-frame duration is then converted to the
+audio sample domain with signed rational arithmetic: fractional sample phase
+is preserved, never rounded. Real PTS gaps become explicit `SILENCE` segments;
+reset/overlap handoffs must be canonically contiguous. No resampling, channel
+remix, guessed anchor or hidden dropped/duplicated sample is permitted.
+
+The persisted V3 mapping binds the audio evidence, stream and decoded-PCM
+hashes; exact timeline and decoded sample positions; channel/rate identity;
+gap policy; and every PCM/silence segment. Its reader independently checks
+field closure, reduced rationals, project-duration equivalence, contiguous
+segment coverage, decoded-PCM bounds and mapping/source hashes. Wrong-source
+evidence and a tampered persisted segment both fail before video decode or any
+project mutation.
+
+The related timestamp/audio/preview cluster passes 73/73. It includes a
+three-epoch reset/gap fixture, explicit gap silence, an `8/15`-sample leading
+phase, wrong-source rejection, persisted-segment tamper rejection, legacy V2
+compatibility and the real FFmpeg audio/preview adapters. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No provider, private bucket, persisted project, authenticated browser or
+customer media was touched.
+
+This result is
+`VERIFIED_AUDIO_TIME_MAPPING_BOUND_PLAYABLE_RUNTIME_CONSUMPTION_OPEN`.
+Queue item 3 remains open: the decoded PCM still needs a durable private
+artifact owner/reader, a bounded ProjectService materializer input, an
+authenticated leased browser audio surface/route and swap-continuity
+scheduler, plus real analysis and final-render consumers. The strict paired-
+epoch rule also deliberately blocks partial epoch windows and unsupported
+`WRAP`/`EDIT_LIST` audio pairings until their evidence owners exist. It is a
+safe supported subset, not a claim that ordinary production audio playback is
+complete. Queue item 4 continues to own the production V3 scanner/finalizer,
+private object lifecycle, V2-to-V3 migration and qualified proxy/master
+invalidation.
+
+**Private chunked audio evidence artifact Phase 3F-C7g (2026-08-29):** commit
+`f4ae5cd80` adds the first durable-storage contract and R2-compatible owner for
+the source-bound audio sample/epoch evidence produced in Phase 3F-C7e. The
+owner does not buffer a long programme into one object. It derives a fixed,
+sample-frame-aligned chunk plan from the verified channel count and decoded
+sample count; writes content-addressed immutable S32LE PCM chunks; writes the
+canonical epoch map only after every chunk has been reread and verified; and
+publishes the content-addressed manifest last as the only complete-set commit
+marker. Conditional `If-None-Match: *` writes make an identical retry
+idempotent, while a conflicting pre-existing object is reread and must match
+the expected byte count, private cache policy, artifact metadata and SHA-256.
+
+The bounded reader first verifies the manifest and epoch map as one exact
+source/storage/observation/audio-stream set. It then accepts integer sample-
+frame ranges only, fetches the intersecting complete chunks, revalidates every
+chunk and returns the exact sliced PCM bytes plus a range hash. Storage must be
+an explicitly isolated `NO_BROWSER_ROUTE` bucket; the known browser-facing
+`editron-cdn` bucket is refused. Missing, extra or reordered chunks, wrong map
+scope, malformed or noncanonical manifests, aggregate PCM mismatch, stored
+byte or header tampering, unsafe chunk policy and over-limit reads all fail
+closed. Failed pre-manifest attempts can leave unreachable content-addressed
+chunks; lifecycle collection for those orphans remains a required queue-item
+4 responsibility and is not described as cleanup proof.
+
+The new contract/R2 suite passes 5/5, repository TypeScript passes with the
+declared 8 GiB heap and repository-wide quiet ESLint passes. A broader audio
+run passes 123/124; its sole failure is the older CAP-2 media/audio current-
+truth evidence seal, whose 23-file normalized hash has legitimately drifted
+from immutable V5 after later source-owner changes. Historical V5 must not be
+rewritten. Queue item 7 must issue a new chained capability reconciliation and
+update the media/audio vertical to include the current source/time/artifact
+owners before claiming that vertical certified.
+
+No live R2 object was written because a dedicated production private-artifact
+scope and credentials were not configured, and no provider or customer media
+was touched. The FFmpeg materializer does not yet stream its temporary decoded
+PCM into this owner; no authenticated audio route, leased browser surface,
+swap-continuity scheduler, analysis reader or final-render reader consumes the
+manifest. This result is therefore
+`CHUNKED_PRIVATE_AUDIO_ARTIFACT_OWNER_VERIFIED_FFMPEG_AND_RUNTIME_WIRING_OPEN`.
+Queue item 3 remains open and proceeds next to source-bound FFmpeg streaming
+into this owner, then bounded materializer/preview, analysis and final-render
+consumers. It does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Source-bound FFmpeg-to-private-audio publication Phase 3F-C7h
+(2026-08-29):** commits `906961d15` and `fca435ff5` close the ephemeral-PCM
+handoff identified in Phase 3F-C7g. A storage-neutral stream-writer port now
+separates the FFmpeg evidence producer from the R2 implementation. The private
+store owns canonical sample-aligned chunk boundaries and incrementally
+reassembles arbitrary producer fragmentation; the decoder does not know or
+duplicate the storage chunk policy and the store retains only its current
+canonical output chunk in addition to the caller-owned input fragment.
+
+The FFmpeg adapter now exposes two deliberate APIs. The historical map-only
+measurement remains available and does not pretend to persist audio. The new
+private-artifact materializer leases and hashes the immutable source, scans
+and decodes the selected stream once, builds the canonical sample/epoch map,
+streams the owned temporary S32LE file through the neutral writer before
+cleanup, independently canonicalizes and scope-verifies the returned manifest,
+and revalidates the source lease a third time after publication before it can
+return success. A slow writer is awaited inside the temporary-directory
+`try/finally`; the file cannot be deleted while it is still being consumed.
+
+The real-media integration generates a rights-free 0.1-second 48 kHz stereo
+sine fixture, measures exactly 4,800 sample frames and 38,400 decoded bytes,
+publishes them through the real private R2 owner over an in-memory command
+transport, rereads the complete PCM range with the map-bound SHA-256, verifies
+manifest-last order and proves the temporary PCM path is absent after return.
+An invalid writer is rejected before the source lease opens. A forged writer
+reference and a lease that becomes stale only after a complete immutable
+publish both return no success; the latter can leave a content-addressed set
+for the old source identity, but cannot falsely bind it to current source
+state.
+
+The focused map/artifact/FFmpeg cluster passes 13/13. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+The broader audio run is now 128/129; its sole failure remains the already
+recorded immutable CAP-2 V5 media/audio evidence-seal drift assigned to queue
+item 7. No live R2 object, provider, customer media, project mutation or
+browser surface was used.
+
+This result is
+`SOURCE_BOUND_FFMPEG_PCM_PRIVATE_ARTIFACT_MATERIALIZED_RUNTIME_CONSUMERS_OPEN`.
+Queue item 3 remains open for the bounded ProjectService materializer input,
+authenticated leased browser audio surface/route, swap-continuity scheduler,
+analysis reader and final-render reader plus real private-runtime proof. Queue
+item 4 still owns dedicated production private-storage configuration, orphan
+lifecycle and live object proof. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Private audio artifact asset authority Phase 3F-C7i (2026-08-29):** commit
+`b4daaf90d` adds the asset-level authority that was missing between the
+source-bound private publication owner and runtime consumers. A canonical
+manifest can now be attached to the current measured `media_assets` source
+only when its source version, storage version, qualification binding,
+technical observation and exact audio-stream binding all still match. The
+persisted record independently binds the sample/epoch-map hash, decoded PCM
+hash and sample count, manifest material hash, serialized-manifest reference,
+sample rate and channel count. Multiple audio streams are stored as one
+bounded, canonical, stream-index-sorted set with exactly one immutable record
+per stream.
+
+The Mongo owner uses compare-and-set predicates over the expected audio-state
+hash and the current source/qualification identities. First publication
+requires both audio-state fields to be absent or null. An identical artifact
+retry is idempotent even if the request has a later publication clock; a
+different artifact for an already-bound stream, stale expected hash, malformed
+or partially persisted current state, wrong source, duplicate stream or lost
+CAS race cannot overwrite the asset. The manifest material SHA and serialized
+object-content SHA remain deliberately separate and are both hash-bound; the
+owner does not infer one from the other.
+
+The new adversarial owner suite passes 3/3 and the complete source-audio
+map/private-store/FFmpeg/asset cluster passes 18/18. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No live MongoDB/R2 object, authenticated browser, project mutation, provider or
+customer media was used.
+
+This result is
+`SOURCE_BOUND_PRIVATE_AUDIO_ARTIFACT_ASSET_AUTHORITY_VERIFIED_PREVIEW_CONSUMER_OPEN`.
+Queue item 3 remains open for the current-ProjectService-revision materializer
+reader, authenticated leased browser-audio route and swap-continuity scheduler,
+plus analysis and final-render readers and real private-runtime proof. Queue
+item 4 still owns source-change invalidation, orphan lifecycle, dedicated
+production private storage and live object proof. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project-revision-bound audio-evidence preview materializer Phase 3F-C7j
+(2026-08-29):** Step 0 commit `095d757d6` first removed two unused public
+exports from the existing preview materializer without changing runtime
+behaviour. Commit `23eb9adb6` then connects the source-bound private-audio
+artifact authority to the real current-ProjectService-revision preview
+materializer. The materializer reads the current asset through the audio-aware
+Mongo owner, identifies the exact qualified audio stream, retrieves the
+asset-bound private manifest/map through a neutral reader port, independently
+verifies the canonical artifact set and recomputes the complete manifest
+object reference before giving the verified sample evidence to the existing V3
+time-transform owner. The picture decoder remains explicitly forbidden from
+supplying or replacing native audio.
+
+The materializer now rejects malformed or duplicate qualification stream
+indices, multi-stream media without an explicit selector, missing artifact
+state, missing reader configuration, noncanonical/tampered artifact bytes,
+manifest-reference divergence and any audio-artifact state change during
+decode. It also rechecks the current project revision, video timing binding and
+audio-artifact state after materialization; a late asset change releases the
+decoded surface before returning no success. Safe-integer timeline additions
+use exact integer arithmetic instead of JavaScript number addition.
+
+The focused preview/audio cluster passes 66/66, including the authenticated
+session/window/client contracts, private-object verification, FFmpeg audio
+extraction, tamper, stream ambiguity and late-state-change cases. Repository
+TypeScript passes with the declared 8 GiB heap and repository-wide quiet ESLint
+passes. No live MongoDB/R2 object, authenticated browser audio playback,
+project mutation, provider or customer media was used.
+
+This result is
+`PROJECT_REVISION_BOUND_AUDIO_EVIDENCE_PREVIEW_MATERIALIZER_VERIFIED_BROWSER_AUDIO_SURFACE_OPEN`.
+It is an exact evidence/transform binding, not playable browser audio. The
+default authenticated runtime still has no configured private-audio reader,
+leased audio-byte route or swap-continuity scheduler, and the proved path is
+the single-selected-stream, completely paired-epoch subset. Queue item 3
+therefore remains open for those browser/runtime owners, partial-epoch and
+edit-list/wrap consumption, analysis and final-render readers, and real
+private-runtime proof. Queue item 4 still owns dedicated production private
+storage, source-change invalidation, orphan lifecycle and live object proof.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Default private-audio preview reader runtime Phase 3F-C7k (2026-08-29):**
+commit `fee57a527` exposes the canonical audio artifact store on the existing
+dedicated private-media R2 runtime, using the same validated non-public storage
+scope and server client as the PTS evidence and transient picture surfaces.
+The current-ProjectService-revision preview materializer now uses that reader
+by default while retaining an explicit injection seam for deterministic tests.
+It no longer stops merely because the production call path forgot to supply a
+reader that already existed.
+
+The focused runtime/materializer/private-audio/route cluster passes 34/34.
+Repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. No separate ad-hoc credentials, generic/public bucket
+fallback, live R2 object, playable browser-audio response, provider or customer
+media was used.
+
+This result is
+`PRIVATE_AUDIO_ARTIFACT_READER_DEFAULT_RUNTIME_WIRED_BROWSER_PLAYBACK_OPEN`.
+Queue item 3 remains open: verified PCM still needs a project/revision/lease-
+scoped browser surface and authenticated byte route, exact playback/swap
+continuity, analysis and final-render consumers, unsupported partial-epoch and
+edit-list/wrap handling, and real private-runtime proof. Queue item 4 still
+owns production private-storage configuration and live lifecycle evidence.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Leased exact-audio preview surface and authenticated route Phase 3F-C7l
+(2026-08-29):** commit `404738e5b` adds the private browser-delivery boundary
+that was missing after the verified PCM reader. One already-selected S32LE PCM
+segment can now be wrapped in a canonical lossless WAV whose data payload is
+byte-for-byte the supplied PCM, written to the dedicated private-media R2
+scope under a 256-bit opaque lease handle, reread and independently verified
+before success. The binding carries user/project hashes, current project
+revision, sequence/overlay hashes, source/storage/map/full-PCM identities,
+integer source coverage, exact rational decoded/timeline phase, sample
+rate/channel count, segment/PCM/WAV hashes and expiry.
+
+The server route authenticates before storage access, conceals cross-user and
+cross-project handles, rechecks the current ProjectService revision and serves
+only the opaque WAV through private/no-store same-origin responses. It supports
+one standards-shaped HTTP byte range, suffix ranges and `If-Range`; malformed,
+multiple or unsatisfied ranges return 416 without content. Missing, expired,
+tampered, stale-revision or provider-failed surfaces never return bytes.
+Expiry performs explicit private-object cleanup.
+
+The isolated surface/runtime/route suites pass 31/31, including canonical WAV
+payload equivalence, fractional sample phase, malformed coverage/duration,
+opaque-handle collision, altered metadata/WAV, expiry/delete, authentication,
+scope concealment, byte ranges and stale revision. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No live R2 object, real browser decode, player scheduling, provider or customer
+media was used.
+
+This result is
+`LEASED_EXACT_PCM_WAV_AUDIO_SURFACE_AND_AUTHENTICATED_ROUTE_VERIFIED_MATERIALIZER_OPEN`.
+The owner and route are not yet called by the preview materializer or player;
+therefore playable audio is not claimed. Queue item 3 remains open for exact
+mapping-to-segment materialization, window contract/release integration,
+browser decode and swap-continuity scheduling, analysis/final-render consumers,
+unsupported partial-epoch/edit-list/wrap handling and real private-runtime
+proof. Queue item 4 still owns production private-storage configuration and
+live lifecycle evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact mapping-to-leased-audio-window materialization Phase 3F-C7m
+(2026-08-29):** commit `f3036ddbe` adds the server owner and browser-safe
+contract that turn one already-verified V3 audio epoch map into a bounded
+preview window. The owner clips PCM and declared-silence epochs against the
+requested project-frame window using exact rational positions, reads only the
+integer floor/ceiling PCM coverage required to represent fractional sample
+phase without rounding timeline time, and publishes each PCM portion through
+the existing private leased-WAV surface. Silence remains an explicit typed
+segment and neither triggers a PCM read nor invents media.
+
+The returned contract binds project/revision/sequence/overlay identity,
+source asset and storage identity, V3 map and full-PCM hashes, sample rate,
+channel count, exact timeline coverage, opaque handles, content hashes and
+lease expiry. It rejects gaps, overlaps, duplicate handles, stale or tampered
+mapping/asset/range evidence, excessive windows or segment counts and
+inconsistent byte coverage. A later write failure deletes every earlier
+handle in reverse order; a failed cleanup is reported as `CLEANUP_FAILED`
+rather than being hidden by the original error.
+
+The focused materializer suite passes 7/7 and the wider private-audio,
+surface, route, timestamp-consumer and preview-window cluster passes 39/39.
+Repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. No live R2 object, customer media, browser decoder,
+playback scheduler, analysis consumer or final-render consumer was used.
+
+This result is
+`EXACT_AUDIO_MAPPING_TO_LEASED_WINDOW_MATERIALIZATION_VERIFIED_SESSION_INTEGRATION_OPEN`.
+The main preview materializer/session/release path does not yet call this owner
+or expose its contract to a browser player, so playable preview audio is still
+not claimed. Queue item 3 remains open for that real integration, decode and
+swap-continuity scheduling, analysis/final-render consumers, unsupported
+partial-epoch/edit-list/wrap handling and real private-runtime proof. Queue
+item 4 still owns production private-storage configuration and live lifecycle
+evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Paired picture/audio preview lease and release Phase 3F-C7n
+(2026-08-29):** Step-0 commit `b866c3d0b` first removes four unused public
+type exports from the existing browser session client without changing its
+control flow. Commit `b3cd71844` then adds a browser-safe session-window
+contract that binds the existing V2 picture window to either its exact V1
+audio window or an explicit no-audio disposition. Exact audio must match the
+same project, sequence, overlay, project revision, project-frame window,
+audio-mapping hash and every lease timestamp. Missing required audio,
+unexpected audio and any mapping/scope/lease mismatch fail validation.
+
+Commit `208a55469` adds an additive V2 release command and server cleanup
+owner. It preflights every PCM audio handle and its private binding before it
+allows the existing picture-release owner to delete anything, then deletes
+the paired audio handles. Missing objects are idempotent; cross-user/project,
+revision, mapping, sample-domain, segment-identity or lease tamper blocks
+before deletion. Partial picture or audio provider cleanup reports
+`RELEASE_INCOMPLETE`, with separate failed counts, and can be retried.
+The V1 picture-only command remains available during the bounded migration.
+
+The paired-contract/release focused suites pass 11/11 and the wider session,
+route and audio-surface cluster passes 40/40. Repository TypeScript passes
+with the declared 8 GiB heap and repository-wide quiet ESLint passes. No
+production route or client calls the V2 paired release yet; the main picture
+materializer also does not yet invoke the exact-audio materializer. No live R2
+object, browser decode or playback scheduling was exercised.
+
+This result is
+`PAIRED_PREVIEW_LEASE_AND_IDEMPOTENT_RELEASE_OWNER_VERIFIED_CALL_PATH_OPEN`.
+Queue item 3 remains open for an explicit paired-A/V materialize command, real
+materializer/route/client adoption, browser decode and exact swap-continuity
+scheduling, analysis/final-render consumers, unsupported partial-epoch,
+edit-list and timestamp-wrap handling, and real private-runtime proof. Queue
+item 4 still owns production private-storage configuration and live lifecycle
+evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Paired materialize command and current-revision owner Phase 3F-C7o
+(2026-08-29):** commit `4d855aef3` defines a strict browser-safe V3 paired
+materialize command with an identity distinct from the retained V2
+picture-only command. Commit `51d4018da` binds that V3 command to the
+authenticated user scope at the server parser and sets the explicit
+`PAIRED_SESSION_V3` delivery contract. Unknown, mixed or extra command fields
+are rejected rather than reinterpreted.
+
+Commit `58ae48c87` activates the paired branch in the existing preview
+materializer instead of creating a second picture owner. It composes the
+already-verified exact-audio-window materializer, derives one shared
+picture/audio lease, uses the dedicated private PCM reader, and rechecks both
+asset identity and current ProjectService revision after audio work. A missing
+audio runtime blocks and deletes the picture surface; a stale project after
+audio deletes both audio and picture surfaces. The retained V2 branch remains
+strictly picture-only and never allocates audio.
+
+The dedicated paired-materializer suite passes 4/4 and the then-current
+focused command/server/materializer/session cluster passed 36/36. Repository
+TypeScript and repository-wide quiet ESLint passed. No browser decode, audible
+playback, live private object or customer media was exercised.
+
+This result is
+`PAIRED_V3_MATERIALIZER_AND_CURRENT_REVISION_CLEANUP_VERIFIED_ROUTE_CLIENT_OPEN`.
+Queue item 3 remained open at this checkpoint for authenticated route/client
+adoption, browser decode and exact swap scheduling, analysis/final-render
+consumers, unsupported partial-epoch/edit-list/wrap handling and real
+private-runtime proof. Queue item 4 still owns production private-storage
+configuration and live lifecycle evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Authenticated paired route and browser lease coordinator Phase 3F-C7p
+(2026-08-29):** commit `d46a6d83e` routes exact V3 paired materialization and
+V2 paired release through the authenticated session endpoint while preserving
+the explicitly identified V2 picture-materialize and V1 picture-release
+protocols. Authentication occurs before parsing or runtime work. Invalid
+commands return 400; unexpected runtime failures return 503
+`UNVERIFIABLE/RUNTIME_UNAVAILABLE` and are not mislabeled as user errors.
+
+Commit `798cf6374` migrates the production browser coordinator to V3 paired
+materialization and V2 paired release. Each retained record now owns one
+validated session window and shared lease. The existing visual selectors read
+a derived picture-window view, while the paired session windows are exposed
+for the next audio scheduling owner. Exact-audio picture ownership requires a
+matching audio window; a valid video-only session retains explicit
+`audioWindow: null`. V3 never silently downgrades to picture-only V2. Scope,
+revision, frame window, response counts, lease arrival/renewal, seek swaps,
+late disposal and paired cleanup remain fail-closed.
+
+The complete timestamp-preview command, server, materializer, session,
+audio-surface and route cluster passes 42/42. Repository TypeScript passes
+with the declared 8 GiB heap and repository-wide quiet ESLint passes. No Web
+Audio decode/scheduling, audible player output, analysis consumer,
+final-render consumer, live R2 object or customer media was exercised.
+
+This result is
+`PAIRED_V3_ROUTE_AND_BROWSER_LEASE_LIFECYCLE_VERIFIED_AUDIO_PLAYBACK_OPEN`.
+This is partial integration, not a unified finished playback pipeline:
+picture playback still uses the existing downstream visual consumer and no
+browser owner has scheduled the leased WAV segments. Queue item 3 therefore
+continues next with exact browser audio decode/scheduling and player binding,
+then analysis and final-render consumers, unsupported partial-epoch,
+edit-list and timestamp-wrap handling, and real private-runtime proof. Queue
+item 4 still owns production private-storage configuration and live lifecycle
+evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Leased PCM browser transport and single audio owner Phase 3F-C7q
+(2026-08-29):** commit `6c089efa5` adds the exact rational Web Audio schedule
+planner/runtime for authenticated canonical S32LE WAV segments. It validates
+status, scope headers, byte length, canonical WAV form and the route's SHA-256
+content ETag before manual PCM conversion; it never asks `decodeAudioData` to
+silently resample the evidence. Commit `afa7b90e9` adds the stateful audio
+session coordinator: current audio is readiness-critical, future audio may be
+prefetched, project/revision scope changes discard decoded cache authority,
+lease renewal retains already verified identical content within that scope,
+and pause/seek/rate/retry/dispose all stop or re-anchor deterministically.
+
+Commit `5a3ad6f6a` removes the original-media `<Audio>` element from a
+timestamp-managed picture and moves native-video gain/voiceover ducking into
+one shared resolver. Ordinary preview and final/audio-only render keep their
+existing native-media path. Commit `76a635169` binds the real Remotion
+`PlayerRef` events to the leased PCM coordinator. Play, pause, end, seek,
+frame, rate, waiting/resume, error, player volume and mute now drive the exact
+audio transport; any non-ready audio snapshot pauses the real player, and the
+visible gate has a separate bounded audio retry. The paired V3 session is the
+producer, the audio coordinator/bridge is the transport decision owner, Web
+Audio is the preview consumer, and the timestamp image layer is now visual
+only, so there is no duplicate primary audio branch.
+
+The resulting timestamp-preview, video-layer, mix/evidence and player-bridge
+cluster passes 110/110. Repository TypeScript and repository-wide quiet ESLint
+pass. This proves real code-path integration and deterministic simulated
+transport events. It does **not** yet prove physical speaker-clock A/V phase on
+a real browser/device, a live dedicated private-R2 object, multi-hour playback,
+analysis consumption, final-render consumption, or unsupported partial-epoch,
+edit-list and timestamp-wrap cases. No audible-quality or physical-latency
+claim is made from unit tests.
+
+This result is
+`PAIRED_V3_BROWSER_AUDIO_CONTROL_FLOW_VERIFIED_PHYSICAL_AND_DOWNSTREAM_PROOF_OPEN`.
+Queue item 3 remains open for live browser/device timing and failure proof,
+analysis and final-render consumers, and unsupported partial-epoch/edit-list/
+timestamp-wrap handling. Queue item 4 still owns production private-storage
+configuration and live object lifecycle evidence. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact timestamp analysis consumer Phase 3F-C7r (2026-08-29):** commit
+`b6bd736de` adds a read-only analysis consumer for an already-issued V3 native-
+media timestamp consumption receipt. The existing receipt remains the source
+of exact project-frame, source-ordinal, epoch and presentation-timestamp
+coordinates; the new owner does not reconstruct those coordinates from FPS or
+sample-video seconds. Before analysis it binds the current ProjectService
+revision, private picture-surface scope, project/source/storage/decoder
+identities, decoded- and PNG-content hashes, geometry and declared byte/frame
+limits. It rechecks the project revision after semantic analysis and always
+attempts release of the decoded batch. It performs no project mutation.
+
+The versioned engine request removes PNG bytes from its identity hash while
+binding every exact frame coordinate and content hash. Engine point/range
+observations are projected back through that immutable frame map; summary,
+theme, gesture and text claims that the legacy analyzer does not localize are
+explicitly `GLOBAL / NO_RANGE_COORDINATE` and cannot masquerade as mutation-
+authorizing range evidence. A real isolated adapter writes the verified PNG
+sequence to an owned temporary directory, encodes a 1 fps 640-square H.264
+sample with FFmpeg and lazily delegates semantic interpretation to the existing
+legacy video-analysis owner. The adapter removes the temporary directory and
+does not require provider/database infrastructure merely to be imported or
+tested.
+
+The focused suite passes 9/9, including stale revision, expired/wrong-scope
+surface, malformed engine output, cleanup failure, forged reuse of one cached
+handle under conflicting decoded identities and an absent cleanup capability.
+The surrounding timestamp/PTS cluster passes 245/245 across 45 files;
+repository TypeScript and quiet ESLint pass. No provider call, customer media,
+live private-R2 object, production deep-analysis caller, final-render consumer
+or project mutation was exercised.
+
+This result is
+`EXACT_V3_ANALYSIS_CONSUMER_AND_FFMPEG_ADAPTER_VERIFIED_LIVE_CALLER_OPEN`.
+It is partial downstream integration, not completion of Queue item 3. Next wire
+the existing deep-analysis job through a bounded timestamp-analysis
+materializer without duplicating its semantic owner, then implement/prove the
+final-render consumer and the unsupported partial-epoch/edit-list/timestamp-
+wrap cases. Physical browser/device A/V timing and Queue item 4's live private-
+storage evidence also remain open. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable exact timestamp analysis caller Phase 3F-C7s (2026-08-29):** commit
+`4529b4df0` first makes the existing runtime wrapper acquire the dedicated
+private PTS/audio/surface runtime only when an exact-media port is actually
+used. The current ProjectService snapshot and media-asset owner therefore can
+classify an ordinary asset as explicit
+`NOT_APPLICABLE / ASSET_NOT_TIMESTAMP_MANAGED` even when private R2 is not
+configured. Timing-managed media still reaches the same private runtime and
+fails closed; the change does not introduce a legacy downgrade.
+
+Commit `3ef516b95` then routes the durable chat video-analysis worker through
+that classification/materialization boundary. Before any provider work it
+reloads the exact current overlay through ProjectService, verifies project,
+rate, overlay, asset, edited-timeline range and source-range identity, and asks
+the timestamp materializer for `ANALYSIS_RECEIPT_V1` against the paired
+`ProjectRevisionV1`. An exact V3 result retains its sample plan, mapped analysis
+receipt, PTS-map state, conform transform and materialization hashes under
+`EXACT_V3_TIMESTAMP_BOUND`. That evidence is deliberately marked
+`REQUIRES_MUTATION_OWNER_PREREQUISITE_VALIDATION`; a coordinate receipt never
+authorizes a write by itself. Only a valid revision/scope-bound ordinary-media
+classification lease permits the historical 1 fps sampled path, whose result
+is now explicitly `LEGACY_RATE_SAMPLED_NOT_MUTATION_AUTHORITY`. An exact
+materialization failure never falls through to legacy sampling.
+
+The durable runner also reloads the canonical project after provider execution.
+If its revision changed during the asynchronous call, the provider output is
+discarded and the job becomes
+`stale / project-revision-changed-during-provider-run` instead of completed.
+The focused durable-job suite passes 15/15, including rate, asset, timeline and
+source-coordinate drift, forged materialization hash, exact-runtime failure
+without downgrade and mid-provider revision drift. The wider chat/timestamp
+regression set passes 44/44; the preceding private-runtime classification
+checkpoint passes the complete timestamp/PTS cluster at 258/258 across 47
+files. Repository TypeScript and quiet ESLint pass. No live provider call,
+customer media, live private-R2 object or project mutation was used.
+
+This result is
+`DURABLE_CHAT_ANALYSIS_BOUND_TO_EXACT_V3_RECEIPT_FINAL_RENDER_OPEN`. It closes
+the previously recorded live chat-caller gap but is still partial downstream
+integration, not Queue item 3 completion. The production final-render consumer,
+unsupported partial-epoch/edit-list/timestamp-wrap cases, and live private-
+runtime/browser-device proof remain open. Queue item 4 still owns production V3
+scanning/finalization, immutable private writes, migration and qualified proxy/
+master relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Production final-render timing admission Phase 3F-C7t/C7u
+(2026-08-29):** commit `60885bdff` moves timestamp-generation detection out
+of the preview-specific owner into one neutral classifier and adds a bounded,
+read-only final-render admission owner. Every asset-backed video overlay is
+normalized and source-scoped; the media asset is read twice under the caller's
+user identity; and the ordinary-path receipt binds the ProjectService revision,
+overlay timing fingerprint and media timing/source-state fingerprint. Missing
+assets, asset-less video, duplicate overlay identities, changed assets, V1/V2
+state, contradictory generations and invalid V3 evidence are explicit
+`UNVERIFIABLE` outcomes. A verified V3 asset is separately classified as
+`EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED`; it is never relabelled ordinary and
+never handed to frame-number trimming.
+
+Commit `44c142ae2` wires that owner into the real authenticated cloud-render
+route against the revision derived from the loaded ProjectService snapshot.
+The gate runs before render URL hydration, credit checking, job reservation,
+credit deduction, standard Lambda dispatch and chapter dispatch. A non-passing
+decision returns structured `NATIVE_MEDIA_FINAL_RENDER_NOT_READY` with a
+redacted reason/scope and no render admission. Ordinary registered media keeps
+the existing renderer path.
+
+The focused route/admission suites pass 36/36; the wider render cluster passes
+99/99; and the complete current timestamp/PTS cluster passes 282/282 across 49
+files. Repository TypeScript and repository-wide quiet ESLint pass. No provider
+render, customer media, private-R2 object, credit mutation or project mutation
+was used.
+
+This result is
+`FINAL_RENDER_EXACT_MEDIA_FAIL_CLOSED_PRE_SPEND_EXACT_SOURCE_CONSUMER_OPEN`.
+It is a production safety boundary, not the final-render consumer: Editron now
+prevents an approximate or unproved export, but it still cannot render a valid
+V3 source. Queue item 3 continues with an immutable, revision/source-bound
+exact render artifact and real Remotion consumption, followed by unsupported
+partial-epoch/edit-list/timestamp-wrap handling and non-human private-runtime
+proof. Queue item 4 still owns the dedicated production storage, V3 lifecycle,
+migration and qualified proxy/master relink/invalidation needed to make that
+artifact durable. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact final-render source contract and producer core Phase 3F-C7v/C7w/C7x
+(2026-08-29):** commit `e58f7b43d` defines the immutable
+`EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1` artifact, expiring HTTPS source lease
+and render-time overlay rewrite contract. The artifact binds project/sequence
+revision, overlay timing, asset/source/storage/V3-map identities, exact conform
+transform, project rate, decoded frame-sequence proof, Remotion compatibility
+proof and—when native audio is requested—decoded-PCM equivalence. Signed source
+URLs remain ephemeral and are represented in receipts only by their hash.
+
+Commit `5a23b4fe1` makes final-render admission issue one exact-source request per
+verified V3 overlay after its second asset-state read. The authenticated render
+route still stops before asset hydration, credit work or dispatch with
+`NATIVE_MEDIA_FINAL_RENDER_NOT_READY`; this is intentional until a production
+materializer is composed. A valid V3 source is therefore no longer mislabelled
+invalid, but it is not yet renderable through the live route.
+
+Commit `dfd4bcb2c` adds the bounded producer core and shared exact-audio evidence
+selector. Against a current ProjectService snapshot it re-resolves the overlay,
+asset, V3 binding and single selected audio stream; rebuilds the existing exact
+timestamp conform from private epoch artifacts; delegates encoding and
+publication through explicit ports; validates the returned frame count,
+decoded-frame/PCM evidence, artifact size and lease; then rereads asset state
+and project revision before returning the lease. Retimed overlays, ambiguous
+legacy-decimal project rates, multiple/unknown audio selection, stale scope and
+requests above the declared 10,000-frame bound fail closed. The focused
+admission/source/materializer/route set passes 54/54; repository TypeScript and
+repository-wide quiet ESLint pass. No customer media, live private object,
+credit mutation, provider render or project mutation was used.
+
+This result is
+`EXACT_FINAL_RENDER_CONTRACT_AND_PRODUCER_CORE_VERIFIED_LIVE_COMPOSITION_OPEN`.
+It is shared downstream plumbing, not a merged or live final-render path: no
+concrete FFmpeg encoder profile, private artifact publisher/runtime factory,
+real Remotion decode/render compatibility receipt, route composition or live
+private-storage/browser-device A/V proof exists yet. Queue item 3 remains open
+for those owners plus partial-epoch/edit-list/timestamp-wrap support. Queue item
+4 still owns durable production storage/V3 lifecycle, migration and qualified
+proxy/master relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Verified source bytes and Remotion compatibility Phase 3F-C7y/C7z
+(2026-08-29):** commit `02b3e3a1e` centralizes immutable remote-media
+materialization for the exact preview decoder and audio scanner. The shared
+owner performs bounded streaming download, exact byte-length and SHA-256
+verification, and create-only local publication; both consumers retain their
+own stream-specific proof instead of treating successful download as decoded
+media proof. The focused helper plus real FFmpeg preview/audio suites pass
+12/12, and repository TypeScript and repository-wide quiet ESLint pass.
+
+Commit `9ae5d2654` then tests candidate mezzanine profiles through the installed
+Remotion 4.0.509 compositor rather than inferring compatibility from FFmpeg
+support. Its stripped compositor rejects Matroska/FFV1 with `Decoder not
+found`, so FFV1 is disqualified for this consumer and no fallback is silently
+selected. A full FFmpeg 8.1 encode using lossless RGB H.264 (`libx264rgb`, CRF
+0, intra-only, decoded `gbrp`) plus 48 kHz stereo PCM-S32LE in Matroska passes:
+four deterministic decoded RGB frames and 6,400 stereo PCM sample frames match
+their inputs byte-for-byte, Remotion consumes the artifact into a four-frame
+H.264/AAC output with audio present and no browser error, and a canonical
+receipt binds both decoded hashes, counts, platform, FFmpeg identity, Remotion
+version and compositor-package version. Receipt field/hash tampering fails
+closed. The real render, TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`WINDOWS_REMOTION_EXACT_SOURCE_PROFILE_CERTIFIED_LIVE_ENCODER_OPEN`. It is a
+platform/toolchain-specific compatibility qualification, not a live route or
+universal codec claim. The production FFmpeg encoder, durable private artifact
+publisher/runtime factory, authenticated route composition, Linux/Lambda
+qualification, partial-epoch/edit-list/timestamp-wrap handling and long-form
+browser/device A/V proof remain open. Queue item 3 therefore continues, and
+this checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Concrete exact-source encoder Phase 3F-C7aa (2026-08-29):** commit
+`cabb6d540` implements the materializer's concrete FFmpeg encoder port for the
+qualified Windows profile. It revalidates immutable source identity around a
+bounded download, decodes the exact selected source-frame ordinals, represents
+timeline repeats explicitly, assembles selected native PCM ranges plus declared
+silence, and encodes lossless RGB H.264 (`libx264rgb`, CRF 0, intra-only) with
+optional 48 kHz stereo PCM-S32LE in Matroska. It then independently decodes the
+artifact and requires exact timeline RGB hashes/frame counts and, when audio is
+present, exact PCM hashes/sample-frame counts before a content-addressed stager
+may accept it. The PCM-equivalence receipt binds the source mapping, every PCM
+and silence range, source and artifact hashes, count, format and transform.
+
+The concrete profile is deliberately narrow: project rate 30/1, SDR 8-bit
+allowlisted source pixels, 48 kHz stereo S32LE native audio with integer sample
+boundaries, no retime, at most 10,000 project frames, and the exact certified
+Windows FFmpeg/Remotion/compositor identities. Unsupported rates, HDR/alpha or
+high-bit-depth input, variable geometry, decreasing frame order, fractional
+audio boundaries, stale source versions and altered receipts block instead of
+being approximated or silently transcoded by another policy. Real-media tests
+prove exact repeated-frame materialization, explicit silence, native PCM
+equivalence and source-version race rejection; the expanded materializer,
+source-preparation, Remotion-profile and encoder set passes 19/19, and repository
+TypeScript plus repository-wide quiet ESLint pass.
+
+This result is
+`WINDOWS_EXACT_FINAL_RENDER_ENCODER_VERIFIED_PRIVATE_PUBLISHER_OPEN`. It is not
+a live export path: the stager remains a port, no durable private artifact was
+published, the authenticated route is not composed, Linux/Lambda is not
+qualified, and partial epochs/edit lists/timestamp wrap plus long-form
+browser/device A/V remain unsupported. Queue item 3 proceeds to the private
+artifact publisher/runtime factory and live composition; Queue item 4 still
+owns durable private storage/lifecycle, V3 migration and qualified proxy/master
+relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Private exact-render artifact adapter Phase 3F-C7ab (2026-08-29):** commit
+`154dfd74f` composes the encoder's stager and materializer's publisher over the
+existing dedicated private-media R2 scope rather than the generic/public R2
+owner. The stager streams a local Matroska artifact to a content-addressed,
+conditional-create key, binds its content hash, byte length, transform and
+qualified profile in private metadata, and rereads/hashes the complete stored
+body before returning opaque artifact/publish handles. An existing key is
+idempotently reused only when the remote bytes and metadata match exactly.
+
+The publisher independently reconstructs the artifact binding and rereads the
+stored body before signing. It accepts only the configured Cloudflare R2 API
+origin, the exact bucket/key, SigV4 `GetObject` fields and a lease between the
+caller-required minimum and the seven-day provider ceiling. Generic credentials,
+the public CDN bucket, unsigned URLs, wrong origins, wrong hashes/lengths/
+metadata, stale handle bindings and excessive expiry all fail closed. The sole
+private-media R2 runtime now exposes these two ports beside its PTS, audio and
+preview adapters. The expanded private-R2/final-render set passes 36/36, and
+repository TypeScript plus repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_EXACT_RENDER_ARTIFACT_ADAPTER_VERIFIED_LIVE_R2_AND_ROUTE_OPEN`. It is
+source-level and in-memory-adapter proof, not a deployed-object claim: no live
+private bucket write/read/delete, bucket-route isolation canary, lifecycle/GC,
+multipart/resume, cancellation, runtime materializer composition or
+authenticated render-route invocation occurred. The current adapter therefore
+blocks artifacts above Cloudflare's 4.995-GiB single-upload ceiling; its one-hour
+default lease and provider-bounded seven-day maximum are infrastructure policy,
+not content-duration or render-SLO certification. Queue item 3 next composes the
+current ProjectService/asset readers, exact encoder, private publisher and route;
+Queue item 4 retains live private-bucket/lifecycle proof, scalable large-object
+policy, V3 migration and proxy/master relink/invalidation. This checkpoint does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Linux exact-source compositor qualification Phase 3F-C7ac
+(2026-08-30):** the same committed Remotion-profile test was executed without
+modification in an isolated, disposable Linux-x64 container while the Editron
+worktree was mounted read-only. The container used Node 22 on Debian Trixie,
+system FFmpeg 7.1.5, Remotion and the Linux GNU compositor package at the
+repository-pinned 4.0.509 version, and Remotion's installed Chrome Headless
+Shell. The deterministic four-frame lossless RGB H.264 plus 6,400-sample-frame
+stereo PCM-S32LE Matroska source decoded byte-for-byte before rendering;
+Remotion consumed all four frames, emitted H.264/AAC with audio present and
+reported no browser error. The test passed 1/1 in 8.27 seconds. The explicitly
+named disposable npm-cache volume was verified and removed afterward; the
+repository remained unchanged by the qualification run.
+
+This result is
+`LINUX_X64_REMOTION_EXACT_SOURCE_PROFILE_CERTIFIED_DEPLOYMENT_IMAGE_AND_ROUTE_OPEN`.
+It closes the earlier generic Linux/compositor feasibility gap, not production
+deployment certification. The proof did not execute inside the deployed
+materialization worker or Remotion Lambda image, did not bind a worker-image
+digest or Chrome binary identity into a production qualification record, and
+did not publish or consume a live private object. Linux ARM, macOS, Alpine,
+other codec/rate/colour profiles and long-form resource behavior remain
+unqualified. The live render route must not encode a bounded programme inside
+the request: Queue item 3 next needs a durable, revision-bound preparation job
+that runs the existing materializer in an exactly qualified compute image,
+persists/reuses its immutable private lease result, and only then submits the
+existing Remotion render. Queue item 4 retains live private-storage lifecycle,
+scalable multipart/resume, V3 ingest/migration and proxy/master invalidation.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before the required structural render-route work, commit `c898d8a0b` performs
+the mandated Step 0 cleanup on the 500-plus-line authenticated render route. It
+removes seven groups of informational `console.log` output while retaining
+warnings/errors and every admission, billing, durable-job, provider and
+finalization branch. The focused render-startup and credit suites pass 53/53;
+repository TypeScript with the declared 8 GiB heap and repository-wide quiet
+ESLint pass. This is deliberately behavior-neutral cleanup, not source
+preparation or route composition, and does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable exact-render preparation identity Phase 3F-C7ad (2026-08-30):**
+commit `86bf6521b` defines the URL-free input and deterministic operation identity
+for an exact-source preparation job on the existing generic durable-workflow
+store. The binding includes tenant/user/project/sequence scope, the current
+ProjectService revision, admission receipt, one canonical exact-source request,
+materializer/encoder/private-artifact policy versions and hashes, the qualified
+runtime receipt and an immutable `sha256:` worker-image digest. Object-key order
+cannot change the identity; a material revision or source change does. Forged or
+extra fields, request-hash drift, aggregate/array request input, policy/profile
+drift and malformed image identity fail closed. Persisted input contains no
+source or artifact lease URL.
+
+Commit `76f0eca74` corrects the initial aggregate shape before any runtime caller
+or persisted job exists. One durable job now prepares exactly one admitted
+overlay/source artifact while still binding the whole admission receipt and
+project revision. This lets large timelines fan out into independently
+cacheable, retriable results and guarantees that one completed artifact state
+cannot exceed the shared store merely because the project has many exact-source
+overlays. An arbitrary chunk-size policy and a new private manifest lifecycle
+were rejected at this boundary; aggregation belongs to the later route
+coordinator. The contract version is now
+`EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1`.
+
+The focused contract passes 4/4; the surrounding admission, source-preparation,
+materializer, encoder, private-artifact and render-route startup cluster passes
+63/63; repository TypeScript and repository-wide quiet ESLint pass. This result
+is `DURABLE_EXACT_RENDER_PREPARATION_IDENTITY_BOUND_WORKER_AND_ROUTE_OPEN`. It
+does not create, lease, dispatch, execute or resume a job; does not store a
+prepared-artifact result; and does not connect the authenticated render route.
+The next bounded phase was the URL-free prepared-artifact resume state and
+terminal receipt, followed by the exactly qualified worker, dispatcher and
+fresh-lease route consumption. Queue item 4 retains live private-storage
+lifecycle, scalable multipart/resume, V3 ingest/migration and proxy/master
+invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable exact-render prepared result Phase 3F-C7ae (2026-08-30):** commit
+`976beca8b` defines the completed state for one source job. It persists the full
+hash-verified artifact plus its content-matched private R2 publish handle, never
+the expiring signed source URL. The result is bound to the exact job input,
+request, project/sequence revision, source/storage/V3-map identities, qualified
+runtime receipt, native-audio disposition and the currently qualified
+Matroska/H.264/gbrp artifact profile. Artifact, result and resume-state hashes
+are independent, and the terminal PASS receipt cites the artifact, result and
+runtime-profile proofs.
+
+Top-level and nested schemas are closed. Stale input bindings, foreign source
+or revision, profile/audio drift, URL-like or content-mismatched publish
+handles, unknown nested fields and forged artifact/result hashes fail closed.
+The focused result suite passes 4/4; the expanded exact-render cluster passes
+67/67; repository TypeScript and repository-wide quiet ESLint pass. This result
+is `DURABLE_EXACT_RENDER_RESULT_AND_PASS_RECEIPT_BOUND_WORKER_STORE_ROUTE_OPEN`.
+It does not yet create or claim a durable job, invoke the materializer, save the
+state through Mongo CAS, complete a job, dispatch a worker, mint a fresh route
+lease or render through Remotion. Those are the next Queue item 3 phases. Queue
+item 4's live private-object lifecycle and scalable large-object policy remain
+open. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Shared-store exact-render source job Phase 3F-C7af (2026-08-30):** commit
+`828785eff` binds the one-source preparation identity above to the existing
+Mongo-backed `DurableWorkflowJobStoreV1`. The create-or-get owner is
+`NATIVE_MEDIA_FINAL_RENDER`, its job kind is
+`native_media_final_render_prepare_source`, identical replay resolves to the
+same durable job, and a different admitted source resolves to a separate job.
+The stored input continues to bind the tenant/user/organization/project,
+sequence and ProjectService revision, the exact admission receipt and source
+request, materializer/encoder/storage policies, qualified runtime receipt and
+worker-image digest without persisting a source or artifact lease URL.
+
+The focused create-or-get suite passes 5/5, including a real shared
+`StatefulMongoCollection` replay and per-source fan-out; the expanded
+exact-render/store cluster passes 74/74; repository TypeScript and
+repository-wide quiet ESLint pass. The current five-attempt ceiling and
+seven-day job retention are provisional infrastructure policy, not a render
+SLO or media-duration limit. `budgetReservation: null` means the job cannot be
+treated as authorization for live encoding, private storage, egress or spend.
+
+This result is
+`DURABLE_EXACT_RENDER_SOURCE_JOB_PERSISTENCE_VERIFIED_DISPATCH_WORKER_AND_BUDGET_OPEN`.
+It does not dispatch, claim, heartbeat, materialize, publish, save a resume
+state, complete the job, mint a fresh render lease or connect the authenticated
+render route. Those remain the next Queue item 3 phases, together with exact
+execution-budget reservation/settlement and live Atlas/QStash/private-R2
+evidence. Queue item 4 retains scalable object lifecycle, V3 ingest/migration
+and proxy/master invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before versioning the 340-line preparation-job contract for an executable
+budget binding, commit `b1e19c528` performs the mandated Step 0 cleanup. It
+makes the internally consumed seven-day TTL constant and binding-error class
+private after a repository-wide reference search found no external consumers.
+No value, identity, stored record, error message or control flow changes. The
+focused contract remains 5/5; repository TypeScript and repository-wide quiet
+ESLint pass. This is behavior-neutral API-surface cleanup only and does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render execution-budget identity Phase 3F-C7ag (2026-08-30):** commit
+`f7abef209` replaces the preparation job's null budget field with a mandatory
+opaque `{ reservationId, bindingSha256 }` issued by a future accounting owner.
+Input identity V1.2 binds that pair into the closed payload, dependency set,
+operation/idempotency identity and generic durable-store record. A changed
+reservation creates a different job; null, malformed, extra-field, bad-hash and
+superseded V1.1 inputs fail before worker execution. This prevents the durable
+job contract itself from silently treating encoding, private storage or egress
+as free work.
+
+The focused job/result set passes 9/9; the nine-file exact-render/store cluster
+passes 51/51; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`DURABLE_EXACT_RENDER_BUDGET_IDENTITY_BOUND_ISSUANCE_SETTLEMENT_AND_WORKER_OPEN`.
+It does not issue or validate a live reservation, define resource units or
+prices, reserve/deduct/refund credits, settle retries, dispatch a worker or run
+the materializer. The worker must require a current owner-issued authorization
+receipt, and the route/terminal coordinator must settle or release it exactly
+once. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable exact-render preparation worker Phase 3F-C7ah (2026-08-30):**
+commit `f1391d8e1` composes the existing generic durable-workflow lifecycle with
+the exact-render preparation job/result contracts. The transport-neutral worker
+claims and heartbeats one revision-bound job, rederives and verifies its closed
+V1.2 identity, rejects runtime-policy or worker-image drift before resource
+access, requires a current owner-issued budget authorization receipt, invokes
+the declared materializer adapter only when no valid URL-free resume result
+exists, saves that result through the store's sequence CAS and completes with a
+V1.1 terminal receipt whose proof set includes the execution-budget
+authorization. Terminal redelivery does not rematerialize; it asks the injected
+accounting owner to idempotently reconcile the already committed terminal
+snapshot.
+
+The worker preserves distinct `CANCELLED`, owner-proved `UNVERIFIABLE`, bounded
+`retry_wait` and `dead_letter` outcomes. The focused result/worker suites pass
+11/11 and the ten-file exact-render/store cluster passes 58/58; repository
+TypeScript and repository-wide quiet ESLint pass. Tests cover successful
+completion and terminal redelivery, a completion transport loss resumed without
+duplicate preparation, a canonically rehashed forged resume rejection, budget
+denial before materialization, worker-image drift, cooperative cancellation and
+an owner-proved materialization gap.
+
+This result is
+`DURABLE_EXACT_RENDER_WORKER_LIFECYCLE_VERIFIED_LIVE_ADAPTER_DISPATCH_AND_ACCOUNTING_OPEN`.
+It is not a live render path: no production preparation adapter, budget
+reservation/authorization/settlement owner, calibrated retry policy,
+authenticated dispatcher/route composition, Atlas/QStash execution, live
+private-R2 object or fresh render lease was used. V1.2 also does not yet bind
+the budget-owner or retry-policy owner/version/digest into durable job identity;
+syntactic owner fields at worker invocation are not policy provenance. Those
+contracts and live proofs remain Queue item 3 work. Queue item 4 retains scalable
+private-object lifecycle, V3 ingest/migration and proxy/master invalidation.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before splitting artifact preparation from expiring render-lease publication,
+commit `3dc25c029` performs the mandated Step 0 cleanup on the 521-line
+exact-source materializer and 952-line FFmpeg encoder. It makes five
+implementation-only policy/port type or default-policy declarations private
+after repository-wide direct, type, test/mock, string, dynamic-import and barrel
+searches found no external consumer. No value, failure code, owner, encoding,
+storage, audio, timing or lease behavior changes. The focused materializer,
+encoder and private-artifact suites pass 15/15; repository TypeScript and
+repository-wide quiet ESLint pass. This is behavior-neutral API-surface cleanup
+only and does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render cancellation propagation Phase 3F-C7ai (2026-08-30):** commit
+`3b1553df9` adds a caller-owned abort signal to the exact-source encoder port and
+threads it through the shared hash-verifying source download, Node stream
+pipeline, exact frame expansion, PCM/silence writes, large-file hashing and all
+long FFmpeg/FFprobe subprocesses. A cancelled subprocess is killed and reaped,
+its listener and timeout are cleared, and the owner returns the stable
+`NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED` diagnostic instead of continuing
+or reporting success. The same signal is forwarded into the artifact-staging
+port without changing any selected frame, audio sample, codec or artifact byte.
+
+The focused downloader/materializer/encoder/private-artifact set passes 20/20;
+repository TypeScript and repository-wide quiet ESLint pass. Tests prove
+mid-download cancellation through the composed timeout/caller signal and
+pre-execution encoder cancellation before source or staging access. This result
+is `EXACT_RENDER_CANCEL_SIGNAL_PROPAGATED_R2_AND_DURABLE_HEARTBEAT_OPEN`. The
+current R2 stager does not yet consume the forwarded signal, the durable worker
+adapter and policy-owned heartbeat pump do not exist, and no measured long
+FFmpeg cancellation/recovery run or live storage cleanup was performed. Those
+remain Queue item 3 work; this checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before changing the 536-line private exact-render R2 adapter, commit
+`10569ebb2` performs its mandated Step 0 cleanup. It makes the internally used
+default-policy constant and aggregate return type private after repository-wide
+reference searches found no external consumer; the public policy type,
+presigner type, policy-version identity and factory remain unchanged. No R2
+command, key, metadata, lease, value or failure behavior changes. The adapter
+and runtime-factory suites pass 17/17; repository TypeScript and repository-wide
+quiet ESLint pass. This is behavior-neutral API cleanup only and does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Private exact-render staging cancellation Phase 3F-C7aj (2026-08-30):**
+commit `3634f2133` makes the existing content-addressed R2 stager consume the
+abort signal already issued by the exact-source encoder. Cancellation is
+checked before local access, around local hashing, before and during the
+conditional private upload, before the exact GET reread and during stored-byte
+digest verification. The live AWS command shape receives the same signal, the
+upload body stream is closed on abort and after command completion, and an
+aborted write cannot be mistaken for the idempotent precondition path. Every
+observed abort fails with
+`NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED`; it cannot continue to stored
+verification or return a publish handle.
+
+The focused private-artifact/runtime/encoder/materializer cluster passes 31/31;
+repository TypeScript and repository-wide quiet ESLint pass. Tests cover a
+pre-cancelled request with zero storage commands, an in-flight conditional PUT
+abort with no GET, and cancellation while digesting the reread object body.
+This result is
+`EXACT_RENDER_LOCAL_ENCODER_AND_PRIVATE_STAGER_CANCELLATION_VERIFIED_DURABLE_HEARTBEAT_OPEN`.
+It is transport-level cooperative cancellation proof, not live R2 cleanup,
+multipart/resumable upload, resource-release telemetry or long-running render
+recovery evidence. The durable materializer adapter still needs to own an abort
+controller and calibrated heartbeat pump; source-lease and every PCM/storage
+dependency are not yet proven abortable. Those remain Queue item 3 work. This
+checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**URL-free exact-render artifact preparation Phase 3F-C7ak (2026-08-30):**
+commit `b94656858` splits lifecycle without creating another timing, audio or
+creative-form owner. One shared internal materialization core still reloads
+the current ProjectService snapshot, verifies the exact V3 source/overlay/audio
+bindings, creates the timestamp conform, calls the existing encoder and builds
+the same immutable artifact. A new artifact-preparer entry point returns only
+that hash-bound artifact plus its opaque publish handle and rechecks the asset
+and project revision; it neither invokes the publisher nor creates/persists a
+source URL. The existing synchronous source-materializer entry point uses that
+same core, publishes a short-lived lease and retains its post-publication
+freshness check. The caller signal is forwarded to the encoder/stager chain.
+
+The focused materializer/encoder/private-artifact/source-preparation/result/
+worker cluster passes 40/40; repository TypeScript and repository-wide quiet
+ESLint pass. Tests prove URL-free preparation, zero publisher calls, identical
+artifact scope, abort propagation, rejection before project access for a
+pre-cancelled request, and preservation of the synchronous publication path.
+This result is
+`EXACT_RENDER_ARTIFACT_PREPARATION_AND_FRESH_LEASE_LIFECYCLES_SEPARATED_ADAPTER_OPEN`.
+It does not compose the durable worker's preparation-owner adapter, own a
+heartbeat/abort pump, dispatch through QStash, issue or settle a live budget,
+publish a fresh lease from a completed durable result, or connect the render
+route. Those remain the next Queue item 3 phases. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Lease-heartbeating durable preparation adapter Phase 3F-C7al
+(2026-08-30):** commit `4a4e87e1f` implements the transport-neutral adapter
+between the existing durable worker contract and the URL-free artifact
+preparer. It revalidates the claimed job/input binding before project or media
+access, passes the exact job scope to the sole preparer, validates any prepared
+artifact through the existing closed preparation-result contract and hashes an
+owner-declared `UNVERIFIABLE` result into a deterministic proof. While work is
+running, one sequential pump renews the durable lease; heartbeats never
+overlap. Cancellation or lease loss aborts the same signal consumed by source
+download, FFmpeg/FFprobe, local hashing and private R2 staging. A heartbeat
+failure outranks a late prepared result, so the worker cannot persist success
+after losing authority.
+
+The focused adapter/worker/materializer/result/encoder/private-artifact cluster
+passes 37/37; repository TypeScript and repository-wide quiet ESLint pass.
+Tests cover URL-free result validation, repeated non-overlapping heartbeats,
+abort plus rejection on lease loss, deterministic gap proof, and forged/unsafe
+heartbeat policy rejection. The explicit heartbeat policy is content-hashed
+and bound to the current 300,000-ms durable lease, but its maximum interval of
+one-third of that lease is a conservative provisional infrastructure rule, not
+measured production calibration.
+
+This result is
+`DURABLE_EXACT_RENDER_PREPARATION_ADAPTER_HEARTBEAT_AND_ABORT_VERIFIED_COMPOSITION_OPEN`.
+The policy digest is not yet part of durable job V1.2 identity, no production
+composition root instantiates this adapter, and no live Atlas/QStash/FFmpeg/R2
+run proves lease renewal, cancellation latency or cleanup. Budget/retry policy
+provenance, dispatcher, fresh completed-result publication and render-route
+consumption also remain open Queue item 3 work. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Completed-result fresh-source publication Phase 3F-C7am
+(2026-08-30):** commit `6141909c6` adds the missing lifecycle owner between a
+completed URL-free preparation job and the existing private-artifact
+publisher. It loads the job through the authorized durable store boundary,
+reconstructs the exact V1.2 operation/dependency/input identity, validates the
+hash-bound resume result and recreates the terminal `PASS` receipt before any
+ProjectService access. It then revalidates the current ProjectService revision,
+overlay timing/audio disposition, V3 source identity and current matching PCM
+artifact. Publication requires a canonical rights receipt bound to the exact
+tenant, user/org, project revision, overlay, asset, source version, artifact
+and current-scope hash. After the private publisher signs a lease, the owner
+repeats current-scope and rights authorization; a changed source, PCM, project
+or rights receipt withholds the lease. The returned publication receipt binds
+the job, preparation terminal, result, artifact, rights decision and lease but
+contains no source URL. A lease that misses the caller's expiry floor or
+outlives the durable job is rejected.
+
+The focused prepared-source publisher plus preparation/result/job/worker/
+adapter/materializer/R2/source-preparation cluster passes 54/54; repository
+TypeScript and repository-wide quiet ESLint pass. Adversarial proof includes a
+rehashed forged resume result, forged terminal receipt, wrong-project but
+correctly rehashed rights receipt, job-envelope/payload org mismatch, stale
+project/overlay/source/PCM, mid-publication source or rights drift and invalid
+lease bounds. This result is
+`COMPLETED_EXACT_RENDER_ARTIFACT_FRESH_LEASE_PUBLICATION_CONTRACT_VERIFIED_RIGHTS_AND_COMPOSITION_OPEN`.
+
+At this checkpoint it did not supply the real project-media rights authority
+required by the new port. Current upload intake records broad user consent
+through the native-audio rights shape, and the render rights authority verifies
+audio claims; that was not an explicit general visual-source clearance
+receipt. The subsequent source-media-rights phase below supplies the bounded
+authority contract without retroactively promoting that legacy evidence.
+
+**Exact source-media rights authority Phase 3F-C7an (2026-08-30):** commit
+`31fedabbc` adds one canonical source-media rights owner and the adapter required
+by completed-result publication. Issuance now requires an injected principal-
+authorization owner and creates an immutable record bound to the exact tenant,
+attesting actor, user/org scope, project, permitted edit-and-render use,
+versioned/hash-bound terms and immutable source byte/storage/version identity.
+`OWNED_BY_USER`, `OWNED_BY_ORG` and `LICENSED_FOR_PROJECT` are distinct. A
+project licence requires its own issuer, licence ID, validity range and evidence
+hash. Revocation is a separately principal-authorized immutable receipt, and
+the asset state hash binds the grant plus its explicit null-or-revocation
+state. Partial, forged, wrong-owner and source-replaced state fails closed.
+
+The publication adapter independently recreates the prepared artifact, reads
+the canonical native-video overlay, rechecks project/sequence/revision/source
+scope, requires the current unrevoked rights state and evaluates licence time.
+An exact-PCM artifact additionally invokes the existing render-audio rights
+authority; visual clearance never substitutes for audio clearance. Only then
+does it issue the exact publication-rights receipt required by commit
+`6141909c6`. Legacy `audioRights`, including the existing broad upload
+checkbox, is deliberately not converted into general source clearance.
+
+The focused source-media rights, completed-result publisher and native-audio
+cluster passes 44/44; repository TypeScript and repository-wide quiet ESLint
+pass. The 18 new adversarial cases cover principal denial/malformed evidence,
+invalid ownership, missing licence evidence, invalid licence dates, org-owner
+drift, partial/forged/stale asset state, revocation and pre-issue revocation,
+legacy audio-only consent, collaborator/project-owner scope, tenant/project/org
+drift, expired rights, failed audio authority, forged artifacts and overlay/
+audio mismatch. This result is
+`EXACT_SOURCE_MEDIA_RIGHTS_AND_REVOCATION_AUTHORITY_VERIFIED_PERSISTENCE_AND_COMPOSITION_OPEN`.
+
+This is not route or storage convergence. No production principal/membership
+adapter issues the authorization receipt, no CAS writer persists the three-
+field rights state on `MEDIA_ASSETS`, no legal terms/disposition UI has replaced
+the current checkbox, and no existing asset is migrated or automatically
+eligible. The adapter is not instantiated by a production composition root;
+the authenticated render route, Remotion consumption and live Atlas/R2/QStash/
+FFmpeg proof remain open. Queue item 3 therefore continues with exact rights
+state persistence and explicit re-attestation, durable budget/retry/heartbeat
+policy provenance, then dispatch/publication/render-route composition. This
+checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project-scoped source-rights ledger Phase 3F-C7ao (2026-08-30):** commit
+`6ec1a293a` supersedes the proposed single `MEDIA_ASSETS` rights slot with one
+dedicated authority ledger keyed by exact tenant, nullable organization,
+project, asset and immutable source-version hash. This correction is required
+because the same source version can be used by two projects whose clearances
+must not overwrite one another. The current head is compare-and-set by its
+canonical state hash; every initial issue, re-attestation and revocation also
+writes an immutable transition event in the same snapshot/majority Atlas
+transaction. Initial issue is insert-only, later writes are update-only, and
+reads validate the exact scope, head state, matching event, transition kind,
+chain hashes and timestamps. Re-attestation names both the superseded record
+and previous state; revocation chains to the prior state. A lost race never
+claims success.
+
+The native final-render source-rights adapter now reads this exact ledger scope
+through an injected owner rather than accepting rights fields from the media
+asset. Missing, forged, wrong-scope or revoked evidence blocks; legacy
+`audioRights` still cannot become visual clearance. The focused rights suites
+pass 25/25 and the complete native-final-render/source-identity cluster passes
+110/110; repository TypeScript and repository-wide quiet ESLint pass. Tests
+include the same immutable source used in two independent projects, stale CAS,
+invalid history, wrong-scope current state, lost race, exact re-attestation and
+revocation chains, final-render scope drift, licence expiry and audio-authority
+failure.
+
+This is `PROJECT_SCOPED_SOURCE_RIGHTS_LEDGER_IMPLEMENTED_PRODUCT_COMPOSITION_AND_LIVE_ATLAS_PROOF_OPEN`.
+It is not route or deployment convergence. No production Clerk/org/project
+principal adapter issues the authorization receipt; no authenticated issuance,
+re-attestation or revocation API/UI calls the ledger; no migration makes legacy
+assets eligible; and the final-render factory still has no production caller.
+The Mongo adapter has not been exercised against live Atlas, including
+transaction/redelivery/backup-recovery evidence. Queue item 3 therefore
+continues with the production composition root, policy provenance, dispatcher,
+fresh publication and render-route/Remotion consumption. The legal/product
+owner must still approve versioned terms and any cross-project library policy.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render runtime-policy authority Phase 3F-C7ap (2026-08-30):** commit
+`c76aaacd1` adds one canonical receipt for the execution-budget owner, retry-
+policy owner and exact heartbeat policy. Each budget/retry binding carries an
+owner ID, owner version and policy SHA-256; heartbeat uses the sole named
+Editron heartbeat-policy owner/version plus its content hash. The complete
+receipt has an exact schema, immutable nested state and canonical aggregate
+binding hash. Owner or policy drift changes identity; malformed, extra-field
+and forged receipts fail deterministically. Its focused adversarial suite passes
+3/3; repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`EXACT_RENDER_RUNTIME_POLICY_RECEIPT_VERIFIED_DURABLE_JOB_AND_WORKER_BINDING_OPEN`.
+It does not yet cure V1.2: that job payload/dependency/operation identity still
+omits this receipt, and the worker still validates only syntactic injected
+budget/retry identities while the heartbeat digest remains adapter-local. No
+live budget or retry owner, calibrated policy, dispatch or production
+composition is claimed. The next bounded migration makes the current job
+contract accept and test this receipt without changing live behavior, migrates
+all dependent fixtures, then seals V1.3 and enforces exact owner/digest equality
+inside the worker before Queue item 3 dispatch work. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render runtime-policy job-binding bridge Phase 3F-C7aq
+(2026-08-30):** commit `01b3e7997` makes the existing V1.2 preparation-job
+contract accept the canonical runtime-policy receipt created by `c76aaacd1`.
+When that receipt is present, its complete value is part of the job payload and
+therefore the operation identity, and the job dependency set separately binds
+the execution-budget owner policy, retry owner policy, heartbeat policy and
+aggregate runtime-policy hash. A forged aggregate hash fails canonical receipt
+validation, and owner/policy drift changes the operation identity.
+
+This is an intentional migration bridge, not sealed enforcement. V1.2 still
+accepts the exact legacy six-field policy-binding object so the four existing
+dependent test fixtures can be migrated without a repository-wide flag day;
+no production caller exists, so this compatibility branch cannot authorize
+live work. The full 16-file native-media integration cluster passes 113/113,
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`V1_2_RUNTIME_POLICY_BINDING_MIGRATION_BRIDGE_VERIFIED_V1_3_ENFORCEMENT_OPEN`.
+Next migrate every dependent fixture, then issue V1.3 with a mandatory receipt
+and exact worker-side equality checks for injected budget, retry and heartbeat
+owner/version/policy hashes. Live calibrated owners, redelivery evidence and
+dispatch remain open. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render runtime-policy fixture migration Phase 3F-C7ar
+(2026-08-30):** commit `031ae00e5` migrates every dependent owner-adapter,
+result, worker and prepared-source-publisher fixture to construct and bind the
+canonical runtime-policy receipt. All five test-side preparation-job builders
+now exercise the receipt; only the job-contract suite deliberately constructs
+the legacy six-field form to prove the temporary V1.2 bridge remains bounded.
+The policy/job/downstream suites pass 34/34, the full native-media integration
+cluster passes 113/113, and repository TypeScript and repository-wide quiet
+ESLint pass.
+
+This result is
+`RUNTIME_POLICY_DEPENDENT_FIXTURES_MIGRATED_V1_3_MANDATORY_ENFORCEMENT_OPEN`.
+It changes no production runtime behavior and does not make policy calibration
+or live dispatch true. The next bounded phase removes the legacy omission,
+issues V1.3, and makes the worker compare the exact injected budget, retry and
+heartbeat owner/version/policy hashes to the bound receipt before any budget
+or materialization access. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render runtime-policy enforcement Phase 3F-C7as (2026-08-30):**
+commit `912e4fd0b` seals preparation-job input V1.3. The canonical runtime-
+policy receipt is now mandatory and always participates in payload,
+dependencies, binding and operation identity; a V1.2 payload or omitted receipt
+fails instead of being promoted. The worker compares the injected execution-
+budget owner, retry owner and heartbeat policy owner by exact owner ID, owner
+version and policy SHA-256 before budget authorization, retry-policy access,
+terminal budget settlement or materialization. It also retains the exact
+materializer owner/version check.
+
+Terminal replay and cancellation now validate the same bindings before budget
+settlement. Any failure before owner validation cannot call an unverified retry
+or settlement owner. Ten adversarial ID/version/digest drift variants dead-
+letter before every policy-owner and materializer call. The sealed job/worker
+suites pass 22/22, the full native-media integration cluster passes 123/123,
+and repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_RUNTIME_POLICY_V1_3_ENFORCED_LIVE_OWNERS_AND_DISPATCH_OPEN`.
+
+This is contract and worker convergence only. No Finance-backed budget owner,
+calibrated retry/retention policy, measured heartbeat/lease policy, production
+composition root, live redelivery or hosted dispatch exists yet. Those must be
+supplied and proven before Queue item 3 can reach the authenticated render
+route. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Shared durable QStash dispatch owner Phase 3F-C7at (2026-08-30):** commit
+`7fccc4c22` adds one transport-level owner for durable workflow publication.
+It resolves only fixed internal-worker paths, requires the publisher token and
+both current/next worker-signing keys, accepts only exact HTTPS QStash/public
+origins and re-resolves the current environment at publication so a forged but
+similarly shaped configuration cannot redirect a job. The caller must supply
+an explicit delivery policy; the owner uses the installed SDK's first-class
+`retries`, `retryDelay`, `timeout` and `deduplicationId` fields and never sends
+an `Upstash-Timeout` destination header. It preserves separate results for an
+already-recorded dispatch, a non-queued job, provider rejection, absent/invalid
+provider message identity and a published message whose durable receipt could
+not be recorded.
+
+The focused suite passes 5/5; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`SHARED_DURABLE_QSTASH_DISPATCH_OWNER_VERIFIED_EXISTING_CALLER_MIGRATION_AND_EXACT_RENDER_DISPATCH_OPEN`.
+It is not dispatcher convergence or live delivery: no production caller imports
+the owner, no exact-render message was published and no QStash/Atlas/deployment
+proof ran. The existing cadence and editorial-plan dispatchers still duplicate
+transport logic and pass `Upstash-Timeout` as a destination header rather than
+the installed SDK's first-class timeout field. Migrate those owners without
+changing their public lifecycle/recovery semantics before adding the exact-
+render dispatcher. Provider-side deduplication duration is not a correctness
+boundary; the durable job record, exact operation identity and state-bound
+recovery remain authoritative. Queue item 3 next requires that caller migration,
+one calibrated/versioned delivery-and-retry policy, then the exact-render
+dispatcher and signed worker composition. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before changing the existing 371-line cadence dispatcher, commit `edf4b350d`
+performs the mandated Step 0 cleanup. It makes the module-internal worker-path
+constant, two aggregate return aliases and dispatch error class private after
+direct, type, test/mock, dynamic-import, string and re-export searches found no
+external consumer. Commit `f83cca5c0` applies the same audit to the 330-line
+shared QStash owner and makes its internally consumed aggregate result alias and
+error class private. No publish field, URL, message, lifecycle state, receipt,
+diagnostic or recovery control flow changes. The respective focused suites pass
+8/8 and 5/5; repository TypeScript and repository-wide quiet ESLint pass. These
+are behavior-neutral API-surface cleanup commits only and do not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**State-bound shared recovery dispatch Phase 3F-C7au (2026-08-30):** commit
+`1277fda61` separates fresh `INITIAL_QUEUED` publication from explicit
+`RECOVERY_SELECTED` redelivery in the shared QStash owner. Initial dispatch now
+requires its deduplication identity to equal the exact durable job ID, refuses
+non-queued work and returns an existing valid dispatch receipt without another
+publish. Recovery can republish only an active `queued`, `retry_wait` or
+`running` snapshot selected by the lifecycle owner; its deduplication identity
+is a canonical SHA-256 over that complete selected snapshot and is rederived
+before provider access. A changed snapshot, forged binding, invalid persisted
+message identity, unknown lifecycle state, terminal job or extra intent field
+cannot publish.
+
+The focused suite passes 7/7; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`SHARED_DURABLE_QSTASH_INITIAL_AND_RECOVERY_INTENTS_VERIFIED_CALLER_MIGRATION_OPEN`.
+The binding is not a scan-to-publish database CAS: QStash publication and the
+late dispatch-receipt update remain separate operations. A job may change after
+selection and still receive a harmless message, but the store/worker must
+re-evaluate the current lifecycle state and cannot execute stale authority.
+No existing domain dispatcher calls this owner yet, no live message was sent
+and no exactly-once claim is made. Queue item 3 continues with cadence and
+editorial-plan caller migration, then a versioned calibrated delivery/retry
+policy and the exact-render dispatcher. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Cadence shared-dispatch migration Phase 3F-C7av (2026-08-30):** commit
+`525eda578` removes the cadence dispatcher's duplicate QStash client,
+credential/origin resolver, hard-coded retry/header fields, acknowledgement
+parser, receipt writer and private recovery hash. Cadence remains the domain
+owner for exact source-job creation, PTS operation/schema filtering, stale-scan
+selection and the strict `{jobId}` worker message. Initial and recovery sends
+now call the shared owner; recovery binds the complete selected durable
+snapshot, and a terminal or foreign job is skipped before publication. A
+delivery policy is mandatory caller input, so the removed three-retry and
+300-second values are not preserved as an implicit fallback.
+
+The shared/cadence suites pass 15/15; repository TypeScript and repository-wide
+quiet ESLint pass. Tests prove first-class `retryDelay` and `timeout` fields,
+absence of the `Upstash-Timeout` destination header, initial replay, state-bound
+recovery, signed worker ingress and truthful publish/receipt ambiguity. This
+result is
+`CADENCE_DURABLE_QSTASH_CALLER_MIGRATED_EDITORIAL_AND_EXACT_RENDER_OPEN`.
+It is source-level caller convergence only: no production cadence caller or
+live QStash/Atlas redelivery was exercised, and the injected test policy is not
+calibrated deployment policy. Editorial-plan still owns duplicate legacy
+transport code. Queue item 3 next migrates that caller, then binds one versioned
+calibrated delivery/retry policy before exact-render dispatch. This checkpoint
+does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Editorial-plan shared-dispatch migration Phase 3F-C7aw (2026-08-30):**
+commit `9a2ed81cc` removes the editorial-plan product dispatcher's duplicate
+QStash client, credential/origin resolver, hard-coded retry/header fields,
+acknowledgement parser and receipt writer. The PlanService accepted-node job
+binder remains the producer, `DurableWorkflowJobStoreV1` remains lifecycle and
+dispatch-receipt state, the shared QStash owner now makes the transport decision,
+and the unchanged fixed signed editorial worker remains the final consumer.
+Only its versioned `{ version, jobId }` message is published. Delivery policy
+is mandatory caller input, and a path-bearing public origin now fails instead
+of being silently reduced to its host.
+
+The shared/editorial suites pass 15/15; the broader dispatcher, durable worker,
+signed product worker, product execution-root and opt-in recovery cluster passes
+26 tests with the one live Atlas/QStash test correctly skipped. Repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`CADENCE_AND_EDITORIAL_DURABLE_WORKFLOW_QSTASH_CALLERS_CONVERGED_EXACT_RENDER_POLICY_AND_LIVE_PROOF_OPEN`.
+That statement is deliberately narrow: current source confirms these two
+producers call the shared owner and their signed workers consume the messages.
+It does not mean every Editron QStash path is unified. A same-HEAD inventory
+finds 31 files with direct-client or legacy-header patterns and 13 files still
+containing `Upstash-Timeout` across analysis, chat, media intake, Auto Edit,
+render evidence and finalization. Those families need owner-by-owner
+classification and migration during Queue item 7 certification; they must not
+be folded into this owner without preserving their lifecycle semantics.
+
+No calibrated deployment policy, production dispatch caller, hosted redelivery
+or exact-render message exists yet. Queue item 3 next creates the versioned
+delivery/retry policy required by exact-render job identity and then its fixed
+dispatcher/signed worker composition. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render delivery/retry policy authority Phase 3F-C7ax
+(2026-08-30):** commit `3ff5f760f` adds one immutable V1 declaration for the
+exact-render preparation job's attempt ceiling and retention, QStash delivery
+retries/delay/timeout, and worker retry delay. Every value is mandatory: the
+factory has no operational default, the declaration carries the sole named
+retry owner/version and a canonical content hash, and any field change changes
+policy identity. Its decision owner accepts only an exactly policy-bound
+running-job lifecycle; status, attempt-counter, max-attempt, created/expiry or
+retention drift fails before a retry decision. Exhausted attempts and a retry
+that would reach or cross job expiry produce distinct hash-bound
+`DEAD_LETTER` decisions instead of an approximate retry time.
+
+The focused adversarial suite passes 6/6; repository TypeScript and repository-
+wide quiet ESLint pass. This result is
+`EXACT_RENDER_DELIVERY_RETRY_POLICY_DECLARATION_VERIFIED_JOB_WORKER_DISPATCH_BINDING_OPEN`.
+It is policy representation, not calibration or live enforcement. The numeric
+test declaration is fixture-only; no measured encoder/QStash/Atlas/storage
+telemetry selected production values. V1.3 job creation still uses its former
+five-attempt/seven-day constants, the current worker still consumes the older
+`nextRetryAt` port, and no exact-render dispatcher imports this policy. Queue
+item 3 next migrates those lifecycle consumers without a compatibility
+fallback, then adds the fixed-message dispatcher and signed worker composition.
+No QStash message, provider call, database access, media render or project
+mutation occurred. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before changing the 709-line prepared-source publication owner, commit
+`0590a9c4c` performs the mandated Step 0 cleanup. Direct, type, literal,
+dynamic-import, re-export, test and mock searches show that its three version/
+kind constants and two aggregate publication result/receipt aliases have no
+consumer outside the module, so they are now private. The rights contract and
+the publisher factory remain public. No runtime value, receipt, validation,
+rights check, lease check or publication control flow changes. The focused
+publisher suite passes 10/10; repository TypeScript and repository-wide quiet
+ESLint pass. This behavior-neutral cleanup does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render durable lifecycle-policy enforcement Phase 3F-C7ay
+(2026-08-30):** commit `e304a4563` removes the preparation job's active
+five-attempt and seven-day literals. `createOrGetNativeMediaFinalRenderPreparationJobV1`
+now requires the complete no-default policy declaration, proves its owner,
+version and content hash equal the retry binding already sealed into the V1.3
+job identity, and derives `maxAttempts` and exact expiry from that declaration.
+Policy drift fails before `createOrGet`, so it cannot persist a differently
+governed job under the same operation identity.
+
+The prepared-source publication owner independently requires the complete
+declaration and rechecks owner/version/hash, maximum attempts and the exact
+`expiresAt - createdAt` retention interval before project, asset, PCM, rights,
+storage or lease access. The focused policy/job/worker/publication cluster
+passes 40/40; every `native-media-final-render` suite passes 94/94; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_JOB_AND_PUBLICATION_LIFECYCLE_POLICY_ENFORCED_WORKER_AND_DISPATCH_OPEN`.
+
+This is partial control-flow convergence, not a calibrated or deployed policy.
+At this checkpoint, the worker still calls its older injected `nextRetryAt`
+port instead of the new hash-bound retry/dead-letter decision. QStash dispatch
+does not consume the policy, and no production composition root or live telemetry selects the
+numbers. Because the full declaration is resolved outside the durable payload,
+production also needs an immutable registry that can resolve every retained
+owner/version/hash after a policy rotation; using only the current deployment
+value would strand or mis-govern older jobs. Queue item 3 next migrates the
+worker decision and retry cursor, then implements the fixed exact-render
+dispatcher, signed ingress and explicit historical-policy resolution. No live
+QStash, Atlas, R2, media or project operation occurred. This checkpoint does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+Before changing the 770-line preparation worker's retry control flow, commit
+`1de2dc212` performs the mandated Step 0 cleanup. Direct, type, literal,
+dynamic-import, re-export, test and mock searches show that the worker receipt
+constant, three aggregate worker-only types and the legacy retry port have no
+external consumer, so those declarations are private. The never-constructed
+retryable-error class and its unreachable branches are removed. No claim,
+heartbeat, cancellation, preparation, resume, completion, retry, dead-letter
+or budget-settlement behavior changes. The focused worker suite passes 17/17;
+repository TypeScript and repository-wide quiet ESLint pass. This cleanup is
+only preparation for the separately verified retry-decision migration and does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render worker retry-decision enforcement Phase 3F-C7az
+(2026-08-30):** commit `c4aea45f0` removes the preparation worker's
+caller-injected `nextRetryAt` calculator. The worker now requires the complete
+delivery/retry declaration, validates and constructs the sole canonical
+decision owner before claiming, and compares that owner's ID, version and
+policy hash with the durable V1.3 runtime binding before budget or media access.
+A forged declaration fails before claim; a different but valid declaration
+dead-letters the claimed job before budget authorization or materialization.
+
+For a retryable post-resume transition failure, the owner now evaluates the
+claimed attempt count, remaining attempts, exact creation/expiry interval and
+fixed worker delay. `RETRY_AT` persists the canonical retry instant plus policy
+and decision hashes in the durable retry cursor. `ATTEMPTS_EXHAUSTED` and
+`RETENTION_EXHAUSTED` deterministically convert the failure to a non-retryable
+dead letter, with no approximate schedule. The focused worker suite passes
+18/18; every `native-media-final-render` suite passes 95/95; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_WORKER_RETRY_POLICY_ENFORCED_DISPATCH_REGISTRY_AND_TERMINAL_PROOF_OPEN`.
+
+The shared durable store intentionally clears `retryCursor` for every terminal
+dead letter. Therefore the terminal status and non-retryable failure are
+durable, but the exact retry-policy decision hash/reason is not yet retained in
+an atomic terminal-failure receipt. Add that versioned evidence boundary before
+production promotion; do not treat an in-memory decision or log line as proof.
+At this checkpoint, the immutable historical-policy registry, QStash dispatcher,
+signed ingress, Finance-backed budget owner, calibrated numbers and live redelivery/cost proof
+also remain open. No live QStash, Atlas, R2, media or project operation occurred.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render historical retry-policy registry Phase 3F-C7aza
+(2026-08-30):** commit `2117efc83` adds the immutable allowlisted resolver that
+was missing from V1.3 recovery. A registry must name one explicit active policy
+and every retained declaration. It reconstructs and validates each declaration,
+rejects duplicate complete bindings, canonicalizes retained entry order into a
+content-hashed manifest, and resolves only the exact owner ID, owner version and
+policy SHA-256 requested by a durable job. An unknown historical hash never
+falls back to the active declaration.
+
+The rotation proof builds an old-policy registry and a successor registry with
+a new active declaration plus the old retained declaration; the old job binding
+resolves to the old values after rotation. Forged declarations, duplicate
+bindings, incomplete/extra bindings and wrong-owner bindings fail closed. The
+focused suite passes 6/6; every `native-media-final-render` suite passes 101/101;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_HISTORICAL_POLICY_REGISTRY_CONTRACT_VERIFIED_COMPOSITION_AND_OPERATIONAL_RETENTION_OPEN`.
+
+No calibrated production declaration or deployed registry instance exists yet,
+and code presence does not prove operators will retain an old declaration for
+the lifetime of its longest job. The dispatcher/composition root must resolve
+the job's complete binding through this registry before claim, and deployment
+evidence must prove old entries remain available for the governed lifetime. No
+live QStash, Atlas, R2, media or project operation occurred. This checkpoint
+does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render state-bound QStash dispatcher Phase 3F-C7azb
+(2026-08-30):** commit `38fc8eaed` adds the exact-render preparation dispatcher
+on top of the one shared durable QStash transport owner. Initial dispatch first
+requires complete token/signing/origin configuration, resolves the registry's
+explicit active declaration, creates or reuses the policy-bound durable job,
+and publishes only `{ version, jobId }` to the fixed preparation-worker path.
+The declaration's exact QStash retry count, delay and timeout control delivery;
+no dispatcher-local defaults or media URLs enter the message.
+
+Recovery accepts only stale active jobs with the exact operation owner, kind and
+V1.3 schema. It parses the sealed job input, resolves that job's complete
+historical retry binding through the registry, and uses the shared state-bound
+recovery deduplication identity. A rotated old job demonstrably publishes with
+its retained old QStash values, not the new active values. An absent historical
+policy returns structured `policy_unavailable` evidence and publishes nothing;
+wrong-family jobs are skipped. The focused suite passes 6/6; every
+`native-media-final-render` suite passes 107/107; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_STATE_BOUND_DISPATCH_VERIFIED_SIGNED_INGRESS_AND_COMPOSITION_OPEN`.
+
+The worker URL is a fixed contract only: no route exports it yet, no calibrated
+registry is instantiated and no Finance-backed budget owner or complete media
+composition is connected. No live QStash message, Atlas record, R2 object,
+media operation or project mutation occurred. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render signed preparation ingress Phase 3F-C7azc (2026-08-30):**
+commit `36934bc98` adds the request-time authenticated worker adapter for the
+fixed exact-render preparation message. It accepts only the versioned
+`{ version, jobId }` body, obtains no media URL or caller-authored policy from
+the request, and invokes only a product-supplied complete runner with the job
+identity and an adapter-owned worker identity. Missing signing configuration or
+runner, malformed/extra message fields and runner unavailability fail closed.
+Unknown jobs return `404`; retry-wait, lease-loss and retryable skip outcomes
+return `503` without an invented `Retry-After`; durable terminal/dead-letter
+outcomes acknowledge delivery without claiming success for the media result.
+
+The ingress test passes 10/10, every `native-media-final-render` suite passes
+117/117, and repository TypeScript plus repository-wide quiet ESLint pass. This
+result is
+`EXACT_RENDER_SIGNED_INGRESS_ADAPTER_VERIFIED_ROUTE_AND_COMPOSITION_OPEN`.
+The adapter is deliberately not exported as an application route: a production
+route must first supply the complete rights, current-project revision, source
+lease, budget, policy-registry, durable-store, artifact-preparation,
+publication and terminal-settlement composition. No calibrated Finance-backed
+budget owner, deployed route, live QStash delivery, Atlas/R2 operation, media
+render or ProjectService mutation is claimed. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain open.
+
+**Exact-render Finance-meter policy Phase 3F-C7azd (2026-08-30):** commit
+`37342c0ac` defines the previously absent Finance-owned policy identity and
+content-hashed rational meters for encoded frame attempts, artifact bytes
+written and artifact bytes verified. Rates have no defaults and no repository
+seed. Each meter uses decimal-string integer arithmetic and an explicit
+`CEIL_EACH_EXACT_METER_THEN_SUM_V1` rule, so no floating-point money or hidden
+FPS/codec/duration assumption enters the calculation. The cost receipt binds
+the exact policy, retry-inclusive usage quantities and source usage-evidence
+hash, while declaring that it performs no wallet or project mutation.
+
+Key-order equivalence, policy drift, forged/extra fields, wrong formula,
+invalid windows, zero/leading-zero/unbounded rates, malformed evidence and
+arithmetically unbounded totals fail closed. The focused suite passes 11/11,
+every `native-media-final-render` suite passes 128/128, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_FINANCE_METER_POLICY_VERIFIED_RESERVATION_SETTLEMENT_AND_CALIBRATION_OPEN`.
+
+This checkpoint is not a live budget owner. It deliberately does not choose
+Finance rates, reserve or move customer credits, create a durable hold, infer
+partial-attempt usage, persist a policy/authorization, or settle under
+redelivery. The existing `editron.render_export` customer charge remains
+unchanged, avoiding an accidental second charge. Queue item 3 next needs the
+exact reservation/authorization/terminal-settlement contract and durable
+ledger, followed by product composition. Finance rate approval and live cost
+calibration remain evidence/setup work; `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
+**Exact-render execution-budget reservation identity Phase 3F-C7aze
+(2026-08-30):** commit `3d5f605a0` binds one Finance policy and its calculated
+maximum to the exact tenant/user/organization/project/sequence, project-
+revision hash, admission receipt and source-request hash that a preparation job
+will consume. The authorization window must be fully covered by the immutable
+Finance policy. The reservation must occur inside that window and exposes only
+its ID plus content binding to the durable job. Source or revision drift,
+foreign policy, key/field drift, zero or malformed maximum usage, forged cost,
+expired approval and reservation-time drift fail closed.
+
+The focused suite passes 9/9, every `native-media-final-render` suite passes
+137/137, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_RESERVATION_IDENTITY_VERIFIED_DURABLE_LEDGER_AND_SETTLEMENT_OPEN`.
+The reservation explicitly represents an internal execution-cost envelope and
+does not charge the customer; `editron.render_export` remains the sole current
+customer charge. No policy locator, authorization issuer, reservation ledger,
+terminal usage settlement, partial-attempt telemetry, live database operation
+or route composition exists yet. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain open.
+
+**Exact-render execution-budget terminal settlement Phase 3F-C7azf
+(2026-08-30):** commit `3fb76b822` defines the terminal reconciliation that the
+future durable budget owner must persist. A completed PASS with exact artifact
+usage receives a policy-metered settlement and releases the unused internal
+cost envelope. A cancellation with zero attempts releases the whole envelope.
+A failed, cancelled-after-attempt or otherwise accounting-unknown terminal
+uses the explicitly named conservative-maximum mode; missing evidence is never
+silently priced as zero. Each outcome binds the terminal job/status/
+disposition/attempt count and artifact evidence to the exact policy,
+authorization and reservation.
+
+Usage above any authorized meter, metering without a completed PASS, release
+after execution, conservative settlement of a PASS, unexpected usage,
+malformed terminal combinations, forged hashes and extra fields fail closed.
+The focused suite passes 9/9, every `native-media-final-render` suite passes
+146/146, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_SETTLEMENT_CONTRACT_VERIFIED_ATOMIC_LEDGER_AND_WORKER_OWNER_OPEN`.
+
+This still performs no database transition, wallet/customer charge, partial-
+attempt measurement or live cost lookup. Queue item 3 next requires the sole
+atomic reservation/settlement ledger, exact Finance policy locator and worker
+budget adapter; then the product runner can compose them. No live operation or
+readiness-status change is claimed, so `FROZEN_MODIFY_DECISION_ISSUED` remains.
+
+**Exact-render transactional execution-budget ledger Phase 3F-C7azg
+(2026-08-30):** commit `b5790e0a5` adds the sole pure transactional owner for
+the internal exact-render reservation and terminal-settlement record. A
+reservation ID is deterministically derived from the content-bound
+authorization, so an identical redelivery resolves the same record rather
+than creating a second reservation. The owner resolves the exact historical
+Finance policy by owner/version/hash, verifies the authorization against that
+policy, persists the reserved record through one injected transaction, and
+later performs a reserved-record-hash compare-and-set to the content-bound
+terminal settlement. An identical terminal redelivery is idempotent; a
+different terminal result, a changed reservation, a foreign policy or a lost
+compare-and-set fails closed.
+
+The focused suite passes 6/6, every `native-media-final-render` suite passes
+152/152, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_TRANSACTIONAL_OWNER_VERIFIED_MONGO_ADAPTER_AND_WORKER_BINDING_OPEN`.
+
+This owner is deliberately storage-agnostic: no Mongo/Atlas adapter, live
+Finance-policy row, worker budget adapter, product composition root, customer
+wallet movement, partial-attempt telemetry, rate calibration or live
+redelivery proof exists yet. Queue item 3 therefore remains in progress and
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render Finance-policy and transactional Mongo adapters Phase
+3F-C7azh (2026-08-30):** commit `0c20eae3c` adds the concrete Mongo locator for
+an exact immutable Finance policy and the concrete Mongo ledger adapter for
+the transactional owner. The locator has no default or “latest” behavior: it
+queries the exact owner/version/hash tuple, creates a unique identity index and
+canonically revalidates the stored row. The ledger uses snapshot transactions,
+majority writes and primary reads; a deterministic `$setOnInsert` plus content
+comparison handles an identical reservation redelivery, while settlement
+replaces only the exact reserved record hash. Persisted summary fields, scope,
+timestamps and the nested canonical record are cross-checked on every read.
+Sessions are closed on success and failure.
+
+Missing or foreign policy rows, failed index initialization, conflicting
+insert, corrupt persisted envelopes, uncommitted transactions and stale
+compare-and-set writers fail closed. The focused suites pass 9/9, every
+`native-media-final-render` suite passes 161/161, and repository TypeScript
+plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_BUDGET_MONGO_ADAPTERS_VERIFIED_LIVE_ATLAS_AND_WORKER_BINDING_OPEN`.
+
+These proofs use injected Mongo-compatible test doubles. No Finance-approved
+policy row or exact-render reservation has been written to the configured
+Atlas database, no live transaction/redelivery has been observed, and no
+worker budget adapter, partial-attempt telemetry, calibrated rate card,
+customer wallet movement or product composition root exists yet. Queue item 3
+remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render successful-retry accounting correction Phase 3F-C7azi
+(2026-08-30):** commit `c14ce90f5` closes an ambiguity discovered before the
+worker adapter was connected. `METERED_FINAL_ARTIFACT` now requires exactly one
+job attempt: the final artifact proves its own encoded frames and verified
+bytes, but it cannot reveal how much work a failed earlier attempt consumed. A
+completed PASS with more than one attempt must instead use the explicit
+`CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN` mode and settle the authorized
+maximum until per-attempt telemetry exists. The generic unknown-accounting mode
+continues to reject PASS so the reason for uncertainty cannot be erased.
+
+Exact metering of retries, the retry-unknown mode without a retry, generic
+conservative PASS, release after execution and unexpected usage all fail
+closed. The settlement suite passes 12/12, the focused settlement/ledger suites
+pass 23/23, every `native-media-final-render` suite passes 164/164, and
+repository TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_SUCCESSFUL_RETRY_ACCOUNTING_FAIL_CLOSED_WORKER_ADAPTER_OPEN`.
+
+This is conservative internal-cost accounting, not measured retry usage and
+not a customer charge. Per-attempt encoder, storage-write and verification
+telemetry plus Finance calibration remain open. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Exact-render durable-worker execution-budget owner Phase 3F-C7azj
+(2026-08-30):** commit `dcf553d26` implements the worker-facing budget owner
+over the transactional ledger. Before artifact preparation it independently
+revalidates the durable job, exact reservation reference, Finance policy,
+tenant/user/organization/project/sequence, project-revision hash, admission
+receipt, exact-source-request hash and reservation window. Its authorization
+receipt binds the job attempt and input to the persisted authorization and
+reservation. A zero-attempt synthetic running job, foreign scope/policy,
+expired or already-settled reservation cannot authorize preparation.
+
+At a committed terminal state the same owner derives one content-bound
+terminal evidence digest and settles idempotently through the ledger. A
+validated one-attempt PASS meters the artifact's encoded video-frame count and
+exact written/verified byte length. A multi-attempt PASS uses the named
+retry-accounting-unknown maximum; cancellation before any attempt releases the
+reservation; cancellation after an attempt, UNVERIFIABLE/FAIL and dead letter
+use the generic conservative maximum. PASS without a valid source/job-bound
+resume artifact fails rather than inventing usage.
+
+The focused suite passes 7/7, every `native-media-final-render` suite passes
+171/171, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_WORKER_BUDGET_OWNER_VERIFIED_PRODUCT_COMPOSITION_AND_LIVE_PROOF_OPEN`.
+
+The tests use an injected ledger owner. No production route instantiates this
+adapter with the Mongo ledger and an approved historical Finance policy; no
+configured-Atlas transaction, partial-attempt telemetry, calibrated rate card,
+customer wallet movement or live terminal redelivery is proven. Queue item 3
+remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render historical execution-manifest Phase 3F-C7azk
+(2026-08-30):** commit `90230a4cc` adds one immutable execution manifest for
+the non-Finance policies and toolchain evidence needed to reproduce a durable
+source-preparation job. The manifest derives, rather than accepts, the exact
+materializer, FFmpeg encoder and private-artifact policy hashes; it binds the
+full retry and heartbeat declarations, the execution-budget owner reference,
+the worker image digest and the complete compatibility-profile receipt. Each
+policy is validated by its existing domain owner, nested schemas are closed,
+and the aggregate is content-addressed. A loaded manifest must reproduce both
+the job's V1.3 policy bindings and execution profile exactly.
+
+The focused suite passes 4/4, every `native-media-final-render` suite passes
+175/175, and repository TypeScript plus repository-wide quiet ESLint pass.
+Adversarial proof rejects nested policy drift, extra fields, a forged aggregate
+hash, a different worker image and invalid materializer/encoder/R2 limits. This
+result is
+`EXACT_RENDER_EXECUTION_MANIFEST_VERIFIED_PERSISTENT_LOCATOR_AND_PRODUCT_COMPOSITION_OPEN`.
+
+This checkpoint deliberately exports no worker route and performs no Mongo,
+R2, FFmpeg, ProjectService, QStash or Finance I/O. No immutable manifest row or
+exact Mongo locator exists yet, so a worker still cannot safely resolve a
+historical manifest after deployment rotation. Queue item 3 next persists and
+resolves this exact manifest, then composes the worker only if all remaining
+owners are concrete. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render immutable execution-manifest store Phase 3F-C7azl
+(2026-08-30):** commit `6d8dc6b9c` adds the create-only Mongo store and exact
+historical locator for the execution manifest. It creates separate unique
+indexes for the manifest digest and the six-part job/toolchain binding,
+registers with majority write concern, rereads from the primary and revalidates
+the complete canonical manifest before acknowledging creation. An identical
+duplicate is `UNCHANGED`; a missing, conflicting, malformed or unreadable row
+fails. Resolution has no active/latest/default mode: materializer, encoder,
+private-artifact and aggregate runtime-policy hashes plus worker-image and
+compatibility-receipt identities must all match the durable job.
+
+The focused manifest/store suites pass 8/8, every
+`native-media-final-render` suite passes 179/179, and repository TypeScript
+plus repository-wide quiet ESLint pass. The tests cover create/readback,
+idempotent duplicate registration, missing exact binding, non-duplicate write
+failure, corrupt stored hash, explicit majority write and primary read. This
+result is
+`EXACT_RENDER_EXECUTION_MANIFEST_IMMUTABLE_MONGO_STORE_VERIFIED_PRODUCT_COMPOSITION_AND_LIVE_ATLAS_OPEN`.
+
+The collection is injected in proof; no row/index was created in configured
+Atlas, no approved active manifest was registered, no deployment rotation was
+exercised and no product worker consumes the locator yet. Queue item 3 remains
+in progress and next composes the authenticated worker without claiming a job
+unless the exact job, manifest, Finance policy/ledger, private storage,
+ProjectService, media asset and materializer owners are all available.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render operation-scoped pre-claim read Phase 3F-C7azm
+(2026-08-30):** commit `e70f6f310` adds the missing read-only durable-store
+boundary needed by product composition before it leases work. An already-
+authenticated internal worker must provide the exact job ID, operation owner,
+operation kind and input schema. A job ID by itself is not cross-family
+authority. The lookup returns the existing lease-token-free snapshot and does
+not claim, expire, update or decrement attempts. Malformed scope fails before
+the collection provider opens; a missing or wrong-family job returns no row.
+
+The focused store/read suites pass 12/12, every
+`native-media-final-render` plus store/read suite passes 191/191, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial tests cover
+foreign owner, kind and schema, a missing job, a malformed owner with zero
+collection loads, and proof that a successful lookup leaves the job queued at
+attempt zero without a lease. This result is
+`EXACT_RENDER_OPERATION_SCOPED_PRECLAIM_READ_VERIFIED_PRODUCT_RUNNER_COMPOSITION_OPEN`.
+
+This is not a privileged public lookup and is not an exported worker route.
+The existing signed ingress remains the authentication boundary, and no live
+Mongo row, manifest, Finance reservation, R2 object, FFmpeg process or project
+read occurred. Queue item 3 next removes the duplicated exact-render operation
+scope literals, composes the full product runner from the exact job/manifest
+bindings and refuses the request before claim if any bound deployment owner is
+absent or mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render operation-scope authority Phase 3F-C7azn (2026-08-30):**
+commit `8e03cb0d8` moves the exact durable operation owner and kind to the
+preparation job contract, which is the producer of that identity. Job
+creation, the lifecycle worker, execution-budget worker owner, materializer
+adapter and completed-source publisher now import and enforce those same
+constants. Same-HEAD production-service search finds no remaining raw owner or
+kind literal outside that declaration.
+
+The five focused owner suites plus the pre-claim suite pass 53/53, every
+`native-media-final-render` plus store/read suite passes 191/191, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_OPERATION_SCOPE_SINGLE_CONTRACT_OWNER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+It is behavior-neutral authority consolidation, not route convergence: the
+stored strings and failure behavior are unchanged, no product runner is
+composed, and no live infrastructure was accessed. Queue item 3 now proceeds
+to exact manifest/Finance/storage/ProjectService/materializer composition and
+must still refuse before claim if any bound deployment owner is absent or
+mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render pre-claim toolchain qualification Phase 3F-C7azo
+(2026-08-30):** commit `353dd72f3` exposes the FFmpeg encoder owner's existing
+immutable toolchain qualification as a reusable pre-claim boundary. The same
+owner now verifies the declared FFmpeg first-version line, FFprobe/FFmpeg
+version parity, minimum FFmpeg major, operating-system/architecture tuple,
+Remotion version and platform compositor version both when explicitly invoked
+and when encoding begins. A product runner can therefore reject a rotated or
+mismatched deployment before it leases a durable job, without duplicating the
+encoder's qualification logic or opening source media.
+
+The real-binary qualifier suite passes 8/8, every
+`native-media-final-render` plus store/read suite passes 193/193, and repository
+TypeScript plus repository-wide quiet ESLint pass. The added adversarial proof
+uses a separately valid compatibility receipt with a different FFmpeg identity
+and receives `NATIVE_MEDIA_FINAL_RENDER_RUNTIME_PROFILE_MISMATCH`. This result
+is `EXACT_RENDER_TOOLCHAIN_PRECLAIM_QUALIFIER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+This is a reusable qualifier, not a product runner or deployment proof. No job
+was claimed, source opened, manifest/Finance row resolved, R2 object touched,
+ProjectService revision read or hosted worker exercised. Queue item 3 remains
+in progress: the next bounded phase composes those existing owners and must
+invoke this qualifier before claim. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
+**Exact-render durable-envelope authority Phase 3F-C7azp (2026-08-30):**
+commit `e1e70323a` moves complete durable-job validation from a private worker
+helper to the canonical preparation-job contract. It verifies the payload and
+reconstructed operation identity together with durable version, operation
+owner/kind, idempotency identity, null parents, schema and binding, tenant/user/
+organization/project scope, budget reservation and dependency set. The
+lifecycle worker now consumes that same assertion and preserves its existing
+contract-invalid versus binding-mismatch terminal diagnostics.
+
+The focused job/worker suites pass 26/26, every
+`native-media-final-render` plus store/read suite passes 195/195, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial tests distinguish
+a malformed payload from a structurally valid envelope rebound to a foreign
+operation. This result is
+`EXACT_RENDER_DURABLE_ENVELOPE_SINGLE_JOB_OWNER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+This is authority consolidation, not product composition. No live job or
+infrastructure owner was resolved and no claim was made. Queue item 3 remains
+in progress; the product runner may now preflight the exact durable envelope
+without copying worker safety logic, then must resolve and qualify every bound
+deployment owner before claim. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render Finance pre-claim authority Phase 3F-C7azq (2026-08-30):**
+commit `b81a399ef` exposes the execution-budget worker owner's existing exact
+reservation qualification before a durable attempt is spent. The Finance
+owner resolves the bound ledger record and historical policy, verifies the
+tenant/user/organization/project/sequence/revision/admission/source scope,
+reservation identity, owner/version/policy digest, unsettled state and validity
+window, then returns the exact policy needed to construct the post-claim budget
+owner. `authorize()` now reuses the same internal qualifier.
+
+The focused Finance suite passes 9/9, every `native-media-final-render` plus
+store/read suite passes 197/197, and repository TypeScript plus repository-wide
+quiet ESLint pass. Tests prove an exact queued reservation can be qualified
+without authorization or settlement, while expired and foreign-project
+reservations reject. This result is
+`EXACT_RENDER_FINANCE_PRECLAIM_QUALIFIER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+The tests still use an injected ledger and policy. No configured Atlas
+transaction, Finance-approved active policy, customer-wallet movement,
+partial-attempt telemetry, calibrated rate or live redelivery was exercised.
+Queue item 3 remains in progress; the product runner must invoke this authority
+before claim and the live evidence remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact-render product runtime composition Phase 3F-C7azr (2026-08-30):**
+commit `498bdb8ee` adds the concrete request-time composition root for the
+exact-render preparation lifecycle. It performs the operation-scoped durable
+read and canonical full-envelope validation, resolves the immutable historical
+manifest, binds the deployed worker image, requires absolute FFmpeg/FFprobe
+executables, invokes the encoder owner's exact toolchain qualifier, constructs
+the manifest-governed private R2 runtime, invokes the Finance pre-claim owner,
+checks the current ProjectService revision and then composes the existing media
+asset reader, sole materializer, encoder, heartbeat adapter, budget worker and
+durable lifecycle worker. None of those mutable attempt owners is called until
+all pre-claim checks pass. Terminal replay deliberately resolves only its
+historical manifest and Finance settlement state, so a cancelled or completed
+job can reconcile idempotently after deployment rotation without reopening
+source/render infrastructure.
+
+The focused product-runtime suite passes 4/4, every
+`native-media-final-render` plus store/read suite passes 201/201, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial cases prove that
+worker-image drift, a relative executable path, toolchain drift, unavailable
+private storage, Finance failure and project-revision drift all reject before
+claim. This result is
+`EXACT_RENDER_PRODUCT_RUNTIME_COMPOSED_PRECLAIM_ORDER_VERIFIED_SIGNED_ROUTE_AND_LIVE_INFRA_OPEN`.
+
+This is injected composition proof, not a hosted-render or live-infrastructure
+claim. No configured Atlas manifest/Finance transaction, deployed image,
+installed absolute toolchain, private R2 object, live ProjectService/media
+asset, hosted worker, signed application-route export, Remotion consumption or
+rendered artifact was exercised. Queue item 3 remains in progress for the
+signed application route and concrete environment proof; the cross-system live
+render, redelivery, recovery and cost evidence remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Signed exact-render application route Phase 3F-C7azs (2026-08-30):**
+commit `0ac2507d9` binds the existing request-time authenticated ingress to the
+sole product runtime and exports the exact dispatcher path at
+`/api/internal/workers/native-media-final-render-preparation`. The route accepts
+only the existing versioned `{ version, jobId }` message, performs no product
+I/O while the module is imported and offers no inline or unsigned execution
+path. Missing signing keys still reject before the runner; runtime/configuration
+failure remains a retryable generic `503` without leaking infrastructure
+details or claiming false success.
+
+The route/product-runtime/ingress suites pass 17/17, every
+`native-media-final-render` plus store/read suite passes 204/204, and repository
+TypeScript plus repository-wide quiet ESLint pass. The application-module test
+also proves that only `POST`, `runtime` and `maxDuration` are exported and that
+route import performs no network call. This result is
+`EXACT_RENDER_SIGNED_APPLICATION_ROUTE_EXPORTED_NO_IMPORT_IO_LIVE_INFRA_OPEN`.
+
+The statically analyzable Next route ceiling is 800 seconds, matching this
+repository's existing long-worker deployment class. That is provisional
+infrastructure policy, not a supported content-duration or render-SLO claim;
+it must be calibrated against real encoder, storage, Atlas, QStash and platform
+termination behavior. No deployed signing-key pair, hosted QStash delivery,
+configured Atlas manifest/Finance row, private R2 artifact, deployed worker
+image/toolchain or completed real render was exercised. Queue item 3 therefore
+remains open for concrete environment and end-to-end render proof; live
+redelivery/recovery/cost certification remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Contiguous V2-to-V3 timestamp migration preparation Phase 3F-C8a
+(2026-08-30):** commit `ad57ac39f` adds the storage-neutral migration
+candidate owner for a terminal V2 cadence map. It rereads the immutable V2
+manifest and every referenced frame batch, reruns the existing manifest-index
+integrity verifier, and checks the freshly observed scope, range, frame count
+and cadence against the terminal V2 receipt before creating any V3 material.
+Only then does it use the existing V3 epoch/index and asset-record owners to
+build one explicit `INITIAL` epoch at canonical time zero over the unchanged
+V2 batch sidecars. The resulting receipt binds the exact V2 state, terminal
+receipt, manifest, fresh verification, V3 epoch index and pending V3 record.
+
+The owner deliberately performs zero private-storage writes and zero
+`MEDIA_ASSETS` mutations. Missing, partial or parallel V2/V3 state; a changed
+source binding; an altered object; a terminal-range mismatch; or a cadence
+claim that disagrees with freshly decoded frame evidence returns a structured
+non-success. It never infers a timestamp reset from V2, because V2 could only
+prove one globally contiguous sequence. Real reset/discontinuity sources must
+be discovered by the future production V3 scanner and boundary-evidence
+owner, not manufactured during migration.
+
+All 25 timestamp-map suites pass 132/132, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V2_TO_V3_CONTIGUOUS_MIGRATION_CANDIDATE_VERIFIED_STORAGE_AND_CAS_OPEN`.
+Queue item 4 next requires an immutable V3 epoch-index writer and an atomic
+compare-and-set owner that persists the exact candidate and replaces only the
+expected V2 state. Dedicated private PTS configuration, a direct production
+V3 scanner/finalizer, discontinuity evidence, proxy/master mapping, relinking,
+invalidation and live object/database proof remain open.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Immutable V3 epoch-index storage Phase 3F-C8b (2026-08-30):** commit
+`90de32b46` adds the missing create-only private-R2 writer for canonical V3
+epoch indexes and exposes it from the existing dedicated media-evidence R2
+runtime. The writer recomputes the expected sidecar through the sole V3 index
+owner, requires an exact caller-sidecar match, sends `If-None-Match: *`, and
+uses the existing exact V3 reader after every write or collision. Identical
+replay is therefore safe; a pre-existing object with altered bytes, a forged
+sidecar, an unsafe/public bucket or a non-precondition transport error fails
+loudly. It writes no frame batch, boundary evidence, project or asset state and
+exposes no browser address.
+
+All 26 timestamp-map suites pass 136/136, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V3_EPOCH_INDEX_IMMUTABLE_WRITER_VERIFIED_LIVE_BUCKET_AND_MIGRATION_CAS_OPEN`.
+The proof used an in-memory R2 command client. Dedicated private PTS credentials
+and live object proof remain absent on this machine, and the persisted object
+does not become authoritative until the next migration owner atomically swaps
+the exact expected terminal V2 pair for the bound pending V3 pair. Direct V3
+scanning/finalization, discontinuity boundary-evidence writes, proxy/master
+mapping, relinking and invalidation remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Atomic V2-to-V3 timestamp publication Phase 3F-C8c (2026-08-30):** commit
+`77b78c90e` connects the real terminal-V2 evidence verifier and candidate owner
+to the immutable V3 index writer, then publishes the pending V3 state through
+one exact `MEDIA_ASSETS` compare-and-set. The migration reuses the existing V2
+filter, so source version, storage version, measured qualification, map
+binding, lifecycle status/attempt/checkpoint, manifest and terminal receipt
+must still match. It additionally requires absent V3 and absent migration-
+receipt pairs. The successful single-document update nulls V1/V2, installs the
+V3 state pair and stores the hash-bound migration receipt together.
+
+The verified order is load -> reverify all V2 objects -> write/re-read the V3
+index -> compare-and-set. Altered V2 evidence and failed or mismatched index
+writes stop before database mutation. A concurrent asset change returns
+`RACE_LOST`; the content-addressed index may remain unreferenced but no asset
+can falsely point to it. Missing assets perform no evidence or object work.
+
+All 27 timestamp-map suites pass 141/141, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V2_TO_V3_LOCAL_ATOMIC_PUBLICATION_VERIFIED_LIVE_INFRA_AND_DIRECT_V3_SCAN_OPEN`.
+No configured private PTS bucket or live Atlas document was exercised, and no
+production caller/dispatcher currently selects legacy assets for migration.
+The stored migration receipt also needs a normal read/audit consumer before it
+can support operational reporting. Direct V3 scan/finalization with real
+boundary evidence, proxy/master mapping, relinking and invalidation remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Safe V3 scan segmentation Phase 3F-C8d (2026-08-30):** commit
+`f16003eb5` adds a separately named compute primitive for direct V3 timestamp
+scans while leaving the frozen V1 scan entry point unchanged. It retains
+ordinary contiguous variable-frame-rate samples in one staged sequence and
+splits only boundaries that exact decoded timestamps and durations can prove:
+positive gaps and positive-start overlaps. It never changes, rounds or
+normalizes a source timestamp.
+
+Repeated or backward timestamps stop with
+`SCAN_BACKWARD_BOUNDARY_EVIDENCE_REQUIRED`. Generic FFprobe frame output does
+not expose a universal reset, counter-wrap or edit-list boundary; those labels
+therefore require container-specific recoverable evidence rather than a
+heuristic negative delta. FFmpeg's public packet flags do not supply such a
+generic marker, while MPEG-TS discontinuity indicators and MOV edit lists are
+container-specific sources that need their own bounded evidence owners.
+
+All 43 Modal mapper/core tests pass, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V3_SAFE_EPOCH_SCAN_SPLITTER_VERIFIED_MODAL_SELECTION_AND_FINALIZER_OPEN`.
+The primitive is not selected by the Modal mapper, endpoint, TypeScript
+transport or durable job; no V3 finalizer, reset/wrap/edit-list evidence owner,
+deployment or live scan exists yet. It consequently proves safe segmentation
+logic, not production VFR/discontinuity consumption. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Distinct V3 Modal mapper selection Phase 3F-C8e (2026-08-30):** commit
+`f4fc3f944` adds `map_source_pts_epochs_v3` beside the unchanged V1 Modal
+function. The new function requires the exact `epoch-ffprobe-v3` mapper and
+command-policy pair. One central identity-to-algorithm selector maps that pair
+to the safe epoch splitter, maps the original `continuous-ffprobe-v1` pair to
+the frozen continuous scanner and rejects unknown or cross-paired identities
+with `SCAN_MAPPER_CONTRACT_UNREGISTERED` before probing or storage access.
+
+Both functions retain the same selected-stream/timebase verification,
+source-URL policy, dedicated-private-R2 requirement, immutable staging writes
+and FFprobe failure handling. The existing V1 submit/poll endpoints still spawn
+only `map_source_pts`; they were not broadened or silently redirected.
+
+All 47 Modal tests pass, and repository TypeScript plus repository-wide quiet
+ESLint pass. This result is
+`V3_MODAL_FUNCTION_SELECTION_VERIFIED_ENDPOINT_TRANSPORT_FINALIZER_OPEN`.
+No V3 submission/poll contract, TypeScript transport, durable job binding,
+finalizer, deployment or live scan invokes the new function. Reset, wrap and
+edit-list evidence owners also remain absent. This is local executable
+selection, not product reachability or production mixed-rate completion.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Authenticated V3 scan endpoint contract Phase 3F-C8f (2026-08-30):** commit
+`35390cc40` adds separate proxy-authenticated submit and poll endpoints for the
+V3 epoch mapper. V3 submission requires
+`EDITRON_MEDIA_SOURCE_PTS_EPOCH_SCAN_SUBMISSION_V3`, validates the exact
+`epoch-ffprobe-v3` mapper/policy pair and spawns only
+`map_source_pts_epochs_v3`. Its accepted and polled records bind both identity
+fields; missing, partial, cross-version or extra poll fields fail before a
+Modal function lookup.
+
+The endpoint implementation factors shared parsing, allowlist, private-storage
+preflight and terminal-result checks into common owners. The V1 endpoint still
+accepts its original submission kind, spawns only `map_source_pts` and retains
+its original submit/poll response shapes. It does not acquire V3 fields or an
+implicit mode switch.
+
+All 49 Modal tests pass, and repository TypeScript plus repository-wide quiet
+ESLint pass. This result is
+`V3_AUTHENTICATED_ENDPOINT_CONTRACT_VERIFIED_TYPESCRIPT_AND_DEPLOYMENT_OPEN`.
+No TypeScript V3 transport or durable job calls these endpoints, no V3
+finalizer publishes their staged batches, and neither the Modal app nor the
+dedicated private R2 scope was deployed/exercised in this phase. Queue item 4
+and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Identity-bound V3 product HTTP transport Phase 3F-C8g (2026-08-30):**
+commit `34f4fcea9` adds the TypeScript V3 submission/job/poll contract for the
+authenticated epoch endpoints. It accepts only requests whose bound mapper and
+command policy are both `epoch-ffprobe-v3`. Returned jobs contain no signed
+source URL and bind submission ID, Modal call ID, map-binding hash and both
+mapper identities. Pending and terminal responses require exact keys and exact
+identity/hash equality; cross-version, malformed, oversized or untrusted-host
+responses become named `UNVERIFIABLE` transport results.
+
+The existing V1 transport now shares one neutral owner for trusted Modal
+endpoint resolution, proxy headers, timeout, bounded response streaming,
+fatal-UTF-8 JSON parsing and call/submission ID validation. Its public request,
+submission, job, response and diagnostic contracts are unchanged. V1 and V3
+remain separate domain producers over shared HTTP plumbing.
+
+All 28 timestamp-map suites pass 145/145, all 49 Modal tests pass, and
+repository TypeScript plus repository-wide quiet ESLint pass. This result is
+`V3_PRODUCT_HTTP_TRANSPORT_VERIFIED_DURABLE_JOB_FINALIZER_DEPLOYMENT_OPEN`.
+No production composition selects this transport, no durable lifecycle owns
+submission/poll/redelivery, and no finalizer converts its V1-compatible staged
+runs into a canonical V3 epoch index or publishes it to `MEDIA_ASSETS`. Live
+endpoint/private-R2 proof also remains absent. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Segmented V3 result admission repair Phase 3F-C8h (2026-08-30):** finalizer
+grounding found that the Modal V3 splitter could emit exact GAP/OVERLAP run
+boundaries, but the TypeScript V3 poll client and shared promoter reparsed the
+terminal summary through the V1-only rule requiring each batch start to equal
+the preceding batch end. A valid V3 result would therefore have been rejected
+before finalization. Commit `1754b28e4` corrects that impossible wire
+contract without relaxing the V1 lane.
+
+The raw result codec now exposes a V3-identity-only assertion that keeps exact
+keys, bounds, ordinals, hash chains and immutable V1 staging bytes, while
+allowing successive run starts only when they remain strictly increasing.
+That admits ordinary contiguous splits, positive PTS gaps and positive-start
+overlaps. Repeated or backward starts still fail deterministically because
+they require reset/wrap/edit-list evidence. The V3 HTTP transport uses this
+assertion, and the shared promoter selects it only when both mapper and command
+policy equal `epoch-ffprobe-v3`; V1 transport, durable worker and V1 finalizer
+retain exact-contiguous validation.
+
+This is contextual V3 admission over the shared V1 raw-result schema, kind and
+staging bytes; it is not a distinct V3 terminal wire schema and it is not yet
+semantic boundary proof. A batch summary can prove that its start exceeds the
+preceding batch start, but cannot prove the producer's stronger rule that the
+first PTS in a new run exceeds the immediately preceding frame PTS. The direct
+V3 finalizer must reread every immutable staged batch, verify every frame and
+the cross-batch last-frame/first-frame relation, then derive GAP/OVERLAP or
+fail closed before index creation. For example, a forged prior run containing
+PTS `0,100` followed by summary start `50` may pass summary admission but must
+never be classified or published.
+
+All 28 cadence-map suites pass 146/146, the focused Modal producer tests pass
+17/17, and repository TypeScript plus repository-wide quiet ESLint pass. This
+result is
+`V3_SEGMENTED_RUN_TRANSPORT_AND_PROMOTION_VERIFIED_FINALIZER_OPEN`. No direct
+V3 finalizer, durable V3 lifecycle, live Modal deployment, dedicated private
+R2 proof or reset/wrap/edit-list evidence owner exists yet. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Direct V3 finalization preparation Phase 3F-C8i (2026-08-30):** commit
+`c4fd71adc` adds the first direct-V3 terminal consumer without routing through
+the V1 finalizer or publishing V2 state. It binds the terminal result back to
+the exact scan request, returns an upstream `UNVERIFIABLE` result without
+touching storage, promotes and rereads every immutable staging batch, verifies
+each internal run, and compares the actual previous last-frame PTS/duration to
+the next first-frame PTS. Exact contiguous handoffs remain in one epoch;
+positive gaps and safe positive-start overlaps create exact canonical epochs;
+repeated/backward or otherwise ambiguous handoffs return
+`BOUNDARY_EVIDENCE_REQUIRED` before index creation.
+
+The preparation owner builds and revalidates the canonical V3 epoch index and
+private sidecar in memory using the existing V3 owners. It deliberately does
+not write the epoch index and does not mutate `MEDIA_ASSETS`. That publication
+must still compose the create-only private writer with the V3 state lifecycle:
+expected-source `PENDING` CAS, owned `VERIFYING` claim/renewal, exact artifact
+verification, and terminal `COMPLETE` or retryable/terminal failure handling.
+It must never call the V1 finalizer, which publishes a different state version.
+
+The focused preparation/index/promoter suites pass 22/22; all 29 timestamp-
+cadence suites pass 151/151; repository TypeScript and repository-wide quiet
+ESLint pass. The deceptive summary-admissible sequence whose prior batch holds
+PTS `0,100` and whose next batch starts at `50` is reread and blocked before
+publication. This result is
+`DIRECT_V3_FINALIZATION_PREPARATION_VERIFIED_INDEX_WRITE_STATE_LIFECYCLE_OPEN`.
+No durable direct-V3 job, state publication, live private storage, deployed
+scan, reset/wrap/edit-list evidence owner or production selection caller is
+claimed. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Renewable V3 verification claim Phase 3F-C8j (2026-08-30):** commit
+`542a7d928` extends the sole V3 `MEDIA_ASSETS` lifecycle owner with same-claim
+lease renewal. Renewal retains the claim ID and attempt count, advances the
+start of the current bounded lease window, requires a strictly later expiry,
+and preserves the existing one-hour maximum for each window. The exact state
+hash plus claim ID/expiry CAS guards make a concurrent or stale renewal lose
+instead of silently extending somebody else's ownership. Foreign claim IDs,
+expired claims, oversized windows, lease shortening and forged persisted
+claimant changes are rejected; post-expiry reclaim remains a distinct new
+attempt.
+
+The focused lifecycle suite passes 7/7, all 29 timestamp-cadence suites pass
+152/152, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`V3_RENEWABLE_VERIFICATION_CLAIM_VERIFIED_PUBLICATION_COMPOSITION_OPEN`.
+No finalizer invokes renewal yet, no private index write/state sequence is
+composed, and no live long-running verifier or Atlas race was exercised. Queue
+item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Direct V3 publication composition Phase 3F-C8k (2026-08-30):** commit
+`c3291a97a` composes the direct-V3 preparation owner into the create-only
+private epoch-index writer, the sole V3 `MEDIA_ASSETS` state owner and the full
+epoch-artifact verifier. The exact sequence is now immutable promoted batches
+-> immutable index write and reread -> source-qualified `PENDING` CAS -> owned
+`VERIFYING` claim -> same-claim renewal before each index/batch/evidence read ->
+complete stored-artifact reread -> terminal `COMPLETE` CAS. A product runner
+selects the dedicated `EDITRON_MEDIA_PTS_R2_*` runtime and the existing Mongo
+CAS owner; it never routes through the V1 finalizer.
+
+The publisher reports success only after the verification receipt is bound
+into a source/index/policy-matching terminal state. Identical redelivery returns
+`ALREADY_COMPLETE`; an active foreign claimant returns `BUSY`; transient index,
+batch or evidence reads and lifecycle-heartbeat loss remain `RETRYABLE` with a
+nonterminal claim; deterministic byte/hash/schema/semantic failures create an
+`UNVERIFIABLE` terminal receipt. An ambiguous backward timestamp boundary
+still exits before index or state creation. Immutable objects orphaned by a
+later CAS race remain the responsibility of a future reachability-governed GC
+owner.
+
+The focused preparation/publication, V3 state and epoch-writer suites pass
+22/22; all 29 timestamp-cadence suites pass 158/158; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`DIRECT_V3_LOCAL_PUBLICATION_SEQUENCE_VERIFIED_DURABLE_DISPATCH_LIVE_PROOF_OPEN`.
+No durable V3 job submits, polls and invokes this publisher yet; no deployed
+Modal endpoint, dedicated private R2 object, live Atlas race, long-running
+multi-renewal verification, reset/wrap/edit-list evidence or recovery/GC run
+was exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
+**Durable V3 job binding Phase 3F-C8l (2026-08-30):** commit `64bef150b`
+creates a distinct, URL-free durable-job contract for direct V3 epoch scans.
+The sole generic durable store now receives a source-qualified
+`media_source_pts_cadence_epoch_scan` identity whose canonical input binds the
+selected video stream, source/storage/binding/technical-observation hashes,
+exact FFprobe version, `epoch-ffprobe-v3` mapper and command policy, scan
+resource ceiling, expected source coverage, epoch-index ceiling, direct
+artifact-verification policy and dedicated private-storage policy. Rebuilding
+the same source contract returns the same job; the existing V1 operation,
+mapper identity and finalizer remain distinct.
+
+The direct policy deliberately permits zero external-boundary evidence reads.
+That matches the currently proven arithmetic-only path: exact contiguous,
+positive-gap and safe positive-start-overlap handoffs may proceed, while a
+repeated/backward timestamp still requires a future container-specific
+reset/wrap/edit-list evidence owner. Copied hashes, altered numeric limits,
+weakened verification policy, source-owner mismatch and unqualified FFprobe
+identity fail before job creation. The epoch-index owner now exports its
+existing bounded policy normalizer so the durable contract does not duplicate
+that validation authority.
+
+The focused V1/V3 binding and epoch-index suites pass 21/21; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`DURABLE_V3_JOB_BINDING_VERIFIED_WORKER_DISPATCH_LIVE_PROOF_OPEN`. It does not
+yet submit or poll Modal, persist resume state, invoke the V3 publisher,
+authenticate signed ingress, redeliver/recover work, deploy an endpoint, touch
+dedicated private R2 or live Atlas, reclaim unreachable artifacts, or prove
+long-running renewal. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
+**Qualified full-source coverage closure Phase 3F-C8m (2026-08-30):** audit
+of the new durable binding exposed a missing independent check in the V3
+publisher. The scan-result schema proved that its first and last summaries
+matched its own declared range, but the publisher did not compare that range
+with the selected stream's qualified source start and end. A structurally
+valid result could therefore have omitted a source tail and still entered
+artifact publication.
+
+Commit `eff99f0d1` makes the sole V3 publisher recompute expected coverage from
+the current source version, qualification, selected stream, exact V3 mapper
+and bound coverage-policy identity. The caller-supplied coverage must match
+those independently derived bytes and the request map binding. A complete
+result must then match both exact signed presentation boundaries. Malformed or
+foreign coverage is `REJECTED`; an internally valid but incomplete result is
+`UNVERIFIABLE` before staging reads, epoch-index writes, asset loads or CAS.
+There is no partial-map or approximate fallback.
+
+The publisher/finalizer suite passes 12/12, including a valid result ending 40
+source ticks before the qualified tail with asserted zero storage/state work;
+repository TypeScript, repository-wide quiet ESLint and diff checks pass. This
+result is `V3_QUALIFIED_SOURCE_COVERAGE_ENFORCED_DURABLE_WORKER_OPEN`. It does
+not add durable execution, signed ingress, deployment, live storage, external
+boundary semantics, recovery or GC. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 publication storage-failure classification Phase 3F-C8n (2026-08-30):**
+commit `566573fb3` closes the next durable-worker prerequisite. The publisher
+now owns classification of the private-storage operations it invokes during
+staging promotion. Known staging-read, promoted-artifact-write and promoted-
+artifact-reread outages return distinct `RETRYABLE` results with no state.
+Exact stored-byte/hash mismatches return `UNVERIFIABLE` with the originating
+diagnostic. Unknown contract or programming exceptions still throw loudly and
+are not relabelled as transient infrastructure.
+
+The publisher/finalizer suite passes 13/13 with separate injected read-outage
+and content-corruption cases; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`V3_PUBLICATION_STORAGE_FAILURES_CLASSIFIED_DURABLE_WORKER_OPEN`. No retry has
+been dispatched, no durable attempt consumed, and no live R2 failure was
+exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 durable epoch-worker Phase 3F-C8o (2026-08-30):** commit `8d6bc937f`
+adds the distinct V3 orchestration state machine over the existing generic
+durable-job store. It rebinds the current source and immutable V3 job contract
+before resource access; persists only URL-free `SUBMITTING`/`SUBMITTED` resume
+state with the exact mapper and command-policy identities; reuses one stable
+submission ID across a lost response; treats a healthy Modal wait as a defer
+that does not consume an attempt; and routes a validated terminal result to the
+V3 publisher rather than the V1 finalizer. Publisher storage outages and busy
+ownership retry, deterministic rejection dead-letters, and scan/publisher
+`UNVERIFIABLE` outcomes become truthful durable terminal receipts.
+
+The new worker suite passes 10/10 and the related V1 worker, V3 binding,
+transport and publisher suites pass 27/27; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`V3_DURABLE_WORKER_STATE_MACHINE_VERIFIED_RUNTIME_INGRESS_LIVE_RECOVERY_OPEN`.
+It does not yet compose real media/source URL owners, Modal transport, private
+R2, Atlas state, signed QStash ingress or deployment. A publisher retry
+currently re-polls the same opaque terminal function call; the deployed
+provider's result-retention contract must be proven long enough for the retry
+window or the bounded terminal summary must first be durably stored in private
+storage. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 durable epoch-runtime Phase 3F-C8p (2026-08-30):** commit `bfc373a4d`
+composes the worker with the real generic durable store, V3 MEDIA_ASSETS
+load/CAS owner, fresh qualification-bound source URL owner, V3 Modal
+submit/poll transport, dedicated private PTS R2 adapters and the V3 publisher.
+Transport configuration, private storage construction and media-owner
+construction all succeed before a durable attempt can be claimed. The runtime
+passes the already-created private/state ports into the publisher, rather than
+silently constructing a second authority. A publisher success without its V3
+media terminal receipt deterministically dead-letters, and signed source URLs
+remain absent from durable state.
+
+The runtime suite passes 5/5 and its V1 runtime, V3 worker and publisher
+regressions pass 26/26; repository TypeScript, repository-wide quiet ESLint and
+diff checks pass. This result is
+`V3_PRODUCT_RUNTIME_COMPOSED_SIGNED_INGRESS_LIVE_RECOVERY_OPEN`. It is not a
+deployed workflow: this environment currently has none of the four dedicated
+PTS R2 variables or either V3 Modal endpoint variable configured. No generic
+or public storage credential is an acceptable substitute. A distinct signed
+ingress/dispatch/recovery path and live private R2/Atlas/Modal evidence remain
+required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 signed dispatch/ingress Phase 3F-C8q (2026-08-30):** commit
+`c5dbc9753` adds a V3-only QStash producer/recovery selector, route ID, strict
+job-ID-only signed handler and lazy Node app route at
+`/api/internal/workers/media-source-pts-cadence-v3`. Initial dispatch uses the
+V3 operation identity as its deduplication ID; recovery binds deduplication to
+the exact selected durable snapshot. The recovery selector admits only the V3
+owner/kind/schema and excludes the V1 cadence lane. Incomplete signing/public-
+origin configuration blocks before job creation, extra payload fields never
+reach the runtime, and retry/defer/lease-loss responses remain redeliverable.
+
+The V3 lane suite passes 8/8 and the shared QStash, V1 dispatch, V3 runtime and
+worker regressions pass 30/30; repository TypeScript, repository-wide quiet
+ESLint and diff checks pass. This result is
+`V3_SIGNED_DISPATCH_ROUTE_VERIFIED_PRODUCT_TRIGGER_LIVE_DELIVERY_OPEN`. Source
+inventory finds no product/media-intake caller of the V3 dispatch producer;
+only its module and tests call it. This process also has no QStash token,
+signing keys or public-origin variable configured. Therefore no hosted
+publication, authenticated delivery, redelivery or recovery is claimed. Bind
+one existing media lifecycle decision owner to this producer without adding a
+second qualification authority, then prove the deployed path. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 qualification-to-product trigger Phase 3F-C8r (2026-08-30):** commits
+`85c5dbd25` and `47243dcdb` close the previously missing local product caller
+without creating another qualification authority. The existing source-
+qualification owner now clears V1, V2 and V3 cadence state in both its claimed
+and terminal compare-and-set writes, so a newly measured source cannot retain a
+V3 map derived from earlier bytes. After that owner commits, its existing
+signed route reloads the current `MEDIA_ASSETS` record through the V3 asset
+owner, derives durable tenant scope from the canonical source-version owner,
+and admits only an exact measured video source with one unambiguous video
+stream. Audio/image sources are not applicable; zero-stream video is
+ineligible; multi-stream video requires an explicit future selection owner and
+is never silently treated as stream zero.
+
+The trigger creates the exact V3 durable job before attempting transport, then
+invokes the existing signed producer against the same idempotent operation.
+Consequently incomplete QStash/public-origin configuration returns a durable
+undelivered job plus retryable HTTP rather than losing the scan request. A
+terminal qualification redelivery reuses the same job and does not republish a
+confirmed delivery. The product-trigger, qualification, dispatch and route
+suites pass 28/28; repository TypeScript, repository-wide quiet ESLint and diff
+checks pass. This result is
+`V3_PRODUCT_TRIGGER_BOUND_DURABLY_LIVE_DELIVERY_RECOVERY_OPEN`.
+
+No hosted QStash delivery/redelivery, deployed V3 Modal exchange, dedicated
+private PTS R2 write, live Atlas crash recovery or reachability GC is claimed.
+The stale-job recovery selector exists but still needs an authenticated
+scheduled product caller and live outage proof. Explicit multi-stream essence
+selection also remains product work. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**V3 scheduled recovery Phase 3F-C8s (2026-08-30):** commit `1e70752ef`
+adds the missing authenticated product caller for the existing V3 stale-job
+recovery selector. A strict `CRON_SECRET` route is registered in `vercel.json`
+every five minutes. Each sweep is capped at ten jobs and uses a ten-minute
+stale cutoff, exactly twice the generic durable job's five-minute lease. It
+reuses the V3-only owner/kind/schema selector, state-bound recovery
+deduplication and the same product delivery policy; it never admits V1 cadence
+jobs or executes media work inside the cron.
+
+Missing/wrong cron authentication fails before store access. A mixed or
+unconfirmed publication returns sanitized retryable HTTP while preserving the
+per-job recovery results; an unavailable runtime also returns a bounded 503
+without exposing the underlying exception. The recovery route/runtime plus V3
+selector suites pass 15/15; repository TypeScript, repository-wide quiet
+ESLint and diff checks pass. This result is
+`V3_SCHEDULED_RECOVERY_CONFIGURED_LOCALLY_LIVE_CRON_PROOF_OPEN`.
+
+The route and schedule are committed configuration, not evidence that Vercel
+invoked them or that hosted QStash redelivered a job. Live Atlas lease expiry,
+outage/recovery, private PTS R2/Modal execution, alerting and reachability GC
+remain required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
+**V3 proxy-to-master atomic invalidation Phase 3F-C8t (2026-08-30):** commit
+`27741f577` extends the sole server-owned proxy-to-master activation CAS and its
+persisted update shape to clear `sourcePtsCadenceMapV3` plus its state hash in
+the same write that makes the master source active. V1 and V2 were already
+cleared there. The later qualification claim/terminal owner independently
+clears all three generations, but it is no longer the first boundary that
+protects the master from timing evidence derived from proxy bytes.
+
+The proxy/master-transition and source-qualification regressions pass 17/17;
+repository TypeScript, repository-wide quiet ESLint and diff checks pass. This
+result is `V3_PROXY_MASTER_STALE_TIMING_INVALIDATED_MAPPING_RELINK_OPEN`. It
+does not qualify a proxy/master time transform, rebase analysis or project
+bindings, relink preview/final-render consumers, or prove a live promotion.
+The existing relation therefore remains
+`UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`; Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Unqualified proxy-consumer guard Phase 3F-C8u (2026-08-30):** commit
+`5eaa9a65a` closes a live enforcement gap behind the earlier pure-contract
+test. Both Mongo asset projections used by V3 scanning and native-media
+preview/analysis/final render now load `proxyMasterRelationV1`. The sole
+verified V3 source-binding resolver validates that relation against the active
+master owner, asset, media kind, source hash, content hash and storage hash,
+then rejects the still-unqualified mapping before any private epoch artifact
+read or media decode. This central boundary covers every current resolver
+consumer rather than duplicating checks in individual renderers.
+
+The direct asset-owner/timestamp cluster passes 22/22 and all downstream
+preview/local-source/final-render consumers pass 51/51; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`UNQUALIFIED_PROXY_CONSUMER_BYPASS_CLOSED_TRUSTED_MAPPING_OWNER_OPEN`.
+
+The producer audit also proves that today's quick proxy is not mapping
+evidence. `lib/editron/client/video-compressor.ts` runs FFmpeg-WASM in the
+browser with scale/H.264/AAC-mono output, default timestamp synchronization,
+and no immutable transcode-lineage or per-epoch proxy-to-master anchor receipt.
+The browser then uploads that proxy before the original. A shared filename,
+asset ID, reported duration or frame count cannot qualify the relation.
+Official Premiere matching uses metadata including timecode, Resolve requires
+identical timecode and frame rate for externally generated proxies, and FFmpeg
+documents that frame-sync and muxer choices can alter timestamps.
+
+The production mapping phase must therefore make trusted server-generated
+proxies the primary route: derive the proxy from a canonical immutable master,
+emit source-version-bound per-epoch video anchors plus exact audio/cadence/
+stream and encoder-policy evidence, scan both objects through V3, and reverify
+the receipt before relink. The current proxy-first browser route may remain a
+provisional low-latency surface only while its project coordinates stay bound
+to the proxy source version. It may switch to the master only after an
+independent server verifier creates equivalent mapping evidence; otherwise it
+must remain visibly on the proxy or blocked. ProjectService relink receipts,
+derivative invalidation/rerender and rollback remain required. Queue item 4
+and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
+**Qualified proxy/master timing contract Phase 3F-C8v (2026-08-30):** commit
+`75a955cb9` defines the first normalized fail-closed contract for a proxy/master
+time mapping. It accepts only the exact persisted V1 relation, trusted server
+transcode lineage, complete source-version-bound V3 map identities, contiguous
+canonical-time segments, complete proxy and master frame-ordinal coverage, a
+private content-addressed correspondence-index reference, and either explicit
+no-audio evidence or per-stream sample-timeline lineage with equal channel
+layouts. Rational clocks, negative/reset PTS and different proxy/master frame
+counts are represented without floating-point conversion or guessed frame
+identity. The qualified record and lineage are canonical-hash bound; unknown
+fields, another relation, drift, coverage gaps, public evidence, audio-layout
+changes and persisted-record tampering fail closed.
+
+The focused contract suite passes 4/4 and the adjacent source-version,
+proxy-transition, V3 epoch-index and V3 finalizer suites pass 39/39; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`QUALIFIED_PROXY_MASTER_MAPPING_CONTRACT_SEALED_VERIFIER_PERSISTENCE_RELINK_OPEN`.
+The contract is a pure normalization boundary: no trusted server transcode
+producer or independent correspondence verifier has read the referenced V3,
+frame or audio artifacts; no qualified mapping has been CAS-persisted on a live
+asset; and no ProjectService binding, renderer, analysis, invalidation, rerender
+or rollback consumer admits it. Those owners and live private-storage evidence
+remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Proxy/master correspondence-batch codec Phase 3F-C8w (2026-08-30):**
+commit `9976028cc` adds the immutable sharded evidence format required beneath
+the C8v mapping contract. Each batch is bound to the exact relation and both
+complete V3 time-map identities. It records contiguous rational canonical-time
+spans over the union of proxy and master frame boundaries, allowing one source
+ordinal to repeat only when the other source advances. This represents VFR and
+different proxy/master frame counts without nominal-FPS inference, floating-
+point conversion, dropped evidence or nearest-frame rounding. A later relink
+owner can distinguish a boundary where both sources advance exactly from one
+that is not safe for arbitrary edit rebasing.
+
+The codec requires canonical JSON, full basis hashes, bounded resource policy,
+content-addressed `R2_PRIVATE` sidecars, sequential span ordinals, contiguous
+time, zero-based full-map scope and per-source frame steps of only zero or one.
+It rejects canonical gaps, skipped/out-of-range frames, no-op boundaries,
+cross-map tampering, noncanonical JSON, altered serialization receipts, public
+keys and impossible sidecar summaries. The focused suite passes 4/4; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_BATCH_CODEC_SEALED_MANIFEST_ARTIFACT_VERIFIER_OPEN`.
+
+This is still a codec, not observed correspondence. The multi-batch manifest,
+private object writer/reader, full artifact-set verifier against both decoded
+V3 maps, trusted transcode producer, audio-lineage composition, asset CAS,
+ProjectService relink and downstream invalidation/render consumers remain Queue
+item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Proxy/master correspondence manifest Phase 3F-C8x (2026-08-30):** commit
+`338af9de7` adds the multi-batch index and exact private reference consumed by
+the C8v mapping contract. Index creation revalidates each supplied canonical
+batch plus sidecar, binds one relation/V3 basis and required batch policy,
+checks batch and span sequence, exact cross-batch canonical continuity, legal
+zero-or-one frame advances, zero-based starts and complete terminal proxy and
+master frame coverage. The persisted index parser independently rejects forged
+summary gaps and nonzero starts; the reference is content-addressed under the
+same basis hash and cannot name public storage.
+
+The correspondence batch/index cluster passes 8/8; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_MANIFEST_CODEC_SEALED_PRIVATE_ARTIFACT_REPROOF_OPEN`.
+No private object was written or read, and an index sidecar summary is not the
+batch payload it names. The next owner must conditionally write/reread the
+manifest and every batch, verify their bytes/hashes/summaries against both V3
+artifact sets, and issue a separate verification receipt. Trusted transcode
+production, audio composition, asset CAS, ProjectService relink, invalidation,
+rerender and rollback remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Proxy/master correspondence artifact reproof Phase 3F-C8y (2026-08-30):**
+commit `db764a433` adds the separate read-only artifact-set verifier required by
+C8x. Through an injected private-object reader it reads the index first, checks
+the exact stored byte length and SHA-256, parses canonical content, recreates
+the basis-bound index reference, then reads every named batch in order and
+recreates every sidecar and the complete index. The final immutable receipt
+binds the relation/V3 evidence identities, resource policy, index reference,
+ordered batch keys/hashes/span counts, total bytes, canonical duration and
+proxy/master frame counts. Receipt reload independently recomputes basis-bound
+object paths plus byte/span totals.
+
+Missing objects, malformed reads, length/hash/payload/sidecar mismatches,
+another basis, reconstructed-index drift and resource exhaustion return
+structured `UNVERIFIABLE`; none can produce the verified receipt. The complete
+correspondence artifact cluster passes 12/12; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_ARTIFACT_SET_REPROOF_LOCAL_V3_DERIVATION_LIVE_STORAGE_OPEN`.
+
+The tests use an injected in-memory object reader. No dedicated private R2
+object was written/read, and internal artifact consistency still does not prove
+that the spans equal the two verified V3 frame maps. The next phase must derive
+and recheck every canonical overlap from those maps before the C8v mapping may
+be qualified. Trusted transcode/audio production, asset CAS, ProjectService
+relink, invalidation, rerender and rollback remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Exact epoch-relative canonical-time primitive Phase 3F-C8z
+(2026-08-30):** commit `c4d624539` adds the canonical contract primitive needed
+by the independent proxy/master derivation verifier. Given one validated V3
+presentation epoch and one source PTS coordinate, it computes the continuous
+canonical time with exact integer/rational arithmetic, including negative or
+reset PTS. The epoch's end-exclusive source coordinate is intentionally
+accepted as a boundary; any point before the epoch or beyond that boundary
+fails instead of falling back to nominal FPS, floating-point seconds or an
+adjacent epoch. Canonical output is reduced without discarding precision.
+
+The canonical-time suite passes 12/12, including a timestamp-reset epoch,
+negative PTS, an exact terminal boundary and both outside-range directions;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_EPOCH_CANONICAL_TIME_PRIMITIVE_VERIFIED_CORRESPONDENCE_DERIVATION_OPEN`.
+It does not read either V3 artifact set or correspondence batch and therefore
+does not yet prove C8y spans. The next owner must stream those verified windows,
+require each persisted span to equal the exact intersection of its referenced
+proxy and master frame intervals, and issue a separate derivation receipt.
+Live dedicated private storage, trusted transcode/audio lineage, qualified
+mapping CAS, ProjectService relink, invalidation, rerender and rollback remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**V3-derived proxy/master correspondence verification Phase 3F-C8aa
+(2026-08-30):** commit `9c5b49c26` composes C8y's artifact-set reproof with
+the current source-bound V3 epoch-window owner. After the complete index/batch
+set passes its first verification, the new read-only owner rereads every exact
+batch by its immutable hash and, per batch, obtains bounded current V3 windows
+for both proxy and master. It independently converts each referenced source
+frame to an exact canonical start/end interval and requires the stored span to
+equal the rational intersection of those two intervals. The first span must
+begin with both sources, and the terminal span must reach the exact final frame
+end in both maps; equal nominal FPS, duration, frame count or adjacent-frame
+guessing cannot pass.
+
+The reload-verifiable receipt binds the relation and full V3 map identities,
+content-addressed index, C8y artifact receipt hash, aggregate resource policy,
+ordered batch hashes, exact ordinal windows, V3 window-evidence hashes, measured
+frame/byte/span work and canonical terminal duration. Receipt validation
+recomputes the basis-scoped index path and source frame totals and rejects policy
+understatement, basis drift or tampering. The focused verifier suite passes 5/5;
+the canonical/batch/index/artifact/derivation cluster passes 29/29; repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`CORRESPONDENCE_V3_DERIVATION_CONTRACT_VERIFIED_LIVE_STORAGE_PRODUCER_AND_GAP_POLICY_OPEN`.
+The focused suite uses an in-memory correspondence store and a mocked V3 window
+producer with the real output contract; no dedicated private R2 object or live
+current asset was consumed. The V1 span form also requires a presented proxy and
+master frame throughout canonical coverage. A genuine canonical interval with
+no picture presentation therefore blocks instead of being filled implicitly.
+Before general discontinuity relinking, a successor contract must explicitly
+represent `NO_PRESENTATION` intervals and bind the chosen black/freeze/nearest
+conform behavior—or prove a trusted transcode produced an equivalent presented
+frame. Trusted correspondence/audio production, private writes/rereads, mapping
+CAS, ProjectService relink, invalidation, rerender and rollback remain Queue item
+4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Private proxy/master correspondence artifact store Phase 3F-C8ab
+(2026-08-30):** commit `499acc7d0` adds the correspondence-specific adapter for
+the dedicated server-only media-evidence R2 scope. It reconstructs the complete
+basis-bound index before storage, rejects forged batch sidecars/index bytes or
+references before object access, then conditionally writes immutable batches
+first and the immutable index last. Every put is reread with an exact bounded
+body, byte count, SHA-256 and canonical payload check. A create collision is an
+idempotent replay only when the existing object is byte-identical; corruption
+or an ordinary storage failure blocks. After index publication the adapter runs
+the complete C8y artifact-set verifier over its own reader before returning a
+receipt.
+
+The allow-list accepts only canonical correspondence batch/index keys in the
+explicit private bucket with no browser route. It never signs, lists or exposes
+an object. If a later batch/index operation fails, earlier unreachable immutable
+batches are retained rather than deleted because another verified index may
+share content-addressed objects; lifecycle GC must prove reachability before
+removal. The focused store suite passes 4/4 and the complete correspondence
+cluster passes 21/21; repository TypeScript and repository-wide quiet ESLint
+pass.
+
+This result is
+`PRIVATE_CORRESPONDENCE_R2_STORE_VERIFIED_RUNTIME_WIRING_AND_LIVE_OBJECT_OPEN`.
+The tests use an in-memory S3-command client. No dedicated private R2 object was
+written, and this port is not yet exposed by the single PTS R2 runtime or called
+by a trusted correspondence producer. Runtime composition, live create/replay/
+corruption/outage evidence, trusted span/audio generation, derivation over live
+V3 assets, qualified mapping CAS, ProjectService relink, invalidation, rerender
+and rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
+**Private correspondence runtime composition Phase 3F-C8ac (2026-08-30):**
+commit `22dcfeda0` now returns the C8ab correspondence artifact store from the
+single dedicated private-media R2 runtime. The port uses the same validated PTS
+account endpoint, server-only S3 client and explicit private bucket scope as the
+V3 cadence, decoded-audio, preview and final-render evidence adapters. Missing
+dedicated configuration still fails closed, and generic R2 credentials or the
+public CDN bucket are not accepted as substitutes. The focused runtime/store
+suite passes 16/16; repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_CORRESPONDENCE_RUNTIME_COMPOSED_LIVE_BUCKET_AND_PRODUCER_OPEN`. It
+makes the immutable writer/reader available to a trusted server composition; it
+does not itself invoke that writer or prove the configured production bucket.
+No live object, IAM/browser isolation, collision, outage, cleanup or
+reachability-GC lifecycle was exercised. The next trusted producer must read the
+complete current proxy/master V3 maps, construct and shard exact spans, publish
+through this port, independently run C8aa derivation reproof and only then offer
+evidence to the qualified-mapping CAS owner. Audio lineage, explicit
+`NO_PRESENTATION` policy, ProjectService relink, invalidation, rerender and
+rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Version-addressed proxy/master V3 evidence audit Phase 3F-C8ad
+(2026-08-30):** the current live owner chain cannot yet supply the two source
+views required by C8aa. `transitionMediaProxyMasterV1` atomically clears the
+active proxy V1/V2/V3 cadence fields when the master becomes active and retains
+only `proxySourceVersionV1`. The later qualification worker materializes the
+unqualified relation but again owns only the active master cadence slot. The V3
+epoch-window reader correctly requires a qualification-bound current asset
+record, so retained private proxy objects without their verified state root
+cannot be reconstructed or trusted. A test may inject two asset snapshots; the
+production MediaAsset cannot currently address both.
+
+This result is
+`VERSION_ADDRESSED_PROXY_V3_EVIDENCE_OWNER_MISSING_CORRESPONDENCE_PRODUCER_BLOCKED`.
+Do not build a producer that infers the missing side from duration, nominal FPS,
+frame count, filename or surviving object keys. Queue item 4 must first add one
+source-version-keyed media-evidence owner with strict owner/asset/version scope,
+CAS lifecycle state and immutable qualification/V3/audio roots. V3 jobs and
+readers must be able to finish and reread evidence by immutable source version
+after the active rendition changes; promotion must change the active binding,
+not erase the historical evidence authority. Existing active-asset records need
+a verified dual-read/backfill migration, and unreachable artifacts need
+reference-aware retention/GC. Only after both relation members resolve to
+complete current roots may the trusted correspondence producer publish and run
+C8aa reproof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Source-version evidence owner Phase 3F-C8ae (2026-08-30):** commit
+`5a01d9723` defines the first source-version-addressed evidence authority needed
+by C8ad. It captures only already-terminal, independently validated V3 cadence
+and/or decoded-audio roots from the existing active asset owners, binds them to
+the exact owner, asset, immutable source version and qualification, and hashes
+the complete canonical snapshot. The owner can reconstruct the exact read-only
+asset view expected by the existing V3/audio readers without treating orphaned
+object keys as evidence. Existing roots are immutable; a later compare-and-set
+may add a previously absent V3 or audio root but cannot replace one. Empty,
+partial, nonterminal, cross-asset, cross-version, malformed, tampered, stale,
+raced and conflicting writes fail explicitly. Deterministic replay is
+`UNCHANGED`, while an unknown storage/programming exception remains loud.
+
+The focused owner plus adjacent V3/audio/correspondence-derivation cluster
+passes 20/20; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`SOURCE_VERSION_EVIDENCE_CONTRACT_AND_CAS_VERIFIED_DURABLE_WIRING_OPEN`.
+The exercised store is injected and in-memory: no Mongo collection/index,
+transactional adapter, lifecycle writer, active-record backfill, durable-job
+source-version read path, retention/GC policy or live Atlas record exists yet.
+Consequently production still cannot resolve both proxy and master roots, and
+the C8aa correspondence producer remains blocked without inference. Queue item
+4 proceeds to durable persistence and lifecycle wiring before correspondence
+generation, qualified mapping, relink/invalidation/rerender/rollback or live
+proof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Durable source-version evidence adapter Phase 3F-C8af (2026-08-30):**
+commit `d4e21a60f` implements the C8ae store port over one dedicated Mongo
+collection. Its deterministic scope binds owner kind/identity, asset and
+immutable source-version hash; a unique compound index covers the same scope.
+Reads use the primary, writes use majority acknowledgement, first creation is
+an upsert guarded by absence plus duplicate-key race handling, and later writes
+compare both the envelope and nested record evidence hashes. Every successful
+write is reread and fully revalidated before success is returned. Stored
+document kind, exact fields, scope hash, record hash and canonical evidence are
+all checked; USER and ORG scopes cannot alias. Index, read, write and durability
+failures stay loud rather than degrading to an in-memory or active-asset
+fallback.
+
+The real-record adapter/owner suites pass 9/9; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`SOURCE_VERSION_EVIDENCE_MONGO_ADAPTER_VERIFIED_LIVE_ATLAS_AND_WRITERS_OPEN`.
+Tests use an injected in-memory Mongo command surface: no live Atlas
+collection/index/document was created. More importantly, no terminal V3/audio
+publisher, qualification transition, proxy/master promotion, migration or
+backfill invokes this adapter yet. Production therefore still cannot resolve
+both relation members, and correspondence generation remains blocked. Queue
+item 4 proceeds to lifecycle capture/read wiring and source-version-addressed
+durable job completion before any C8aa producer or qualification permission.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Evidence-first durable V3 completion Phase 3F-C8ag (2026-08-30):** commit
+`546187a85` composes the C8af Mongo authority into the real durable V3 runtime
+without adding a second cadence writer. The runtime decorates the existing
+publisher state owner. Only a fully validated `COMPLETE` next record is
+reconstructed against the exact immutable source version and qualification,
+then monotonically persisted to the source-version evidence collection before
+the existing `MEDIA_ASSETS` compare-and-set runs. Pending, verifying and
+unverifiable states do not become historical verified roots. One concurrent
+evidence race receives a bounded reread/merge repair; exhausted races and
+storage outages are explicit durable retries, while malformed/conflicting
+evidence is rejected and dead-lettered. If evidence capture fails, the active
+asset writer is never called.
+
+The lifecycle, runtime, evidence-owner and Mongo-adapter cluster passes 19/19;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`NEW_DURABLE_V3_COMPLETIONS_RETAIN_VERSION_EVIDENCE_BEFORE_ACTIVE_CAS`.
+It closes the new-write crash ordering for this one V3 runtime, not the whole
+migration. Previously completed active V3 rows still need a verified backfill;
+the decoded-audio terminal writer is not yet decorated; promotion and readers
+do not yet resolve historical roots by source version; and no live Atlas row
+or proxy/master pair has been exercised. Correspondence generation therefore
+remains blocked until both relation members durably resolve and are reread.
+Queue item 4 proceeds with audio capture plus dual-read/backfill and
+source-version-addressed consumers. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
+**Decoded-audio lifecycle owner audit Phase 3F-C8ah (2026-08-30):** the code
+contains a lossless FFmpeg sample-epoch/PCM materializer, dedicated private R2
+artifact store and append-only `MEDIA_ASSETS` audio-record owner, but production
+code has no caller that composes those three stages. Current preview and final-
+render paths only consume a record that tests or an external caller has already
+created. The active audio set can also grow one stream at a time and has no
+terminal completeness receipt. Capturing its first write as immutable source-
+version evidence would therefore freeze a partial root and make a later valid
+stream look like conflicting evidence.
+
+This result is
+`AUDIO_COMPONENTS_EXIST_PRODUCT_COMPOSITION_AND_TERMINAL_SET_OWNER_MISSING`.
+Do not infer a primary stream from stream zero, array order or the first
+successfully decoded artifact. The source-version audio root may become
+immutable only when its records exactly cover the independently validated
+qualification's complete observed audio-stream index set, or a future explicit
+source-version-bound essence-selection contract. Zero observed streams require
+independent no-audio proof and no fabricated artifact root; an incomplete,
+duplicate, extra, stale or ambiguous set remains nonterminal. Queue item 4 must
+add that completeness boundary, reuse the C8ae/C8af monotonic retention owner,
+compose FFmpeg -> private R2 -> asset CAS -> source-version evidence through one
+durable product owner, and then prove retry/crash behavior. C8aa correspondence
+and qualified audio lineage remain blocked. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
+**Terminal decoded-audio source-version evidence Phase 3F-C8ai
+(2026-08-30):** commit `f95a6b794` extracts the V3 owner's already-proven
+bounded monotonic evidence retention into one shared source-version owner and
+applies it to the append-only decoded-audio asset writer. The audio decorator
+rereads the exact active asset and qualification, validates the candidate
+state through the existing audio owner, and compares its sorted record indexes
+with the qualification's complete observed audio-stream index set. Partial
+sets remain active and mutable without becoming historical evidence. Only the
+write that exactly completes the independently observed set retains the
+immutable source-version root, and it does so before the active
+`MEDIA_ASSETS` replace. Extra, zero-observation, malformed or conflicting sets
+fail closed; exhausted evidence races and store outages remain typed retryable
+failures. No stream-zero, array-order or first-success inference was added.
+
+The shared V3/audio evidence cluster passes 19/19 focused tests; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`TERMINAL_AUDIO_STREAM_SET_RETENTION_VERIFIED_PRODUCT_FFMPEG_RUNTIME_OPEN`.
+It proves the completeness boundary and crash ordering for callers of this
+decorated port. It does not prove a production invocation: current product
+code still does not compose FFmpeg materialization, dedicated private R2
+publication, active-asset CAS and source-version retention through one durable
+job. No live private object, Atlas row, restart, cleanup or proxy/master audio
+pair was exercised. Previously completed active audio/V3 rows still need
+verified dual-read/backfill, and source-version-addressed readers remain open.
+Queue item 4 proceeds with that durable composition and migration work;
+C8aa correspondence remains blocked until both relation members resolve from
+immutable evidence. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Independent audio/V3 evidence-root capture Phase 3F-C8aj (2026-08-30):**
+commit `a2b28b511` corrects one lifecycle coupling found while tracing the
+product audio composition. The V3 decorator was already safe because it builds
+a V3-only candidate. The audio decorator, however, built its candidate by
+spreading the full active asset, so an unrelated nonterminal V3 slot could
+prevent an otherwise exact terminal audio set from being retained. Audio now
+validates completeness against the full active asset but captures an explicit
+audio-only source-version view. The immutable evidence owner remains the sole
+place where independently terminal V3 and audio roots merge.
+
+The focused audio/V3/merge regression cluster passes 14/14; repository
+TypeScript and repository-wide quiet ESLint pass. The adversarial case keeps a
+nonterminal V3 slot active while terminal audio evidence is retained, verifies
+that the historical candidate contains no V3 root, and verifies that the
+active V3 slot is not modified. This result is
+`AUDIO_AND_V3_EVIDENCE_ROOT_LIFECYCLES_ISOLATED_PRODUCT_COMPOSITION_OPEN`.
+It does not create the FFmpeg/private-R2 durable product caller, backfill
+historical rows or prove live storage. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Product decoded-audio composition owner Phase 3F-C8ak (2026-08-30):**
+commit `fbc7c16ea` adds the missing caller-level composition seam over the
+existing owners. It loads and binds the exact source/qualification, validates
+every independently observed audio stream, resumes only missing streams in
+canonical index order, invokes the existing lossless FFmpeg/private-artifact
+materializer, persists through the existing append-only asset CAS and C8ai
+evidence decorator, rereads the immutable source-version root, and returns a
+canonical hashed receipt. A fully active set is reused only when matching
+historical evidence exists. A complete legacy active set without that root is
+reported as `HISTORICAL_EVIDENCE_REQUIRED`; it is not silently backfilled.
+Private-store outages and active-state races are typed retryable failures,
+while invalid bindings, extra streams and evidence conflicts stop
+deterministically. Zero observed streams remain blocked behind a separate
+no-audio proof owner rather than fabricating an artifact or selecting a
+default stream.
+
+The product/asset/evidence/FFmpeg cluster passes 17/17 focused tests;
+repository TypeScript and repository-wide quiet ESLint pass. The product-owner
+tests inject the materializer and in-memory state/evidence ports, while the
+adjacent FFmpeg suite separately exercises the real local adapter. This result
+is `PRODUCT_AUDIO_COMPOSITION_OWNER_VERIFIED_DURABLE_RUNTIME_AND_LIVE_PRIVATE_STORAGE_OPEN`.
+It is shared downstream plumbing, not a complete production control flow: no
+durable job, product trigger, worker route, qualification-bound source-lease
+factory, live private R2 object or live Atlas row currently invokes this owner.
+Restart/dead-letter policy, no-audio proof, historical backfill and
+source-version-addressed consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Qualified source lease and product audio runtime Phase 3F-C8al
+(2026-08-30):** commit `a2fc3a1e5` composes C8ak over the real server-side
+factories. The runtime requires the existing dedicated private-media R2
+configuration, the scoped audio `MEDIA_ASSETS` Mongo CAS and the
+source-version evidence Mongo owner, then passes their actual ports to the
+product materializer. Missing private configuration, asset ownership or
+evidence ownership is returned as a distinct `runtime_unavailable` reason; no
+generic/public bucket or alternate persistence fallback is accepted.
+
+The shared immutable-source lease owner now exposes a separate
+qualification-bound entry point for audio decoding. It checks exact asset,
+source-version, measured qualification and storage-version identity, obtains a
+fresh server URL and revalidates the storage version during materialization.
+It does not require a video V3 map, so audio-only sources are admissible. The
+existing preview/final-render lease remains a different entry point and still
+requires verified V3 video epoch timing. Temporary URL unavailability is now
+distinguished from a changed storage version, allowing the later worker to
+retry only the former.
+
+The lease/runtime/product plus existing preview/final-render regression cluster
+passes 28/28 focused tests; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`PRODUCT_AUDIO_RUNTIME_COMPOSED_DURABLE_JOB_TRIGGER_AND_LIVE_STORAGE_OPEN`.
+The runtime is not yet invoked by a durable job, product trigger or worker
+route, and tests inject in-memory factories. No live private R2 object, Atlas
+asset/evidence row, restart/dead-letter lifecycle or cleanup was exercised.
+No-audio proof, verified historical migration and source-version consumers
+also remain open. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are
+unchanged.
+
+**Exact queued-source binding Phase 3F-C8am (2026-08-30):** commit
+`dd15c7c2c` hardens the C8ak/C8al side-effect boundary before introducing its
+durable job. Product materialization now requires the caller's complete
+canonical set of asserted audio-stream bindings. Each binding already seals
+the source version, storage version, measured qualification/technical
+observation, exact stream identity and timing. The product owner reconstructs
+that set from the freshly loaded active asset and rejects any mismatch before
+opening a source lease, decoding, writing private artifacts or attempting the
+active-asset CAS. Its terminal receipt now includes the canonical binding-set
+hash. This closes the source-replacement race that a worker-only precheck
+would have left between job validation and product execution.
+
+The product/runtime suites pass 11/11 focused tests; repository TypeScript and
+repository-wide quiet ESLint pass. The adversarial case retains the asset ID
+but changes its measured source binding and proves zero decode and zero active
+state mutation. This result is
+`PRODUCT_AUDIO_SOURCE_DRIFT_BLOCKED_DURABLE_JOB_CONTRACT_OPEN`. It does not
+create the durable job, worker, trigger or route and does not exercise live R2
+or Atlas. Those Queue item 4 requirements, no-audio proof, verified historical
+migration and source-version consumers remain open.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Durable decoded-audio job envelope Phase 3F-C8an (2026-08-30):** commit
+`25e3c38c6` adds the URL-free durable input and idempotent creation owner for
+the exact C8am product call. One job binds tenant/user/org ownership, the
+complete canonical audio-stream binding set, its aggregate hash, the explicit
+decode/resource policy, dedicated-private-storage policy, and a versioned
+durable lifecycle policy. Its sorted dependency set separately seals source,
+storage, qualification, technical observation, stream-set, resource,
+storage-policy and lifecycle-policy identities. The operation ID and
+idempotency key derive only from that full input hash; replaying the same
+contract returns the same generic durable job while another source version or
+resource policy receives a distinct identity. Zero observed streams are
+rejected for routing to the separate no-audio proof owner.
+
+The contract suite passes 6/6 against the real generic durable-job store;
+repository TypeScript and repository-wide quiet ESLint pass. It covers audio
+and video sources, nonzero/out-of-order observed stream indexes, unknown
+fields, owner drift, lifecycle-policy weakening, and a mixed-source attack in
+which every individual stream binding is valid and the attacker recomputes
+the aggregate hash. This result is
+`DURABLE_AUDIO_JOB_ENVELOPE_VERIFIED_WORKER_TRIGGER_LIVE_PROOF_OPEN`. The
+bound 20-attempt/seven-day lifecycle follows the existing durable-media
+ceiling but remains subject to production telemetry calibration; changing it
+requires a new policy identity. No worker has claimed the job, no trigger or
+signed route invokes it, and no restart/dead-letter or live Atlas/R2 evidence
+exists yet. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Abort-aware audio materialization Phase 3F-C8ao (2026-08-30):** after the
+required separate large-file cleanups in commits `0bd6057e2` and `d72cb082b`,
+commit `d94f935eb` carries one abort signal through verified source download,
+FFprobe frame scanning, FFmpeg PCM decode, PCM hashing, private-artifact stream
+publication and source revalidation. Aborted subprocesses are force-terminated
+and the adapter-owned temporary directory is still removed. The product owner
+checks cancellation before asset access, around each long materialization and
+immediately before every active asset/evidence CAS. It also accepts an
+asynchronous pre-CAS lifecycle callback so the durable worker can renew and
+recheck its exact lease/cancellation state at the real side-effect boundary.
+
+The adapter/product/runtime cluster passes 20/20 focused tests, including the
+real FFmpeg/FFprobe exact-PCM suites; repository TypeScript and repository-wide
+quiet ESLint pass. An already-aborted adapter call opens no source lease, and
+an adversarial product call that aborts immediately after producing a valid
+private artifact performs no lifecycle callback, evidence write or active
+asset replacement. Immutable content-addressed bytes created before a later
+abort may be unreachable and therefore still require the planned safe GC
+lifecycle. The active CAS remains the linearized product commit point. The
+generic durable store separately owns terminal settlement and refuses PASS
+completion after a cancellation request. Therefore, if cancellation races
+after a valid product receipt exists, the job must settle `CANCELLED` with that
+PASS product receipt attached as proof. It must not claim either that no
+product commit occurred or that the cancelled job completed normally.
+
+This result is
+`AUDIO_ABORT_AND_PRE_CAS_LIFECYCLE_BOUNDARY_VERIFIED_DURABLE_WORKER_OPEN`.
+The focused suite does not timing-stress a real OS subprocess abort in flight.
+At that phase no durable worker, trigger, signed route, restart/dead-letter
+lifecycle or live Atlas/R2 object had used this boundary. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Product audio receipt verification Phase 3F-C8ap (2026-08-30):** commit
+`7c03939fa` adds the strict read boundary beside the sole C8ak receipt creator.
+It accepts only the exact receipt field set and identity, canonical ISO
+completion time, bounded identities, valid SHA-256 roots, sorted unique
+observed/materialized stream sets, a materialized subset of the observation,
+and a disposition compatible with that subset. It then reconstructs and
+re-hashes the complete receipt material. A structurally plausible object with
+a replacement proof root and stale receipt hash is rejected.
+
+The product/runtime suites pass 14/14 focused tests; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`PRODUCT_AUDIO_RECEIPT_REPROOF_VERIFIED_DURABLE_WORKER_SETTLEMENT_OPEN`. It
+prevents the later worker from trusting a typed or provider-returned object by
+shape alone. It does not claim/heartbeat/complete the C8an job and does not
+prove cancellation races, restart, dead-letter, dispatch or live storage.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio worker Phase 3F-C8aq (2026-08-30):** commit `3451f5d4e`
+implements the sole worker for the C8an source-audio job envelope over the real
+generic durable-job store. It claims and continuously heartbeats one lease,
+strictly reloads the canonical job input, resolves the current source through
+the MEDIA_ASSETS owner, reconstructs the complete source/policy-bound job
+contract, and refuses stale source, dependency or operation identity before
+materialization. It invokes the C8ak product runtime with the persisted stream
+bindings, resource policy, job creation time, abort signal and exact pre-CAS
+lease callback; it then independently re-proves the C8ap receipt before
+terminal settlement.
+
+Temporary private-runtime absence parks the same job in bounded `retry_wait`;
+deterministic contract or receipt-scope drift dead-letters it. Cancellation
+during materialization aborts the product path and records no product proof.
+If cancellation is requested after a valid product receipt exists but before
+terminal PASS completion, the generic store's cancellation state wins and the
+worker emits a `CANCELLED` receipt carrying the immutable PASS product receipt
+hash. This is truthful cancellation after a product commit, not false success
+and not a claim of zero side effects.
+
+The worker suite passes 6/6, and the source-bound audio chain passes 30/30
+across the durable envelope, worker, runtime composition, product owner and
+real FFmpeg/FFprobe adapter; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`DURABLE_AUDIO_WORKER_VERIFIED_TRIGGER_ROUTE_LIVE_STORAGE_GC_AND_MIGRATION_OPEN`.
+No signed route or trigger dispatches this worker, no restart recovery, live
+dead-letter redrive or live dedicated-R2/Atlas/subprocess-abort proof has been
+captured, and safe
+unreachable-object GC, no-audio proof, verified legacy migration and
+source-version consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio runtime composition Phase 3F-C8ar (2026-08-30):** commit
+`b554d6307` adds the server-only composition boundary above C8aq. Before any
+durable claim it constructs the dedicated private-media storage runtime, the
+scoped MEDIA_ASSETS Mongo owner and the immutable source-version-evidence
+owner. Missing configuration or an unavailable factory therefore returns an
+explicit `runtime_unavailable` result without consuming an attempt. The
+runtime then gives C8aq one current-source loader and invokes the existing C8al
+product runtime with those exact preflighted owner instances; it does not
+duplicate download, decode, artifact, CAS or evidence logic.
+
+A transient MEDIA_ASSETS read failure after claim is now a typed retryable
+worker-port failure instead of being misreported as a stale/missing source or
+unknown permanent execution failure. Structurally invalid current source state
+remains deterministic and non-retryable. The runtime suite passes 3/3, and the
+expanded source-audio chain passes 33/33 including the real FFmpeg/FFprobe
+adapter; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`DURABLE_AUDIO_RUNTIME_VERIFIED_ROUTE_TRIGGER_LIVE_STORAGE_GC_AND_MIGRATION_OPEN`.
+No signed route, QStash dispatch, product trigger, restart recovery, live
+dedicated-R2/Atlas proof, unreachable-object GC, no-audio proof or verified
+historical migration is supplied by this phase. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio signed delivery Phase 3F-C8as (2026-08-30):** commit
+`40024d4d3` adds the source-audio QStash dispatch owner, request-time
+authenticated worker route and thin Node App Router export. Dispatch requires
+the publisher token plus both signing keys before job creation, uses the shared
+durable QStash owner, publishes exactly `{jobId}` with no URL/source/policy
+payload, records confirmed delivery, does not republish a recorded replay, and
+preserves the distinction between an unconfirmed send and a delivered message
+whose receipt could not be recorded.
+
+The recovery selector admits only stale jobs whose owner, operation kind and
+input schema are exactly the C8an audio family, and derives recovery
+deduplication from the current durable state. The signed route rejects extra
+message fields, rechecks signing configuration at request time, returns 503
+plus retry evidence for runtime/lease deferral, returns 404 for a missing job,
+and imports without store or network work. The focused suite passes 7/7; the
+expanded auth/QStash/source-audio chain passes 51/51 including the real
+FFmpeg/FFprobe adapter; repository TypeScript and repository-wide quiet ESLint
+pass. This result is
+`DURABLE_AUDIO_SIGNED_DISPATCH_VERIFIED_PRODUCT_TRIGGER_CRON_LIVE_PROOF_OPEN`.
+The route and recovery selector were exercised locally with injected stores and
+publishers. No qualification/product hook invokes initial dispatch, no cron
+invokes recovery, and hosted QStash, deployed signing configuration, restart
+redelivery, live dedicated-R2/Atlas, GC, no-audio proof and historical
+migration remain unproven. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio product trigger Phase 3F-C8at (2026-08-30):** commit
+`8a3943684` connects the existing signed post-qualification worker to the C8as
+audio dispatcher after the existing V3 cadence trigger. The trigger reloads
+the authoritative MEDIA_ASSETS row, rechecks the exact qualification/source
+binding, validates the canonical observation hash and every audio stream
+through the existing stream-binding owner, and accepts both audio and video
+source kinds without assuming stream zero or array order. It persists the
+fully source/policy-bound durable job before signed delivery, so a QStash or
+configuration outage cannot erase a materialization intent that was already
+admitted.
+
+Production resource limits have no hidden defaults. The deployment must supply
+the versioned `EDITRON_MEDIA_AUDIO_*` source-byte, canonical-map, decoded-frame,
+epoch, decoded-sample-frame, decoded-PCM and timeout limits. Decimal/safe-range
+validation, exact source-byte binding, maximum observed channel count, float32
+PCM capacity and the private-artifact chunk capacity are checked before job
+creation. Missing or incompatible configuration yields a structured retryable
+deferral; a source above the configured admission ceiling is explicitly
+ineligible. No-audio observations produce the explicit
+`NO_AUDIO_PROOF_REQUIRED` classification and no audio job, but this phase does
+not persist the separate no-audio proof required by historical/source-version
+consumers.
+
+The qualification route now preserves the order qualification -> V3 cadence
+trigger -> audio trigger. A deferred cadence delivery prevents the later audio
+call; a deferred audio delivery returns its own 503 receipt after durable
+intent persistence. Focused trigger/route proof passes 11/11, the expanded
+qualification/cadence/source-audio chain passes 68/68, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`DURABLE_AUDIO_PRODUCT_TRIGGER_VERIFIED_RECOVERY_CRON_LIVE_PROOF_OPEN`.
+Recovery cron invocation, hosted QStash/signing configuration, restart
+redelivery, live dedicated-R2/Atlas/subprocess-abort evidence, unreachable-byte
+GC, persistent no-audio proof, verified historical migration and downstream
+source-version consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio recovery cron Phase 3F-C8au (2026-08-30):** commit
+`aa021683c` composes the existing exact-family C8as recovery selector with the
+generic durable store, the C8at delivery policy and a strict-secret cron route.
+Each sweep waits two durable lease windows, requests at most ten candidates and
+redelivers only jobs whose owner, operation kind and input schema identify the
+source-audio family. The existing selector binds recovery deduplication to the
+current durable state; this phase adds no job creator, media materializer or
+second source authority.
+
+The route returns success only when every selected publish is confirmed. An
+unconfirmed publish or delivered message whose receipt was not recorded keeps
+the full sanitized recovery receipt and returns 503 with a five-minute retry
+hint. Missing or incorrect cron authentication fails closed, runtime errors do
+not expose provider/database details, and `vercel.json` registers the route on
+the same five-minute cadence as V3 recovery. The focused audio cron/selector
+suite passes 14/14; the widened audio-plus-V3 recovery suite passes 42/42; full
+TypeScript and repository-wide quiet ESLint pass. This result is
+`DURABLE_AUDIO_RECOVERY_CRON_CONFIGURED_LIVE_REDELIVERY_PROOF_OPEN`.
+Deployment registration is not hosted invocation evidence: live cron auth,
+QStash acceptance, restart/redelivery through a disposable stale job, terminal
+materialization, dedicated-R2/Atlas cleanup, unreachable-byte GC, persistent
+no-audio proof and verified historical migration remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Canonical source-audio availability evidence Phase 3F-C8av (2026-08-30):**
+commit `260325171` defines the successor source-version-scoped authority needed
+to prevent “no audio” from becoming an unrelated boolean beside decoded-audio
+truth. One immutable record has exactly one terminal disposition:
+`NO_AUDIO_STREAMS_OBSERVED`, bound to a canonical zero-stream technical
+observation for a real video essence, or `DECODED_ARTIFACT_SET`, bound to the
+complete exact observed stream set and its existing artifact-state root. The
+two states cannot coexist under one owner/asset/source-version scope.
+
+Capture re-proves the source version, provider storage version, qualification
+source binding and request identity, ordered lifecycle timestamps, canonical
+observation hash, unique non-negative stream indexes and every decoded stream
+through the existing binding/artifact owners. Missing and partial artifacts do
+not become availability evidence; an audio-kind source with zero usable audio
+streams is invalid rather than silently called silent video. Persistence uses
+a dedicated strict document schema, unique compound scope index, primary
+reads, majority compare-and-set writes, duplicate-key race handling and exact
+durable reread. Replays are unchanged; conflicts, corruption, bounded race
+exhaustion and store failures remain distinct.
+
+The real no-audio/decoded-private-artifact owner test and adjacent legacy
+evidence cluster pass 27/27; full TypeScript and repository-wide quiet ESLint
+pass. This result is
+`AUDIO_AVAILABILITY_AUTHORITY_AND_MONGO_ADAPTER_VERIFIED_PRODUCT_WIRING_OPEN`.
+This is not convergence yet: the C8ak decoded writer and C8at no-audio branch
+do not yet retain this successor record, existing consumers still read the V1
+artifact-root authority, and historical active/V1 rows have not been migrated.
+Those dual-write/dual-read, migration, live Atlas and cleanup proofs remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+Commit `5246d8954` adds the explicit successor write decorator and proves the
+required crash-safe order for a terminal decoded set: canonical availability
+retention, then the legacy compatibility record, then the active asset CAS.
+Partial sets still mutate without claiming terminal evidence. Canonical
+no-audio/decoded conflict and canonical CAS exhaustion stop before either the
+legacy or active writer; legacy conflict/race stops before the active writer
+after the already-valid canonical root can be replayed. The focused and
+widened clusters pass 7/7 and 22/22 respectively, with full TypeScript and
+repository-wide quiet ESLint passing. This result is
+`AUDIO_AVAILABILITY_ORDERED_WRITER_VERIFIED_PRODUCT_SWITCH_OPEN`: the sole
+product materializer still invokes the legacy-only compatibility factory, so
+decoded product dual-retention is not yet claimed. No-audio product retention,
+receipt/consumer cutover, historical migration and live proof also remain
+open; Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+Commit `226231369` switches the decoded-audio product materializer to that
+successor writer, makes the canonical availability store a mandatory product
+port and composes the strict Mongo adapter in the standalone server runtime
+with a distinct unavailable result. The product owner now replays and
+re-proves canonical availability after terminal publication, including the
+`ALREADY_COMPLETE` path; therefore an older complete active set cannot report
+success merely because no new asset CAS occurred. Historical complete rows
+gain the canonical root on demand but still block if their legacy compatibility
+evidence is absent. The focused product/runtime suites pass 15/15 and the
+widened authority/decorator/product/durable cluster passes 30/30, with full
+TypeScript and repository-wide quiet ESLint passing. This result is
+`DECODED_AUDIO_PRODUCT_DUAL_RETENTION_VERIFIED_DURABLE_PREFLIGHT_OPEN`.
+The durable runtime has not yet preflighted and reused this exact canonical
+owner before job claim; no-audio product retention, successor receipt/consumer
+cutover, complete migration, live Atlas/R2 proof and cleanup remain open.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+Commit `4c96864e4` closes that durable composition gap. The durable runtime now
+preflights, in order, private storage, the active asset owner, canonical audio
+availability and legacy compatibility evidence before invoking the worker;
+each unavailable owner has a distinct result and later owners are not touched.
+The exact preflighted instances are injected into the product runtime rather
+than reconstructed after claim. The focused durable suite passes 3/3 and the
+widened audio authority/product chain remains 30/30, with full TypeScript and
+repository-wide quiet ESLint passing. This result is
+`DECODED_AUDIO_DURABLE_DUAL_RETENTION_PREFLIGHT_VERIFIED_NO_AUDIO_OPEN`.
+It is not full audio-availability convergence: the no-audio branch still does
+not persist canonical evidence, the V1 product/worker receipt does not expose
+the successor evidence hash, legacy consumers have no dual-read cutover, and
+historical migration/live Atlas-R2/cleanup proof remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+Commit `8c85ecd59` closes the new-source no-audio persistence gap without
+creating unnecessary decode work. A technically measured video source with no
+audio streams now captures and retains canonical
+`NO_AUDIO_STREAMS_OBSERVED` evidence, replays the identical evidence as
+`UNCHANGED`, and schedules no durable audio job. Contradictory or invalid
+evidence returns a deterministic terminal rejection without reporting success;
+availability-owner outages and exhausted compare-and-set races remain
+retryable. Zero-stream audio essence is rejected rather than mislabeled as a
+silent video. The focused trigger/route proof passes 14/14 and the widened
+audio-product family passes 92/92, with full TypeScript and repository-wide
+quiet ESLint passing. This result is
+`CANONICAL_NO_AUDIO_PRODUCT_RETENTION_VERIFIED_RECEIPT_MIGRATION_OPEN`.
+The V1 product/worker receipt still exposes only the legacy evidence hash;
+historical complete rows, explicit dual-read consumer cutover, live Atlas/R2
+proof, retention telemetry and safe unreachable-object GC remain open. Queue
+item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+Commits `eb00f3f6a`, `f36c6a4eb` and `a722d7f58` close the new-execution
+audio-receipt cutover without creating a second materialization pipeline. The
+successor V2 receipt is exact-key, immutable and hash-bound; it carries both
+the canonical source-audio-availability evidence hash and the legacy
+source-version evidence hash. One shared materialization owner can still emit
+the historical V1 envelope for explicit compatibility reads, while the product
+runtime now emits V2 and the durable worker refuses V1 as a new PASS result.
+Successful and post-proof-cancelled jobs persist three distinct proof
+references: product receipt, canonical audio availability and legacy evidence.
+The focused cutover proof passes 34/34 and the widened audio-product family
+passes 102/102 across 19 files, with full TypeScript and repository-wide quiet
+ESLint passing. This result is
+`CANONICAL_AUDIO_RECEIPT_CUTOVER_VERIFIED_HISTORICAL_MIGRATION_OPEN`.
+It does not migrate historical complete/no-audio rows or prove live Atlas/R2,
+retention telemetry, unreachable-object GC, or all source-version-addressed
+readers. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Verified historical source-audio backfill chain Phase 3F-C8aw
+(2026-08-30):** commits `0b83607a9` through `59749a0ad` add the bounded
+successor migration path without treating legacy rows as trustworthy merely
+because they exist. The chain first re-proves terminal audio/no-audio evidence,
+then processes a keyset-bounded page, independently verifies each batch
+receipt, and commits one hash-chained migration-run record by compare-and-set.
+The production Mongo candidate source validates USER/ORG scope, binds a
+snapshot-time upper keyspace boundary, uses canonical index/collation and
+primary/majority reads, and returns projection-only pages. That upper boundary
+freezes which identity range the run may visit; it is not an exact manifest of
+membership at initialization time.
+
+The one-batch runtime initializes or resumes the durable ledger, advances a
+checkpoint only after a verified batch receipt, preserves the checkpoint on a
+retryable dependency failure, and terminally records deterministic candidate-
+page corruption. Every `RUN_NEXT_BATCH` message carries the exact expected
+record hash, so stale or duplicate delivery is classified `SUPERSEDED` before
+candidate reads. The strict versioned dispatcher and signed internal worker
+use canonical QStash deduplication identities, execute at most one batch per
+request, and publish the next exact-record continuation only after the current
+transition is confirmed. Missing token/signing/HTTPS configuration fails
+closed. The complete local/injected backfill family passes 65/65, with full
+repository TypeScript and repository-wide quiet ESLint passing.
+
+This result is
+`BOUNDED_AUDIO_BACKFILL_DURABLE_CHAIN_VERIFIED_HOSTED_RECOVERY_AND_LIVE_RUN_OPEN`.
+No historical fleet row was migrated, and no hosted Atlas/QStash delivery,
+restart recovery, dedicated-private-R2 access or cleanup was exercised. There
+is not yet a bounded owner that finds and republishes stranded `RUNNING`
+migration ledgers, nor an alert/receipt for runs that remain stranded. The
+keyspace ceiling also does not prove exact snapshot membership. Source-version
+consumer cutover, proxy/master relink and invalidation, rerender/rollback,
+retention telemetry and safe unreachable-byte GC remain open. The next Queue 4
+slice is bounded stale-run recovery followed by disposable hosted Atlas/QStash
+proof when its dedicated configuration exists; this does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Bounded audio-backfill recovery Phase 3F-C8ax (2026-08-30):** commit
+`69e85c609` adds the missing stale-`RUNNING` selector and scheduled recovery
+composition without changing the migration worker or fabricating a new
+checkpoint. One indexed oldest-first query uses primary/majority reads, a
+strict projection and exact outer-envelope/inner-record comparison. Each
+selected run is still `RUNNING`, older than the configured boundary and
+hash-valid before the existing dispatcher receives its exact current record
+hash. A concurrent advance therefore makes the recovered message harmlessly
+`SUPERSEDED`; recovery never edits the ledger itself.
+
+The stale interval, per-sweep run limit and worker batch limit have no hidden
+production defaults. Deployments must explicitly configure
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_STALE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RUN_LIMIT` and
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_BATCH_LIMIT`; invalid or
+missing values fail before Mongo access. Dispatch acknowledgements are
+runtime-normalized, so unknown dispositions, extra fields and invalid message
+or deduplication identities become sanitized `UNCONFIRMED` outcomes rather
+than false confirmation. The hash-bound sweep receipt counts selected,
+confirmed and unconfirmed deliveries. Its strict-secret cron route returns
+503 with retry evidence and a sanitized operational log on any unconfirmed
+delivery, and `vercel.json` registers a five-minute cadence.
+
+The focused recovery/service route suite passes 13/13 and the complete
+backfill family passes 78/78, with full repository TypeScript and repository-
+wide quiet ESLint passing. This result is
+`BOUNDED_AUDIO_BACKFILL_RECOVERY_CONFIGURED_HOSTED_AND_FAIR_FLEET_PROOF_OPEN`.
+It is local/injected proof, not a hosted cron invocation, Atlas query, QStash
+acceptance/redelivery or historical migration run. The returned sweep receipt
+and log are not durably retained by a dedicated operations owner. Oldest-first
+selection is safe but can repeatedly occupy the bounded page if those runs
+never advance, so starvation-free fleet traversal/alert escalation is not yet
+proved. Resolve that bounded fairness/operations gap, then execute one
+disposable hosted Atlas/QStash recovery and cleanup proof before calling
+migration restart-safe. Dedicated-private-R2, exact snapshot membership,
+source-version consumer cutover, proxy/master invalidation/relink,
+rerender/rollback, telemetry and GC remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Fair durable audio-backfill recovery Phase 3F-C8ay (2026-08-30):** commits
+`200780782` through `621039a7e` replace the live oldest-first recovery path
+with one persisted fair controller, immutable sweep intents, a frozen attempt
+policy, a hash-chained sweep state machine and immutable attempt evidence. The
+selector advances a durable cyclic cursor under a primary/snapshot/majority
+transaction, so one permanently stale oldest page no longer owns every
+selection. Each selected sweep is persisted before controller advance.
+
+The transactional sweep store separately indexes due `PENDING`/`RETRY_WAIT`
+sweeps and expired `RUNNING` leases, chooses the earliest exact eligibility,
+claims by record-hash CAS and fences a reclaimed lease with a new claim token.
+Settlement inserts the exact attempt and replaces the claimed sweep in the
+same transaction. Retry time and maximum attempts come only from the frozen
+self-hashed policy; `RETRY_EXHAUSTED` is a durable terminal state. A repeated
+settlement is accepted only after the immutable attempt hash is proved in the
+current state's predecessor chain. Corrupt envelopes, missing chain records,
+wrong sweeps, stale claimants, orphan attempts and three lost CAS attempts
+fail explicitly.
+
+The strict V2 orchestration owner is now the sole cron consumer. Its verified
+control flow is the cron route, fair selector, transactional sweep store,
+existing signed/deduplicated QStash dispatcher, immutable attempt and fenced
+settlement, in that order.
+
+The obsolete V1 oldest-first owner and its self-test were removed; there is no
+runtime fallback. The V2 self-hashed receipt separately records invocation,
+new selection, claimed sweep, attempt, settlement and confirmed/unconfirmed
+delivery counts, so an older claimed sweep is never misreported as the sweep
+selected by the current invocation. Thrown, provider-unconfirmed or malformed
+dispatch output becomes `UNCONFIRMED`, is durably settled for bounded retry
+or exhaustion, and cannot produce route success.
+
+Deployments must now explicitly configure all seven controls before Mongo
+selection:
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_STALE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RUN_LIMIT`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_BATCH_LIMIT`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_MAX_ATTEMPTS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_LEASE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RETRY_BASE_MS` and
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RETRY_MAX_MS`. The recovery
+lease is rejected below the route's 60-second execution window. No deployment
+value was inferred from local secret files and no generic/public storage
+credential is an acceptable substitute.
+
+The final local/injected audio-backfill family passes 132/132 across 17 files,
+repository TypeScript passes and repository-wide quiet ESLint passes. This
+result is
+`FAIR_DURABLE_RECOVERY_OWNER_LIVE_ROUTE_HOSTED_ALERT_AND_FLEET_PROOF_OPEN`.
+It is not a hosted Atlas transaction, scheduled Vercel invocation, QStash
+acceptance/redelivery, historical fleet migration, external pager delivery or
+cleanup/rollback receipt. `RETRY_EXHAUSTED` is durable queryable evidence, not
+proof that an operator was paged. Configure a disposable deployment, prove
+one selected, reclaimed/retried and terminal sweep through Atlas/QStash, prove
+the alert consumer, then delete the exact fixtures and verify absence. Queue 4
+also still requires dedicated-private PTS storage, production V3 scanning,
+proxy/master qualification, relink/invalidation, rerender and rollback. Stage
+2.5 therefore remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Historical V3 evidence-root backfill Phase 3F-C8az (2026-08-30):** commits
+`f6434e124` through `af8d99e51` add the bounded source-version evidence
+reproof, candidate selector, batch receipt, immutable run record, Mongo ledger,
+run owner, runtime, signed dispatch and fair durable recovery chain for V3 PTS
+roots that completed before the evidence-first writer existed. Selection and
+publication remain source-version/state/hash bound; durable intent precedes
+delivery, and stale claims, malformed receipts, provider-unconfirmed delivery,
+lost compare-and-set races and exhausted retry attempts cannot become success.
+The current 17-file family passes 128/128 with repository TypeScript and quiet
+lint passing. This is local/injected contract and recovery proof, not a fleet
+migration or hosted Vercel/QStash/Atlas/private-R2 exercise. No historical row
+is promoted merely because it is old or complete. Exact deployment policy,
+hosted redelivery/alerting, live private-object reread, reachability cleanup and
+verified fleet completion remain required.
+
+**Streaming proxy/master correspondence production Phase 3F-C8ba
+(2026-08-30):** commits `531d1b98a`, `3d3ec243a` and `beeace838` add the trusted
+server-side correspondence producer, incremental private-R2 publisher and
+dedicated-private-runtime composition. The producer reads independently
+verified V3 presentation windows pagewise and emits the exact union of proxy
+and master frame boundaries, so unequal rates, VFR cadence and timestamp-reset
+epochs are represented without nominal-FPS conversion or floating-point
+rounding. Batches are written and reread before the immutable index becomes
+visible; interrupted publication cannot expose a complete mapping, replay is
+accepted only for identical bytes, and receipt/source/time-map/resource drift
+fails explicitly. The current proxy/master family passes 52/52 with repository
+TypeScript and quiet lint passing.
+
+This still does not qualify a relation. The current V1 correspondence format
+requires continuous presented coverage and deliberately rejects canonical
+`NO_PRESENTATION` gaps. No dedicated private bucket was configured or exercised
+live, and audio lineage, mapping CAS, ProjectService relink, invalidation,
+rerender and rollback remain open.
+
+**Trusted proxy-transcode evidence contract Phase 3F-C8bb (2026-08-30):**
+commit `5f1626474` defines the first versioned canonical-master proxy policy,
+shell-free FFmpeg argument owner and immutable completion/lineage receipt. The
+command maps only explicitly selected streams, preserves demux timestamps with
+`-copyts`, `-start_at_zero`, passthrough frame timing and demux encoder
+timebase, does not force `-r`/legacy `-vsync` or terminate at `-shortest`, and
+binds exact source version, V3 map, worker/runtime, process, local master bytes,
+deterministic R2 output identity and sequential output streams. Ten adversarial
+tests cover command/path/stream/source/storage/provider/owner/asset/evidence and
+nested-receipt tampering; the complete proxy/master family remains 52/52 and
+the repository TypeScript and quiet-lint gates pass.
+
+This is a command and evidence boundary, not an executed transcode. No worker
+has yet leased the master, run FFmpeg/FFprobe, uploaded and reread the proxy,
+issued its storage/content identity, produced proxy V3/audio roots, composed
+independent correspondence/audio verification, or CAS-qualified the active
+relation. Those owners, durable restart/cancellation, live private storage and
+the downstream relink/invalidation/rerender/rollback chain remain Queue item 4.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Trusted proxy-output observation Phase 3F-C8bc (2026-08-30):** commits
+`6a17967f1` and `16e52daad` add the strict local-FFprobe output contract that
+the C8bb receipt now requires. It self-hashes the exact command, FFprobe
+identity, complete proxy byte identity, MP4 format set, H.264/yuv420p video
+stream, AAC audio streams, rational stream clocks, signed PTS anchors,
+durations, decoded video-frame count, dimensions, sample rates and channel
+layouts. Equivalent rational spellings are reduced before hashing, so
+`2/180000` and `1/90000` cannot create different identities for the same
+clock. Missing fields, unsupported codecs/formats, duplicate streams,
+non-canonical hashes and probe/process time inversions fail closed.
+
+This proves an immutable observation shape and receipt binding; it does not
+prove that FFmpeg or FFprobe ran, that bytes were published immutably, or that
+the proxy is independently qualified against the master.
+
+**Trusted proxy-transcode executor Phase 3F-C8bd (2026-08-30):** commit
+`231a373c6` composes the existing owners into the first real shell-free
+execution boundary. It verifies the current measured source and exact current
+V3 time-map identity, binds the configured worker/platform and exact live
+FFmpeg/FFprobe first-line identities, leases and byte-verifies the master into
+an owned temporary directory, executes only the C8bb argument array, hashes
+and locally probes the complete output, enforces frame-count/no-upscale/
+aspect/timebase/audio-count/sample-rate/channel-layout policy, requests a
+content-addressed R2 publication, revalidates the master before and after the
+expensive and externally visible steps, and issues the existing trusted
+receipt only after the returned proxy source identity matches. Cancellation,
+deadline, bounded stdout/stderr, nonzero termination, malformed output,
+source/map drift and publisher substitution all stop without a success
+receipt. Owned temporary files are removed after both success and failure.
+
+The complete proxy/master family passes 66/66 across 11 files. This includes
+real separate-process proof through Node's executable for shell-free capture,
+stdout overflow, cancellation and timeout; FFmpeg/FFprobe media execution and
+publication remain injected at this layer. Repository TypeScript and
+repository-wide quiet ESLint pass.
+
+This is `TRUSTED_TRANSCODE_EXECUTION_BOUNDARY_VERIFIED_IMMUTABLE_PUBLICATION_AND_RELATION_QUALIFICATION_OPEN`.
+The publisher is intentionally still a port: the generic R2 upload helper is
+not create-only and does not by itself prove replay equality, provider version,
+full reread, or cleanup of unreachable content-addressed outputs. Queue item 4
+therefore still requires a concrete immutable R2 publisher/rereader, durable
+job/lease/idempotency ownership, proxy V3 and source-audio roots, independent
+correspondence/audio verification, relation CAS, ProjectService relink and
+invalidation, rerender/rollback, live dedicated-private-storage evidence and
+retention/GC telemetry. Exact string equality for measured/output channel
+layouts is deliberately fail-closed until a separately proven canonical
+channel-topology owner exists; it is not universal multichannel qualification.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Private proxy publication Phase 3F-C8be (2026-08-30):** commit
+`33dc99148` adds the first concrete executor publisher for proxy outputs within
+Cloudflare R2's documented single-request ceiling. It rejects the public CDN
+bucket and any scope with a browser route, verifies the local regular-file
+length and complete SHA-256, sends one private-cache/no-store create-only PUT,
+and treats HTTP 412 only as a request to prove an existing object. Both a new
+object and a replay are then fully streamed through GET, checked against exact
+content/type/disposition/lineage metadata, and fenced by a subsequent HEAD
+whose ETag, length and metadata must still match. Only then does the adapter
+issue the exact R2 storage version and canonical proxy source version. A
+corrupt collision, short/long body, substituted metadata, changed ETag,
+non-precondition write failure, abort, wrong key/hash or unsafe bucket cannot
+become success.
+
+The complete proxy/master family passes 71/71 across 12 files with repository
+TypeScript and repository-wide quiet ESLint passing. The S3 client and bucket
+remain injected; no live object was written. This result is
+`PRIVATE_PROXY_SINGLE_PUT_CREATE_REPLAY_REREAD_VERIFIED_MULTIPART_RUNTIME_AND_LIVE_PROOF_OPEN`.
+It is not universal large-video publication. The adapter deliberately blocks
+above R2's 4.995-GiB single-request ceiling. Current R2 guidance recommends
+multipart for large video and allows up to 10,000 uniform parts; conditional
+multipart completion exists, but Editron still needs a durable upload record,
+part manifests/ETags, fenced resume, conditional completion, abort/cleanup,
+complete reread and cost/latency telemetry. The executor also has not yet been
+composed with a deployment-owned canonical private-media R2 namespace, and
+its terminal receipt binds the returned source/storage identity rather than a
+separate publisher-policy receipt. Add those owners before claiming large-
+object, restart-safe or independently auditable publication. Proxy V3/audio
+roots, relation qualification/CAS, relink/invalidation, rerender/rollback and
+live private-storage proof remain Queue item 4. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Private publication identity and durable admission Phase 3F-C8bf/C8bg
+(2026-08-30):** commits `d76b94ef3` and `d87bf9ad1` close two narrower
+pre-worker gaps without claiming durable execution. The private R2 namespace,
+storage-policy version, no-browser exposure, MP4 artifact profile, private
+cache/disposition, create-only write, full-GET/HEAD-fence replay proof,
+single-request ceiling and mandatory-large-object disposition now form one
+immutable hashed publication policy. A bound factory returns that policy with
+the exact existing publisher; an unsafe/public scope or policy substitution
+cannot silently select a different uploader.
+
+The trusted transcode command, complete V3 timing lineage, master source and
+storage identity, owner/asset scope, exact execution image/platform/tool
+identity plus compatibility receipt, budget reservation and policy, retry and
+heartbeat owners, lifecycle, and private publication policy now form one
+idempotent `MEDIA_ASSETS` durable-job contract. It uses the existing leased/CAS
+durable-workflow store rather than a second queue. This V1 job deliberately
+rejects a command whose declared maximum output exceeds the proven 4.995-GiB
+single-PUT capability. Focused policy/job tests pass 7/7; repository TypeScript
+and repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_PUBLICATION_POLICY_AND_DURABLE_ADMISSION_VERIFIED_LEASED_EXECUTION_MULTIPART_AND_LIVE_PROOF_OPEN`.
+Admission durability means the same fully bound request creates or resolves
+the same queued work; it does **not** mean a worker has claimed, heartbeated,
+resumed, published or terminally settled that work. Queue item 4 still needs a
+leased execution owner with durable result-before-terminal ordering and budget
+settlement, a durable multipart/staging design that survives loss of an
+ephemeral transcode file, runtime dispatch/recovery, the canonical deployed
+private namespace, live provider evidence, proxy V3/audio roots,
+correspondence/audio qualification, active-relation CAS, relink/invalidation,
+rerender/rollback and reachability GC. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable proxy-transcode result and leased worker Phase 3F-C8bh
+(2026-08-30):** commits `674b7c924` and `b902fdf6d` close the local leased-
+execution ordering gap without claiming a deployed worker. The complete trusted
+transcode receipt is now a hash-verified, sequence-CAS durable resume payload.
+The worker claims the existing generic job, verifies every bound owner/policy,
+authorizes the exact budget reservation, resolves the current V3-bound master,
+heartbeats while the executor runs, persists that result before terminal PASS,
+and settles the committed terminal state. A retry after completion-transport
+loss reuses the persisted receipt and cannot transcode again. Terminal replay
+reconciles budget again through the idempotent budget owner.
+
+Cancellation and lease loss abort the in-flight executor. Transient outcomes
+can retry only through the exact bound retry policy; permanent executor gaps
+become `UNVERIFIABLE`; owner drift and a canonically rehashed forged resume
+dead-letter before false success. The focused worker suite passes 7/7, and the
+complete proxy/master family passes 89/89 across 16 files. Repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`LEASED_PROXY_TRANSCODE_RESULT_BEFORE_TERMINAL_LOCALLY_VERIFIED_RUNTIME_MULTIPART_QUALIFICATION_AND_LIVE_PROOF_OPEN`.
+The current proof composes in-memory owners around the real durable store; it
+does not yet expose a production dispatch/recovery route or deployment-owned
+worker factory, run FFmpeg plus private R2 inside that leased loop, survive
+loss of the ephemeral transcode file, or publish above the single-PUT ceiling.
+Durable multipart/staging, canonical private-runtime composition, live
+R2/Atlas/QStash evidence, V3/audio roots, correspondence/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback and
+reachability GC remain Queue item 4. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Proxy-transcode dispatch, current-asset and historical operational-policy
+binding Phase 3F-C8bi/C8bj (2026-08-30):** commits `dc6069080`, `0237008b1`,
+`8e286c8f4`, `7c7c2edef` and `3559873f2` extend the local durable lane without
+claiming deployment. Initial dispatch now persists the fully bound job before
+publishing exactly `{jobId}` through the shared QStash owner; recovery selects
+only stale proxy-transcode jobs and binds redelivery deduplication to the
+selected durable state. Unconfirmed provider publication and a sent message
+whose dispatch receipt could not be recorded remain different outcomes.
+
+The worker-side current-asset owner reloads the exact `MEDIA_ASSETS` row and
+requires the same source version and complete V3 map before FFmpeg. The shared
+dedicated-private R2 runtime exposes the already verified publication owner over
+the same server client and private scope. Retry timing, QStash delivery,
+attempt/retention limits and heartbeat cadence are now immutable hashed policy
+declarations. An immutable active/retained registry resolves both retry and
+heartbeat policies by exact owner/version/hash, so policy rotation preserves an
+old job's semantics; an unknown historical hash is not replaced by the active
+policy. Initial admission also rejects runtime lifecycle or policy bindings
+that do not match the registry before durable job creation.
+
+The widened local proxy/master and private-R2 family passes 126/126 across 21
+files, with repository TypeScript and repository-wide quiet ESLint clean. This
+result is
+`DISPATCH_CURRENT_ASSET_AND_HISTORICAL_OPERATIONAL_POLICY_BINDING_LOCALLY_VERIFIED_PRODUCTION_BUDGET_ROUTE_MULTIPART_QUALIFICATION_AND_LIVE_PROOF_OPEN`.
+No production budget reservation/ledger owner, deployment-owned worker
+composition, authenticated app-route export, scheduled recovery caller, live
+QStash/Atlas/R2 run, multipart/staging resume, proxy V3/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback or
+reachability GC is proved. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable proxy publication V2 lifecycle Phase 3F-C8bk (2026-08-30):** the
+Editron commit sequence after `083bea627`, culminating in `c7b505aef` and
+`6dd6de8ce` (and excluding unrelated ThinkForge commits), closes the local
+crash-boundary model that the earlier V1 lane deliberately left open. The
+sequence adds exact execution-budget reservation/settlement owners for V1,
+persists multipart upload state and part evidence under CAS, renews fenced
+multipart leases, classifies uncertain provider completion without guessing,
+and binds single-PUT versus durable-multipart selection to an immutable private
+publication policy. R2's exact single-request limits are enforced rather than
+rounded, and large output is not silently sent through the single-PUT path.
+
+V2 then separates three independently resumable effects: sequence 0 prepares
+and durably retains immutable proxy bytes plus their measured evidence;
+sequence 1 publishes those already prepared bytes under the bound publication
+policy; sequence 2 records the terminal result. A leased, operation-specific
+worker now claims and heartbeats the shared durable job, authorizes the exact
+reservation, validates every owner and resume-state binding, persists each
+sequence with store CAS, and rereads authorized state after every commit before
+continuing. Cancellation or lease loss aborts the active attempt; owner or
+authorization drift and a forged/stale reread dead-letter; transient
+`UNVERIFIABLE` outcomes follow only the bound retry policy; and lost completion
+or post-commit transport can resume at the committed sequence without
+repreparing or republishing earlier effects. The complete local proxy/master
+family passes 274/274 tests across 49 files, with repository TypeScript and
+repository-wide quiet ESLint clean.
+
+This result is
+`DURABLE_PROXY_V2_SEQUENCE_AND_WORKER_LOCALLY_VERIFIED_CONCRETE_PRODUCT_PORTS_ROUTE_AND_LIVE_PROOF_OPEN`.
+It is not yet a product-runnable V2 lane. The worker still receives abstract V2
+budget, current-asset, preparation and publication owners in its test/runtime
+composition; no authenticated product route or dispatch schema selects V2.
+Queue item 4 must next bind a concrete V2 budget ledger/settlement adapter, the
+current source-version/V3-map owner, and one publication owner that consumes the
+persisted artifact through the selected single-PUT or durable-multipart path,
+then add deployment-owned runtime/route composition. Live private R2/Atlas/
+QStash execution, proxy V3/audio roots, correspondence/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback,
+retention telemetry and reachability GC remain unproved. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Concrete V2 current-asset and publication owners Phase 3F-C8bl
+(2026-08-30):** commits `1b3b0e03a` and `0c38a8d5b` close two of C8bk's
+abstract worker ports without claiming route composition. V1 and V2 now use one
+shared exact source-version/V3-map comparison core behind their versioned job
+wrappers. V2 independently requires the claimed running job, exact runtime
+binding, current `MEDIA_ASSETS` source version and byte-identical canonical V3
+map before preparation or publication; absence/store outage is retryable, while
+source or map substitution is permanent.
+
+The V2 publication owner independently revalidates the persisted preparation,
+job input, policy hashes, actual byte length, content hash and expected object
+key. It recomputes exactly one eligible path: the existing create-only,
+full-GET/HEAD-verified single-PUT owner at or below the exact R2 ceiling, or the
+existing CAS/fenced durable-multipart coordinator above it. It never falls
+through from one uploader to the other. The multipart invocation receives a
+fresh independent fenced lease identity, and the returned R2 source version is
+revalidated against owner, asset, bytes, content and object key before success.
+Focused small/large path, forged-state/path, substituted-output and transport-
+classification tests pass; the complete local proxy/master family passes
+285/285 across 51 files, with repository TypeScript and repository-wide quiet
+ESLint clean. The large-path unit proof uses a contract-valid synthetic manifest
+and does not claim a physical greater-than-five-GiB upload.
+
+This result is
+`V2_CURRENT_ASSET_AND_PUBLICATION_COMPOSITION_LOCALLY_VERIFIED_BUDGET_RUNTIME_ROUTE_AND_LIVE_PROOF_OPEN`.
+The concrete V2 budget ledger/authorization/settlement adapter, preparation
+owner composition, deployment-owned runtime, dispatch schema and authenticated
+route remain open. No live R2/Atlas/QStash operation, proxy V3/audio root,
+active relation, ProjectService relink/invalidation, rerender/rollback or GC
+proof is added. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Concrete V2 execution-budget persistence and worker reconciliation Phase
+3F-C8bm (2026-08-31):** commits `a0005a877`, `91f371fb9`, `751fee711`,
+`fd327ef86`, `484f51ce0` and `acaef99c6` close C8bl's abstract V2 budget port
+locally without claiming deployment or live-database proof. The V2 settlement
+receipt binds the prepared-publication artifact-accounting profile, exact
+authorization and reservation, terminal evidence and conserved nano-USD
+amounts. It meters only a single fully evidenced attempt, releases only a
+zero-attempt cancellation and charges the authorized maximum when retry or
+partial-attempt telemetry is unknowable.
+
+Immutable V2 RESERVED/SETTLED records now sit behind one shared transactional
+reserve/resolve/settle control flow with strict V1/V2 schema adapters. V1 and
+V2 also share the actual Mongo snapshot-transaction, majority-write,
+insert-or-compare and expected-record-hash CAS implementation. V2 uses a
+separate V2 collection and rejects V1 records rather than guessing or
+migrating them implicitly. Stored record and Mongo envelopes reject undeclared
+top-level state, invalid chronology, forged hashes, stale CAS and uncommitted
+transactions. The allow-listed Mongo availability classifier is shared while
+each version supplies its own permanent domain-error classes; generic or
+unlabelled driver errors are not guessed retryable.
+
+The V2 worker budget owner independently validates the exact V2 durable job,
+historical policy, reservation, job-bound authorization, prepared state,
+prepared artifact/manifest reference, durable result and terminal PASS
+receipt. One evidenced attempt accounts for prepared and final artifact writes
+plus the manifest, and for the implemented prepared-recovery, publication and
+verification reads. Successful retries remain conservative maximum accounting
+because earlier-attempt telemetry is not yet durable. This worker remains a
+version-specific protocol owner because V2 prepared-publication PASS evidence
+is materially different from V1's direct artifact result; only the ledger and
+persistence state machines are shared.
+
+The complete local proxy/master family passes 324/324 tests across 57 files,
+with repository TypeScript and repository-wide quiet ESLint clean. This result
+is
+`V2_BUDGET_LEDGER_SETTLEMENT_AND_WORKER_RECONCILIATION_LOCALLY_VERIFIED_RUNTIME_ROUTE_LIVE_AND_COMPLETE_COST_PROOF_OPEN`.
+It does not prove deployment-owned composition, a concrete V2 preparation
+owner, dispatch-schema selection, authenticated worker/recovery routes, or a
+live Mongo/R2/QStash run. Local validation and provider-request costs remain
+outside the current artifact accounting profile pending successor telemetry
+and a frozen rate policy. Proxy V3/audio qualification, active-relation CAS,
+ProjectService relink/invalidation, visual rerender/delivery/rollback,
+retention/reachability GC and human review also remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**V2 proxy-transcode product composition and schema-fenced dispatch Phase
+3F-C8bn (2026-08-31):** commits `f61956931`, `5f0eb73db`, `bd06779b5`,
+`cdc750ed7`, `cafe3c875`, `a49fbe1f5`, `14c3ba7da`, `b17dacccb` and
+`0d12fc6ca` close C8bm's remaining local V2 composition and producer-boundary
+gaps without claiming a deployed transcode. The concrete preparation owner
+delegates exact master leasing, shell-free FFmpeg/FFprobe execution and output
+verification to the existing trusted executor, then durably retains the
+prepared bytes through the existing private artifact store. The concrete
+attempt owner composes that preparation with the existing current-asset,
+publication and V2 budget owners.
+
+One deployment-owned V2 product runtime now resolves the exact persisted V2
+job, historical operational and Finance policies, current asset, configured
+worker image/toolchain, absolute FFmpeg/FFprobe executables, private prepared-
+artifact storage, single-PUT and multipart transports, and the V2 leased
+worker. The existing signed worker route probes the persisted job schema and
+selects V2 before V1; a V2-scoped job that fails V2 composition or execution
+never falls through to V1. V2 dispatch publishes only `{jobId}`, while the
+existing authenticated recovery route now invokes both schema-specific
+recovery owners and preserves separate per-schema evidence.
+
+Admission derives the complete V2 publication and prepared-artifact policy
+from the deployment's validated private single-PUT R2 scope. It then requires
+an exact Finance authorization over tenant/user/org, immutable master source,
+V3 timing, command, runtime and both storage policies; reserves through the V2
+ledger; persists the V2 durable job; and delegates signed delivery. Scope,
+bucket or active-policy substitution stops before reservation or dispatch.
+Missing signed-delivery configuration leaves an explicit recoverable queued
+job rather than reporting success. Exact replay reserves one record, reuses
+one job and does not republish a confirmed delivery.
+
+The complete local proxy/master family passes 350/350 tests across 65 files,
+with repository TypeScript and repository-wide quiet ESLint clean. This result
+is
+`V2_PROXY_TRANSCODE_PRODUCT_COMPOSITION_AND_SCHEMA_FENCED_DELIVERY_LOCALLY_VERIFIED_LIVE_EXECUTION_AND_RELATION_CHAIN_OPEN`.
+No product-facing caller currently submits this admission contract, and no
+live FFmpeg/R2/Atlas/QStash V2 episode, provider outage, hosted recovery or
+large physical multipart object was exercised. Local validation and provider-
+request costs still require successor attempt telemetry and a frozen Finance
+rate policy. Proxy V3/audio roots, correspondence/audio qualification, active-
+relation CAS, ProjectService relink/invalidation, visual rerender/delivery/
+rollback, retention/reachability GC and qualified human evidence remain open.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Proxy/master decoded-audio lineage verification Phase 3F-C8bo
+(2026-08-31):** commit `58348fc93` replaces the previously hand-authored
+`VERIFIED_SAMPLE_TIMELINE_LINEAGE` test input with a read-only production
+verifier. It revalidates the unqualified relation, complete trusted transcode
+receipt and immutable source-version audio-availability evidence for both
+master and proxy. Every selected audio stream must equal the complete observed
+master stream set and the complete sequential proxy output set; the verifier
+does not infer a default stream or accept a selected subset as a general
+proxy/master relation. Genuine no-audio qualifies only when both independent
+source observations and the transcode command/receipt all contain no audio.
+
+For audio-bearing sources, the verifier rereads both private manifests and
+canonical sample-epoch maps through their content-addressed references and
+reconstructs their bindings before comparison. Sample rate, channel count and
+channel-layout identity must match exactly. The sample timeline is compared
+with exact rational arithmetic after subtracting only each source's first
+sample-position origin, which permits the transcode policy's declared shared
+origin shift while rejecting any duration change, gap, overlap, timestamp
+reset, decoded-sample-count or epoch-boundary drift. AAC waveform bytes are
+not falsely required to equal the master PCM bytes. The immutable verification
+receipt binds the relation, transcode receipt, policy, both availability
+records, artifact records/manifests/maps, normalized timeline, ordered stream
+mapping, bounded read count and causal verification time; reload validation
+recomputes its nested lineage hashes.
+
+The focused suite passes 6/6 and covers origin-shifted success, true no-audio,
+omitted observed streams, read-policy understatement, impossible evidence
+chronology, sample-rate/layout/timeline drift, source substitution, private
+read failure, artifact substitution and nested-receipt tampering. The complete
+local proxy/master family passes 356/356 tests across 66 files, with repository
+TypeScript and repository-wide quiet ESLint clean. This result is
+`PROXY_MASTER_AUDIO_LINEAGE_VERIFIER_LOCALLY_VERIFIED_LIVE_AUDIO_TRANSCODE_AND_MAPPING_QUALIFICATION_OPEN`.
+The evidence uses deterministic in-memory private-artifact fixtures; it does
+not prove that a real AAC proxy produced by the V2 worker satisfies the exact
+timeline contract. It also does not compose the independent V3 video
+correspondence receipt and this audio receipt into a qualified mapping, CAS an
+active relation, relink ProjectService, invalidate derivatives, rerender,
+deliver, roll back or garbage-collect unreachable objects. Those remain Queue
+item 4 work, and Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Proxy/master exact V3 mapping-segment materialization Phase 3F-C8bp
+(2026-08-31):** commits `db25545a6` and `751b618a5` add a read-only production
+owner that turns a sealed V3 correspondence-derivation receipt into exact V1
+proxy/master mapping segments. It rereads the complete proxy and master V3
+presentation timelines in bounded pages, rechecks every window hash and all
+immutable map identities, carries the source-version hash into every source
+position, and accounts for page, frame, byte and segment limits in a sealed
+reload-validatable receipt.
+
+The materializer uses per-frame PTS and measured duration only. Unequal exact
+rates and a genuine variable-cadence proxy can therefore map to a CFR master
+without nominal-FPS inference. Timestamp-reset epochs, including negative PTS,
+become separate segments only when both sources have an exact shared frame
+boundary. If either source changes epoch inside the other source's frame, the
+current V1 segment contract cannot represent the fractional boundary; the owner
+returns `UNREPRESENTABLE_EPOCH_BOUNDARY` and emits no receipt rather than
+rounding, dropping or inventing a frame.
+
+The focused suite passes 9/9 and covers unequal rate, variable cadence, shared
+timestamp resets, negative PTS, multi-page coverage, self-consistent wrong-
+source substitution, page and segment resource exhaustion, thrown and reported
+private-reader outages, unrepresentable epoch boundaries, and nested receipt
+tampering. The complete local proxy/master family passes 365/365 tests across
+67 files, with repository TypeScript and repository-wide quiet ESLint clean.
+This result is
+`EXACT_V3_PROXY_MASTER_MAPPING_SEGMENTS_LOCALLY_MATERIALIZED_MAPPING_QUALIFICATION_AND_ACTIVE_RELATION_OPEN`.
+
+The evidence still uses deterministic in-memory V3 windows and does not prove a
+real V2 proxy's private R2 epoch artifacts. Segment materialization is not a
+qualified mapping: the next owner must compose the sealed correspondence-
+derivation receipt, these materialized segments, the decoded-audio lineage
+receipt, the trusted transcode lineage and the existing V1 mapping contract
+under one causal qualification receipt. Active-relation CAS, ProjectService
+proxy/master relink and invalidation, visual rerender/delivery/rollback, live
+private-runtime proof and reachability GC remain open. Queue item 4 and Stage
+2.5 therefore remain `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Proxy/master causal mapping qualification Phase 3F-C8bq (2026-08-31):**
+commit `7d7e503e8` closes the immediately preceding local composition gap with a
+read-only production qualification owner. It independently reload-validates
+the immutable relation, trusted transcode, V3 correspondence derivation,
+mapping-segment materialization and decoded-audio-lineage receipts; rejects
+cross-source or cross-relation substitution; enforces transcode -> audio
+verification -> qualification chronology; and binds all five evidence hashes,
+the qualifier policy/version, exact worker-image digest and qualification time
+into a nested execution receipt. The resulting existing V1 mapping embeds that
+execution-receipt hash, exact V3 time-map references, frame-correspondence
+index, source/epoch-safe segments, trusted transcode lineage and verified audio
+mapping. True no-audio media remains an explicit verified disposition rather
+than an omitted check.
+
+The owner also cross-checks the proxy output probe against the materialized
+picture timeline: immutable proxy source/storage identity, video-stream index,
+complete frame count, first PTS, exact source timebase and exact rational
+duration must agree. It never derives duration from nominal FPS. A valid V3 map
+whose measured 899,700 ticks disagree with the sealed 900,000-tick proxy probe,
+swapped receipts, impossible verification chronology, malformed upstream
+hashes and nested execution/mapping/wrapper tampering all fail before a mapping
+receipt is issued.
+
+The focused suite passes 8/8. The complete local proxy/master family passes
+373/373 tests across 68 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`EXACT_V3_PROXY_MASTER_MAPPING_LOCALLY_QUALIFIED_ACTIVE_RELATION_AND_RELINK_OPEN`.
+The proof still uses deterministic in-memory V3 picture windows and audio
+artifacts; it does not show a live V2 worker proxy reread from private R2. The
+qualifier does not persist or activate the relation, compare-and-set the current
+project revision, relink ProjectService, invalidate dependent analysis/render
+artifacts, rerender/deliver/rollback, recover hosted work, or garbage-collect
+unreachable content-addressed objects. Those are the next Queue item 4 owners;
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Qualified proxy/master active-mapping CAS Phase 3F-C8br (2026-08-31):**
+commit `dd17ff793` adds the sole `MEDIA_ASSETS` owner for activating the C8bq
+qualification. It does not rewrite the immutable V1 relation's historical
+`UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED` declaration. Instead it stores a
+separate reload-validatable active record containing the complete qualification,
+relation and invalidation-plan hashes, activation time and predecessor active-
+state hash. First activation requires an absent record/hash pair. Idempotent
+redelivery of the same qualification is unchanged. A different qualification
+can rotate only from the exact current state hash, must have a strictly newer
+qualification instant and a strictly newer activation instant, and retains the
+predecessor hash. Rollback is not silently inferred from an older valid receipt.
+
+Before the final Mongo CAS, the owner revalidates the current non-proxy video
+asset, retained proxy source version, active master source version, immutable
+relation, full qualification and the exact source-owner invalidation plan.
+The database predicate independently binds user/asset, proxy/master source,
+content and storage hashes, relation hash, invalidation-plan hash, and either
+the absent initial state or exact predecessor activation/qualification hashes.
+Cross-relation evidence, changed sources, missing or altered invalidation
+intent, partial/tampered current state, stale expectation, qualification
+downgrade, reversed time and a lost final CAS all emit no active state.
+
+The focused suite passes 8/8. The complete local proxy/master family passes
+381/381 tests across 69 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`QUALIFIED_PROXY_MASTER_ACTIVE_MAPPING_CAS_LOCALLY_VERIFIED_PROJECT_RELINK_AND_INVALIDATION_OPEN`.
+The proof uses an injected in-memory asset store plus direct inspection of the
+production Mongo predicate; no live Atlas record was written. More importantly,
+activation alone changes no project coordinate, overlay, preview, analysis,
+render or delivery state. A ProjectService revision-CAS relink receipt, exact
+correspondence lookup for every affected source anchor/range, derivative
+invalidation/rerender and explicit rollback remain next. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Qualified mapping exact-boundary resolver Phase 3F-C8bs (2026-08-31):**
+commit `cf8330b74` closes the read-side correspondence lookup prerequisite for
+ProjectService relink. The resolver accepts only the current qualified active-
+mapping state, a strictly ordered unique set of proxy frame-boundary ordinals,
+an explicit query/read/byte policy, the private correspondence reader and a
+causally valid resolution time. It authenticates the content-addressed index
+against the active mapping, binds its relation plus proxy/master V3 time-map
+basis, selects only the batches capable of proving the requested boundaries,
+and independently checks each selected object's bytes, digest, canonical
+payload, sidecar and basis before emitting a frozen receipt.
+
+An interior proxy boundary resolves only when the immediately preceding and
+following correspondence spans show that proxy and master both advance at the
+same canonical instant. Initial and terminal boundaries are also proven
+against authenticated first/last spans. A proxy boundary inside a master frame
+returns `PROXY_BOUNDARY_NOT_EXACT`; no nominal-FPS arithmetic, nearest-frame
+selection, rounding or interpolation is allowed. Cross-batch boundaries carry
+both batch sequences as evidence. Read exceptions are separately reported as
+retryable `UNAVAILABLE`; malformed, corrupt, over-budget, out-of-range,
+unordered, stale-scope or non-equivalent evidence is `UNVERIFIABLE`.
+
+The focused suite passes 9/9 using coherently qualified and activated equal-
+cadence and variable-cadence mappings with 100+ content-addressed batches. It
+proves bounded batch selection, exact cross-batch mapping, deterministic
+non-equivalent-boundary rejection, index/batch corruption detection, storage-
+outage classification, resource limits, causal time, active-state binding and
+receipt tamper rejection. The complete local proxy/master family passes
+390/390 tests across 70 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`QUALIFIED_PROXY_MASTER_EXACT_BOUNDARY_LOOKUP_LOCALLY_VERIFIED_PROJECT_RELINK_AND_INVALIDATION_OPEN`.
+
+This remains a read-only local proof using deterministic private-object
+fixtures. It does not read a deployed private R2 bucket, change any project
+source coordinate, compare-and-set a ProjectService revision, invalidate or
+rerender derivatives, deliver media, or prove rollback. Queue item 4 must next
+compose these receipts into the sole ProjectService mutation authority and
+then prove downstream invalidation/admission. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**ProjectService qualified proxy/master relink Phase 3F-C8bt (2026-08-31):**
+commit `03fa89893` composes the active-mapping and exact-boundary receipts into
+the dedicated ProjectService proxy-to-qualified-master mutation owner. The
+owner refuses to infer that an unbound overlay is using proxy coordinates. It
+requires a ProjectService-owned pre-activation source binding for the same
+project revision, asset, proxy source version, exact canonical V3 proxy time-
+map-reference hash and complete overlay set. Every target needs a stable unique
+numeric identity, an explicit source-start alias, an explicit exclusive source
+end and unchanged project/source ranges. A source binding created after mapping
+activation, or one naming the correct source version but a different time map,
+is rejected before mutation.
+
+The owner independently reloads the owner-scoped media asset, validates the
+current active qualification, authenticates the exact-boundary receipt and
+requires current source-bound playable-audio rights when the mapping contains
+audio. It rejects stale project revisions, an active Director writer lease,
+overlapping timeline locks, incomplete/conflicting/unrepresentable source
+ranges, forged correspondence evidence and any pre-commit mapping or rights
+drift. No nominal-rate arithmetic, rounding, nearest-frame selection or silent
+coordinate fallback exists.
+
+The derived overlay coordinates and the complete relink state are persisted in
+one Project document revision CAS. That state preserves proxy and master
+coordinates, the active relation/qualification/mapping/invalidation hashes,
+the authenticated boundary receipt, the before-project revision, rollback
+coordinates and an explicit `PENDING_OWNER_EXECUTION` derivative-invalidation
+set. This is project-document atomicity only; it is not falsely described as a
+cross-collection Project-plus-asset transaction. The media asset is re-read
+immediately before and after the project CAS. A post-commit asset change or
+read outage returns `COMMITTED_REVALIDATION_REQUIRED`, never `APPLIED`, while
+idempotent redelivery of the same committed evidence returns the original
+receipt without a second write.
+
+The focused relink suite passes 10/10, the generated-composition ProjectService
+regression passes 7/7, and the complete local proxy/master family passes 400/400
+tests across 71 files. Repository TypeScript and repository-wide quiet ESLint
+are clean. This result is
+`PROJECT_PROXY_MASTER_EXACT_RELINK_PROJECT_DOCUMENT_CAS_LOCALLY_VERIFIED_BINDING_ISSUER_AND_INVALIDATION_OPEN`.
+
+This remains local proof using mocked Mongo collections and deterministic
+content-addressed private-object fixtures. No live Atlas project, deployed R2
+object or rights-cleared customer project was changed. More importantly, the
+test project seeds the pre-activation binding through its protected contract;
+the production ProjectService command that must issue that binding from the
+current verified V3 proxy-source owner does not exist yet. Downstream
+invalidation execution, source-version consumer admission, visual rerender,
+delivery, recovery and rollback execution also remain open. Queue item 4 must
+next build that production binding issuer, then prove those downstream owners.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Verified proxy-source binding issuance and cutover-authority audit Phase
+3F-C8bu (2026-08-31):** local commit `aaff428cc` adds the missing
+ProjectService command that snapshots every explicit overlay range against the
+current verified V3 proxy source and persists the binding through the same
+project-revision CAS it describes. The binding carries the sole writer
+authority, proxy source/storage identity, canonical V3 time-map-reference hash,
+complete overlay set and project revision. A separate admission receipt is
+issued only after the media asset is re-read following the Project CAS; a lost
+read or changed asset returns `COMMITTED_REVALIDATION_REQUIRED` and cannot be
+presented as admitted. Focused binding plus relink tests pass 18/18, targeted
+quiet ESLint is clean and repository TypeScript is clean. The commit is held
+locally until a consumer can enforce that admission without creating a false
+activation claim.
+
+The same audit found two architectural facts that supersede the earlier
+single-project activation assumption. First, `MediaAsset` records are
+user/org-level and reusable: projects store only `overlays.assetId`, the same
+asset can create multiple projects, and no project-exclusive schema constraint
+or complete reverse-reference revision exists. A receipt from one project can
+therefore never authorize a global cutover. Second, the live URL resolver still
+chooses `originalR2Key` whenever the transition sets `isProxy:false`; it does
+not consume `proxyMasterActiveMappingV1`. The active-mapping CAS is consequently
+an evidence owner used by exact-boundary/relink code, not yet the playback
+decision owner. The current transition can expose master bytes before project
+binding, active mapping, exact relink or invalidation completes.
+
+Queue item 4 must correct that producer-to-consumer chain before this local
+binding commit is pushed. The production direction is explicit per-project
+source-version pinning rather than a global one-project admission: ProjectService
+must issue immutable proxy pins with the binding CAS, replace them with master
+pins only in the exact relink CAS, and protect those fields from browser or
+worker forgery. Preview, analysis, final render and delivery must resolve each
+overlay from that authenticated pin; an eligible active mapping may authorize a
+master pin but may not switch other projects. A dual-version asset with no valid
+pin must be visibly `UNVERIFIABLE`, not silently resolved from `isProxy`, a URL,
+nominal FPS or timestamp ordering. New-overlay writers and legacy projects need
+an owner-issued pin/migration path, and rollback must restore both proxy
+coordinates and the proxy pin. Only after those consumers are wired may
+downstream invalidation, rerender, delivery and recovery claim source admission.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Per-project source-pin mutation authority Phase 3F-C8bv (2026-08-31):**
+commit `803fe623b` closes the producer and stored-mutation portion of the
+cutover gap without claiming consumer cutover. `ClipOverlay` now has the typed
+immutable `sourceVersionPinV1` contract. The verified-proxy binding command
+issues one proxy pin per targeted overlay from the exact source/storage hashes
+and binding/time-map authority, then persists the pins, overlay set and binding
+history in the same Project document revision CAS. Exact proxy/master relink
+requires every target's valid current proxy pin before boundary conversion and
+atomically replaces it with a master pin bound to the relink-state, relation and
+active-mapping hashes beside the master coordinates and relink state. Both
+idempotent paths revalidate the stored pin rather than trusting history alone.
+
+Generic manual, autosave, Director and worker-style overlay persistence may
+preserve an existing source pin but cannot add, remove or replace one, even
+when the generic caller labels its overlay payload `server` authority. A copied,
+missing, wrong-scope or hash-invalid pin therefore cannot authorize relink.
+Legacy projects whose current binding predates pins can use the verified-proxy
+binding command to issue a new current binding and pins; relink remains blocked
+until that happens.
+
+Focused binding/relink/pin proof passes 29/29 and the existing complete generic
+save-payload suite passes 39/39. Repository TypeScript, targeted quiet ESLint
+and repository-wide quiet ESLint pass. A widened source-time/proxy/master
+selection passed 975 tests across 165 files with two intentional skips. One
+unrelated frozen DEV-02 research-proxy test still fails because its V2 raw API
+implementation hash no longer equals the current file; both hashed raw files
+match `HEAD` and none is in this phase's diff, so that failure is recorded and
+not rewritten as source-pin evidence.
+
+This result is
+`PROJECT_SOURCE_PIN_PRODUCER_AND_MUTATION_AUTHORITY_LOCALLY_VERIFIED_CONSUMERS_NOT_WIRED`.
+Preview, analysis, final render and delivery still do not resolve their media
+through the authenticated project pin, and global `isProxy`/`originalR2Key`
+selection still must cease being a playback cutover authority. Queue item 4
+next wires those consumers to `resolveProjectVideoSourceStorageV1`, adds visible
+`UNVERIFIABLE` handling, then addresses all new-overlay writers, safe legacy
+migration, rollback of coordinates plus proxy pin, invalidation/rerender,
+delivery, interrupted recovery and live Atlas/R2 proof. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Per-project source-pin preview/final-render consumption Phase 3F-C8bw
+(2026-08-31):** code commit `a6e44656f` wires the first real consumers without
+claiming project-wide cutover. `AssetResolver.resolveProjectAssets` now accepts
+explicit caller-owned project scope while preserving the historical boolean
+argument for single-version callers. A video with dual-version evidence is
+excluded from the legacy asset-level `isProxy`/`originalR2Key` URL map and is
+resolved per overlay through `resolveProjectVideoSourceStorageV1`. The resolver
+authenticates project, overlay, asset, source-version, storage-version and
+active-mapping identity before selecting the proxy or master object. Missing,
+copied, malformed, stale or wrong-scope pins return a typed
+`PROJECT_VIDEO_SOURCE_UNVERIFIABLE` error; cached URLs and global transition
+state are not fallback authority. With no browser CDN, an exact selected R2
+object is presigned by key rather than inferred from a prior URL.
+
+Both normal ProjectService load hydration and Director-lease hydration now pass
+their trusted project ID. The authenticated cloud-render route also passes its
+persisted `canonicalProjectId`; whether the source error occurs during initial
+ProjectService load or the later pre-dispatch refresh, it is surfaced as HTTP
+409 with the exact safe diagnostic before credit deduction or provider render
+dispatch. One qualified media asset is proven to remain on proxy bytes for one
+project while a second project selects master bytes from its own valid master
+pin after global media promotion.
+
+The focused binding, relink, source-pin, resolver and render-contract suites
+pass 71/71. Repository TypeScript and repository-wide quiet ESLint pass, and
+the five-file code commit is pushed to the approved branch. This result is
+`PROJECT_SOURCE_PIN_PREVIEW_AND_FINAL_RENDER_SELECTION_LOCALLY_VERIFIED_ANALYSIS_DELIVERY_AND_LIVE_PROOF_OPEN`.
+It proves exact project-load/Director hydration and final-render selection, not
+browser-visible preview recovery, checkpoint/undo hydration, analysis inputs,
+delivery/finalization consumption, new-overlay issuance, legacy migration,
+rollback, invalidation execution, interrupted recovery or live Atlas/R2 media.
+Generic `resolveAssetUrl`, the unused legacy render helper and other workers
+still contain `isProxy`-based decisions and must not be described as cut over.
+Queue item 4 next wires and proves those remaining consumers and visible
+failure boundaries. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project source-pin visible load boundary Phase 3F-C8bx (2026-08-31):**
+code commit `36b5c9af7` removes the remaining project-load API inference from
+global `MediaAsset.isProxy`. A successful ProjectService load has already
+authenticated every versioned overlay, so the route now reports proxy status
+only from each overlay's valid `sourceVersionPinV1`. Filename lookup is optional
+display enrichment and cannot erase or change that source selection. A shared
+asset with proxy-pinned and master-pinned overlays is reported by exact proxy-
+pinned overlay IDs; master or unpinned overlays are never inferred to be proxy
+from the media row.
+
+The project GET boundary now preserves
+`PROJECT_VIDEO_SOURCE_UNVERIFIABLE` as a structured HTTP 409. The formerly
+duplicated live/V2 boot checks were replaced by one abort-aware bounded-retry
+guard: 404 is “Project Not Found,” transient service failures may retry, and the
+source-integrity 409 stops immediately as “Project media needs attention” with
+the safe-stop reason. Neither page mounts the editor after this block. Focused
+route/classifier proof passes 6/6; repository TypeScript, targeted quiet ESLint
+and repository-wide quiet ESLint pass. The five Editron files are pushed while
+the unrelated dirty ThinkForge test remains unstaged and untouched.
+
+This result is
+`PROJECT_SOURCE_PIN_BROWSER_LOAD_BOUNDARY_LOCALLY_VERIFIED_AUTHENTICATED_BROWSER_MEDIA_PROOF_OPEN`.
+It proves the API contract, shared client classification and compiled page
+behavior, not a signed-in browser session, real project media playback, screen
+capture or operator recovery. Analysis, checkpoint/undo, delivery/finalization,
+writer issuance, migration, rollback, invalidation, recovery and live Atlas/R2
+proof remain open. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+The same-day provider-off browser QA probe successfully served this worktree on
+isolated port 3002, loaded the public product surface and verified that
+`/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
+FalkorDB administration surface, not Editron. Because no authenticated,
+rights-cleared project fixture was available, no visible edit/playback/
+correction/undo/reload evidence bundle or exact browser A/V pass is claimed;
+that Q0/Q1 setup remains deferred to the end-of-queue human/setup lane.
+
+**Project-source-bound durable deep analysis Phase 3F-C8by (2026-08-31):**
+code commit `e087b879a` closes one real project-analysis consumer without
+claiming analysis-wide cutover. Durable chat deep-analysis jobs now use a V2
+contract whose immutable target records the current per-overlay proxy/master
+pin identity, or explicitly records that a single-version direct asset is
+unversioned. Before any audio/video provider call, the worker reloads through
+ProjectService, revalidates project, overlay, asset, rate, timeline/source
+range and source selection, and passes the exact AssetResolver-hydrated URL to
+the existing sampler. A changed/forged pin or missing resolved URL stops before
+provider use. Timestamp-managed video still never downgrades after exact V3
+materialization failure; ordinary rate sampling remains explicitly
+non-mutation-authoritative.
+
+The persisted schema receives the new `editron-chat-deep-analysis-job-v2`
+identity rather than silently reinterpreting V1. A delayed/forged V1 queue or
+worker delivery is marked failed as `analysis-job-version-unsupported` before
+provider execution. Source selections are compared field-by-field so JSON key
+order cannot alter meaning. Focused durable-job/tool/sampler proof passes 30/30;
+repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`DURABLE_CHAT_ANALYSIS_PROJECT_SOURCE_SELECTION_LOCALLY_VERIFIED_OTHER_ANALYSIS_CONSUMERS_OPEN`.
+It proves the durable chat audio/video provider admission path, not the
+project `/analyze` route's asset-level transcription cache, synchronous legacy
+chat analysis callers, source-version-bound transcription persistence,
+checkpoint/undo hydration, delivery/finalization, writer migration, browser
+playback, live Atlas/R2 media or semantic-retrieval accuracy. Ingest analysis
+remains intentionally asset-owned before a project exists. Queue item 4 next
+separates/fixes the remaining project analysis consumers without making ingest
+depend on project pins. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Five-track source-binding Step-0 Phase 3F-C8bz (2026-08-31):** code
+commit `5a9d50c79` completes the required separate cleanup before changing the
+1,762-line legacy analysis owner. It removes one unused Gemini-upload argument,
+three internal-only function exports, one internal-only type export and the raw
+full diagnostic-trace console dump; the trace remains stored on the analysis
+record. No analyzer decision, provider call, cache key, project state or media
+selection changes. Focused dependent suites pass 37/37, and repository
+TypeScript plus repository-wide quiet ESLint pass.
+
+The grounding audit found that the current `asset_analyses` record is selected
+and upserted by `assetId` alone, `analyzeProjectAssets` prefers the media row's
+`cachedUrl` over the ProjectService-hydrated overlay URL, cached consumers do
+not require user/project/source-version identity, and project duration
+conversion still assumes 30 fps. These are production blockers, not completed
+source-bound analysis. The next structural phase must issue a reusable record
+identity bound to owner, asset, exact source/storage versions, material analysis
+inputs and analyzer contract; project callers must separately admit that record
+against current project-coordinate evidence and refuse legacy cache hits for
+pinned proxy/master overlays. Historical V1 records may
+remain read-compatible only in explicitly unversioned single-source contexts;
+they may not be silently promoted. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Immutable source/input-bound five-track cache Phase 3F-C8ca (2026-08-31):**
+code commit `cc8d3ad1a` adds the production V2 cache identity and integrates it
+as an optional path in the existing five-track analyzer owner. A V2 identity
+now binds user, asset, proxy/master role, exact source-version hash, exact
+storage-version hash, material analysis-input hash and the explicit analyzer
+contract. The material-input hash covers duration, source type, transcript,
+word timings, storyboard evidence and the availability of the video, audio and
+preloaded-Gemini transports without hashing rotating signed URLs. The analyzer
+independently recomputes that input hash and rejects a mismatched binding before
+any cache or provider work.
+
+V2 rows use a deterministic binding-derived ID in the existing
+`asset_analyses` collection. Completed output is canonicalized, hashed and
+inserted with `$setOnInsert`; a primary reread validates binding, payload and
+record hashes. A concurrent/different second provider result cannot overwrite
+the first valid row. A bound analyzer call never consults the legacy
+asset-only cache. Unbound pre-project callers retain the historical path until
+they are separately migrated. Focused core, boundary and surrounding analysis
+proof passes 30/30; repository TypeScript and repository-wide quiet ESLint
+pass.
+
+This result is
+`FIVE_TRACK_SOURCE_INPUT_CACHE_OWNER_LOCALLY_VERIFIED_PROJECT_ROUTE_CUTOVER_OPEN`.
+It establishes the reusable analysis-record producer and exact consumer
+admission inside `runFullAnalysis`; it does not claim that a project route
+currently supplies the binding. Project ID, revision, overlay range and pin
+receipt are intentionally not part of reusable source-byte cache identity:
+ProjectService must validate them immediately before cache consumption and
+bind them into the project operation/evidence receipt. The next phase must
+migrate `analyzeProjectAssets` and `/api/services/editron/analysis` through a
+current ProjectService load, authenticated per-overlay source pin and exact
+hydrated URL, and refuse a legacy hit for a pinned overlay. The separate
+`/analyze` asset-transcription path still requires source-version-bound
+transcript persistence; this V2 cache does not retroactively make that
+transcript trustworthy. Live Atlas proof, project-coordinate admission,
+duration/rate correction, synchronous legacy consumers, browser QA and
+semantic-retrieval accuracy remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Verified V3 fixed-frame consumer admission Phase 3F-C8cb (2026-08-31):**
+code commit `433d4580b` extends the existing source-time-transform owner with a
+public V3 rate-compatibility classifier. It first validates the complete
+hash-bound verified epoch binding, then reuses the same exact `BigInt` rational
+equality as the V1 consumer gate. Exact same-rate integer CFR is admitted;
+VFR, a decimal/non-integer project rate and a different exact CFR cadence return
+`VFR_INDEX_REQUIRED`, `PROJECT_RATIONAL_TIMEBASE_REQUIRED` or
+`SOURCE_PROJECT_RATE_MISMATCH`. Focused old/new transform proof passes 13/13;
+repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`VERIFIED_V3_FIXED_FRAME_RATE_ADMISSION_LOCALLY_VERIFIED_CONFORM_NOT_IMPLIED`.
+It is a read-only capability decision for legacy fixed-frame consumers, not
+mixed-rate or VFR conformance. Those sources must use the already-defined
+timestamp/epoch consumer path; no nearest-frame, frame-blend, optical-flow or
+interpret-rate fallback is invented here. The creative knowledge graph's
+`intent:authority.frame_timing_accuracy` remains non-overridable, so downstream
+motion, pacing and cut mappings cannot bypass this gate. The project five-track
+route still needs to consume this decision, current ProjectService revision,
+source pin, full overlay mapping and exact cache identity. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project five-track exact-source route cutover Phase 3F-C8cc
+(2026-08-31):** code commits `e2a7ad02d` and `43e3221df` replace the raw
+project-analysis loop at `/api/services/editron/analysis` with one bounded
+project adapter. POST now proves project access through ProjectService before
+rate-limit or provider work, resolves each current overlay's authenticated
+proxy/master pin and exact AssetResolver-hydrated URL, verifies the current V3
+source/version/storage timing binding, and reads or writes only the immutable
+V2 source/input-bound analysis cache. A full provider run reloads the project
+after that long work and consumes only cache evidence rebound to the fresh
+ProjectService revision. The former `analyzeProjectAssets` bypass, which read a
+raw project, preferred `cachedUrl`, assumed 30 fps and accepted the legacy
+asset-only cache, has been deleted.
+
+The existing reactive suggestion and cinematic-moment consumers remain
+fixed-30-fps consumers. They receive an analysis only when the source is exact
+30-fps CFR, the project is 30 fps, the overlay has an explicit full-source
+range, normal speed and a single use of that source. A trimmed source may still
+receive reusable byte-level analysis while its timeline suggestions are
+blocked. VFR, mismatched-rate, retimed, duplicated, missing-range and cache-miss
+cases return structured source/timeline block reasons; corrupt project timing
+returns `PROJECT_TIMELINE_INVALID` with HTTP 409. There is no Unified
+Intelligence-to-reactive fallback. The legacy GET debug endpoint now requires
+direct asset ownership and labels its response `LEGACY_ASSET_ONLY`; a
+project/org/source-bound V2 debug contract remains open.
+
+Focused cache/adapter/route proof passes 16/16. Repository TypeScript, targeted
+quiet ESLint, repository-wide quiet ESLint and `git diff --check` pass. No paid
+provider call, live Atlas/R2 media, authenticated browser or human evaluation
+was used.
+
+This result is
+`PROJECT_FIVE_TRACK_EXACT_SOURCE_ROUTE_LOCALLY_VERIFIED_TIMESTAMP_MAPPING_AUDIO_AND_LIVE_PROOF_OPEN`.
+It is a real route cutover for the exact current-source 30-CFR subset, not
+analysis-wide mixed-rate/VFR support. The production timestamp-addressed
+five-track consumer for VFR, rational mixed-rate, discontinuous epochs,
+trim/retime and repeated source uses remains open. An active proxy/master
+mapping does not yet expose a complete selected-source V3 cadence/timebase join
+to this adapter, so that state blocks rather than guessing. The route also does
+not yet provide or prove a selected-source playable-audio decode contract; the
+existing five-track audio layer cannot be promoted as project audio evidence.
+Other legacy synchronous/ingest analysis consumers, source-version-bound
+transcription, live provider/Atlas proof, browser QA and semantic-retrieval
+accuracy remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Selected proxy/master V3 timing consumption Phase 3F-C8cd
+(2026-08-31):** code commits `962ba6843`, `e33c6fa8a` and `f7b48480d`
+close the active-mapping limitation recorded by C8cc for the project five-track
+consumer. A new read-only composition owner first resolves the authenticated
+ProjectService source pin and exact R2 object. A direct/current source uses its
+current terminal V3 state. An active mapped proxy or master loads the immutable
+`MediaSourceVersionEvidenceRecordV1` keyed by owner, asset and exact source
+version, rebuilds the existing V3 asset view, and requires every V3 binding
+identity field to equal the already-qualified active mapping's proxy or master
+time-map reference. Cadence and source timebase remain owned by that source's
+terminal V3 evidence; they are never inferred from nominal FPS, correspondence
+segments or the other source.
+
+The project five-track adapter now consumes that owner through an injected,
+lazy primary evidence-store port. Its V2 analysis cache identity receives the
+selected proxy/master role and exact selected source/storage hashes. Missing
+historical evidence, invalid active state, stale source scope and active-map/V3
+mismatch remain separate stable block reasons and stop before cache or provider
+work. A historical proxy selected after the current asset changes but before an
+active mapping exists also stops explicitly; no unqualified cross-source join
+is attempted. The required >300-LOC Step-0 removed six unused exports in its
+own commit before this consumer refactor.
+
+The selected-source owner passes 6/6 direct/active/adversarial cases. The
+combined selected-source, adapter, route and cache battery passes 22/22;
+repository TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No paid provider call, live Atlas/R2 media read,
+authenticated browser or human evaluation was used.
+
+This result is
+`PROJECT_SELECTED_PROXY_MASTER_V3_TIME_BINDING_AND_FIVE_TRACK_CONSUMER_LOCALLY_VERIFIED_LIVE_AUDIO_AND_TIMESTAMP_CONFORM_OPEN`.
+It proves local exact selected-source timing composition and consumption for
+the existing fixed-30-fps analysis engine. It does not implement the
+timestamp-addressed five-track consumer required for VFR, rational mixed-rate,
+discontinuous epochs, trims, retimes or repeated source uses. The selected
+source's playable-audio decode/equivalence contract, live primary
+source-version-evidence read, live provider execution, source-version-bound
+transcription, project/org-aware V2 debug endpoint, browser QA and semantic
+retrieval accuracy remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact project-coordinate timestamp analysis Phase 3F-C8ce
+(2026-08-31):** commits `ac67bebf2`, `a0db28a70`, `6113425a1`,
+`3ccee2c03`, `a9ee3e95e` and `65ecad783` replace the durable chat
+caller's private materialization/vision assertions with neutral shared owners,
+then bind the project analysis route to the same exact evidence. The
+materialization validator authenticates the root, sample-plan and analysis-
+receipt hashes, project/sequence/overlay/revision/window scope, every sampled
+frame identity and every mapped observation coordinate. Its decoded-picture
+count is the number of unique decoder picture requests, so multiple timeline
+samples may truthfully reuse one held VFR picture without being rejected or
+counted twice.
+
+For a selected V3 source outside the existing 30-CFR five-track subset, the
+project adapter now asks the existing timestamp materializer for the full
+overlay window. The result must match the already-selected proxy/master source
+version, storage version and V3 cadence-state hash before its lossless string-
+frame vision evidence is returned. The authenticated route carries the paired
+`ProjectRevisionV1`, reloads ProjectService after provider work, and retains
+same-request project-coordinate evidence only when the before/after revisions
+are identical. A changed revision discards it. Cache-only mode performs no
+materialization or provider work.
+
+This is partial convergence with the existing durable chat analysis path, not
+a merged analysis architecture: chat and project callers now share evidence
+validation and exact vision mapping, but retain separate orchestration and
+response contracts. The legacy source-bound five-track engine/cache remains
+the owner for its verified 30-CFR subset. Exact project-coordinate evidence is
+explicitly `PROJECT_COORDINATE_ANALYZED`, is exposed without private picture
+handles, and remains blocked from the linear-offset EDL as
+`PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED`. No approximate FPS offset,
+ordinary-media downgrade or provider fallback is permitted.
+
+The shared materialization, vision, project-coordinate, adapter, route and
+chat regression battery passes 40/40. Repository TypeScript, targeted quiet
+ESLint, repository-wide quiet ESLint and `git diff --check` pass. No paid
+provider call, configured private PTS read/write, live Atlas/R2 media,
+authenticated browser, customer project or mutation was exercised.
+
+This result is
+`PROJECT_EXACT_TIMESTAMP_ANALYSIS_ROUTE_LOCALLY_VERIFIED_FULL_FIVE_TRACK_AND_EDL_CONSUMER_OPEN`.
+It closes the former unconditional VFR analysis rejection for exact read-only
+vision evidence. It does not yet supply full timestamp-native motion,
+keyframe, subject, speech, music and playable-audio tracks; persist/reuse exact
+project-coordinate analysis across requests; or map those tracks into a
+timestamp-native suggestion/EDL owner for trims, retimes and repeated source
+uses. Live private runtime/provider proof, selected-source playable-audio
+equivalence, source-version-bound transcription, browser QA and semantic-
+retrieval accuracy remain open. Queue item 3 and Stage 2.5 therefore remain
+in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
+**Project-selected exact-audio evidence binding Phase 3F-C8cf
+(2026-08-31):** commits `c8975a162`, `570bca75a`, `0516433c5` and
+`e4bf0b5a2` add the next read-only project-analysis dependency without
+promoting metadata to playback proof. A new composition owner accepts only an
+already-resolved ProjectService source selection, finds exactly one matching
+current or historical source version, loads that immutable source-version
+evidence and requires the selected evidence root when an active proxy/master
+mapping supplied one. It then delegates private manifest/sample-map
+verification to the existing exact-audio owner and rechecks the audio binding's
+asset, source-version and storage-version identities before issuing a
+project/sequence/overlay/revision-bound receipt.
+
+Wrong-source candidates, duplicated matching candidates, absent or stale
+source-version evidence, multiple observed audio streams without an explicit
+stream-selection owner, private artifact read failure and invalid project
+revision all remain distinct structured `UNVERIFIABLE` outcomes. The
+project-coordinate analysis path now runs this audio composition beside the
+exact visual materialization. A visual result may remain available with an
+explicit audio stop, but that stop is never converted into speech, music,
+preservation or mutation evidence. The authenticated route returns only a
+redacted hash/count summary; private manifest references and internal audio
+evidence do not leave the server.
+
+The standalone composition, project adapter and authenticated route battery
+passes 15/15 focused tests. Repository TypeScript, targeted quiet ESLint,
+repository-wide quiet ESLint and `git diff --check` pass. No paid provider,
+live private R2 object, browser/device playback, customer project or mutation
+was exercised.
+
+This result is
+`PROJECT_SELECTED_SOURCE_EXACT_AUDIO_MANIFEST_AND_SAMPLE_MAP_LOCALLY_BOUND_PLAYBACK_AND_RIGHTS_OPEN`.
+It proves exact source/version/revision scope plus private manifest and sample-
+epoch-map readability. It does **not** read or hash the selected PCM window,
+materialize/schedule playable audio, prove decoded PCM equivalence for the
+analysis window, authorize current source-media rights, select among multiple
+audio streams, bind source-version transcription, or supply timestamp-native
+speech/music tracks. The public summary therefore states
+`playbackAuthority: NOT_PROVEN`. Queue item 3 next requires a bounded project-
+coordinate PCM/audio-window consumer with current rights and revision checks,
+followed by source-version-bound transcription and the remaining full track
+consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact timestamp PCM-window verification Phase 3F-C8cg (2026-08-31):**
+commit `6e7022cb1` separates private PCM-byte verification from browser audio-
+surface materialization while retaining one exact range-calculation owner.
+The existing timestamp audio materializer now reads and validates every
+bounded PCM segment before it writes any browser surface. A new proof-only
+entry point uses the same project-frame -> rational-sample -> source-range
+calculation, reads the exact private PCM ranges, verifies manifest/map/stream/
+rate/channel/range scope and recalculates each byte-range SHA-256. Its receipt
+contains project/sequence/overlay/revision scope, source/storage/audio hashes,
+exact sample positions, declared silence, range hashes and aggregate byte
+counts; it contains neither PCM bytes, private object keys nor browser audio
+handles.
+
+The focused owner battery passes 9/9, including a forged-range-hash stop with
+no surface write. The paired timestamp materializer regression passes 4/4.
+Repository TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No live private R2 object, browser/device playback,
+customer project, paid provider or mutation was exercised.
+
+This result is
+`EXACT_TIMESTAMP_PCM_WINDOW_LOCALLY_VERIFIED_PROJECT_COMPOSITION_AND_PLAYBACK_OPEN`.
+It proves that the bounded PCM bytes selected by an already-constructed exact
+audio mapping are readable and untampered. It does **not** yet prove that the
+mapping came from the current ProjectService-selected source/revision, that a
+browser/device scheduled or played those bytes, that the source is currently
+rights-authorized, or that analysis/transcription consumed them. Queue item 3
+next composes this proof with the existing project-selected source evidence
+and exact visual transform without duplicating time-conformance authority,
+then binds source-version transcription and the remaining timestamp-native
+audio consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project-selected PCM-window composition Phase 3F-C8ch (2026-08-31):**
+commits `dd8606fbd`, `8ec7aed5e`, `ed67a9129`, `b31c37e16` and
+`3a88cfbde` compose the exact PCM verifier with the real ProjectService-
+selected source evidence and the completed timestamp-native visual analysis.
+The project owner now requires the current project/sequence/overlay revision,
+canonical V3 epoch conform, exact visual-transform-hash parity and exact audio-
+mapping identity before it reads PCM. The five-track owner runs visual analysis
+first and passes that owner's exact project rate, source range, sample queries
+and transform hash into the audio owner. The production default shares the
+existing private R2 PTS and PCM readers rather than constructing a second media
+or time-conformance authority.
+
+The public analysis summary may now state
+`EXACT_SOURCE_AUDIO_PCM_WINDOW_BOUND`. It exposes only project-coordinate
+sample positions, aggregate byte/segment counts and proof hashes; it retains
+`playbackAuthority: NOT_PROVEN` and exposes no PCM bytes, private object keys or
+browser handles. The composed focused battery passes 26/26. It covers forged
+range/hash rejection before surface writes, visual-transform mismatch before a
+PCM read, visual-before-audio ordering and route redaction. Repository
+TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No live private R2 object, browser/device playback,
+customer project, paid provider or mutation was exercised.
+
+This result is
+`PROJECT_SELECTED_SOURCE_PCM_WINDOW_LOCALLY_VERIFIED_PLAYBACK_RIGHTS_TRANSCRIPTION_AND_LONG_WINDOW_CHUNKING_OPEN`.
+It proves exact bounded PCM-byte integrity for the current ProjectService-
+selected source/version/revision and already-completed visual transform. It
+does **not** prove browser scheduling or audible playback, current source-media
+rights, source-version transcription, speech/music interpretation or mutation
+preservation. The proof owner currently accepts at most 1,024 project frames;
+larger windows stop explicitly and are never truncated or approximately
+sampled. Queue item 3 next binds current source-media rights and source-version
+transcription, then supplies a chunked aggregate proof for longer windows and
+the remaining timestamp-native audio consumers. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Current source-media rights analysis gate Phase 3F-C8ci (2026-08-31):**
+commits `910f67d12` and `abc42562a` create one reusable current-source rights
+authorizer and make both final-render publication and project analysis consume
+it. The authorizer reads the immutable project/source-version ledger head and
+binds tenant, actor, project owner/organization, permitted use, complete source
+owner/content/storage/version hashes, current licence time, revocation state
+and ledger-state hash into a canonical authorization receipt. Final render no
+longer maintains a separate copy of project/principal/licence checks.
+
+Five-track analysis now authorizes the exact ProjectService-selected proxy or
+master before cached analysis, provider analysis or timestamp visual
+materialization. The selected-source audio owner independently reauthorizes
+immediately before private audio-artifact or PCM reads. Missing, malformed,
+revoked, expired, wrong-project, wrong-principal or wrong-source evidence stops
+without provider, visual, audio or PCM work; legacy asset/overlay consent is not
+accepted as a substitute. The combined rights, selected-audio, five-track and
+API-route battery passes 40/40. Repository TypeScript, targeted quiet ESLint,
+repository-wide quiet ESLint and `git diff --check` pass. No live Atlas ledger,
+customer project, provider, private media object or mutation was exercised.
+
+This result is
+`CURRENT_SOURCE_MEDIA_RIGHTS_LOCALLY_ENFORCED_PRODUCTION_ISSUANCE_MIGRATION_AND_LIVE_LEDGER_OPEN`.
+The production codebase currently has no non-test caller that issues and
+persists a `SourceMediaRightsGrantStateV1`; therefore existing projects without
+a durable grant safely block. Queue item 3 must next wire explicit authenticated
+issuance at source intake/project binding, migrate only grants backed by valid
+existing attestations, and prove issue/read/revoke against live Atlas before
+source-version transcription can be called production-ready. No synthetic or
+implicit grant may be created for legacy media. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Attestation-backed source-rights migration and five-track issuance Phase
+3F-C8cj (2026-08-31):** commits `318d45f27` and `903b97ca8` add the bounded
+production path that the preceding checkpoint left open. One canonical terms
+constant now owns the upload UI wording and stored native-video source claim.
+The one-way migration owner first reads the durable rights ledger, reuses a
+current grant, and refuses malformed or revoked state. Only when the ledger is
+missing may it convert a canonical server-timestamped user-upload attestation,
+and then only for the exact ProjectService-selected immutable source version,
+matching project/source owner and tenant or organization scope. Future-dated,
+wrong-source, wrong-owner, absent and malformed attestations block. The
+migration cannot infer `LICENSED_FOR_PROJECT`, create third-party licence
+evidence or revive a revoked grant. Issue persistence uses the existing Atlas
+compare-and-set ledger transition and reauthorizes the committed head before
+returning a receipt.
+
+The real five-track production owner now supplies the read/write ledger port
+and invokes this migration during `FULL` analysis before source-cache reads,
+provider work or timestamp visual materialization. The authority receipt is
+bound to the current ProjectService revision and exact selected proxy/master
+version. `CACHE_ONLY` remains read-only: it may authorize an existing durable
+grant but never migrates or writes one. The selected-source audio owner still
+independently reauthorizes immediately before private audio/PCM work. The
+composed upload-attestation, migration, ledger, authorization, five-track,
+selected-audio and API-route battery passes 85/85; repository TypeScript,
+targeted quiet ESLint, repository-wide quiet ESLint and `git diff --check`
+pass.
+
+This result is
+`ATTESTATION_BACKED_SOURCE_MEDIA_RIGHTS_PRODUCTION_PATH_LOCALLY_ENFORCED_LIVE_ATLAS_AND_PRIMARY_BINDING_ISSUANCE_OPEN`.
+No live Atlas issue/read/revoke, customer project, provider, private media
+object or mutation was exercised. This just-in-time `FULL` migration is the
+safe compatibility path for already-attested uploads; new project/source-
+binding writers must still issue the same durable grant without waiting for
+analysis, explicitly licensed media still needs principal-authorized licence
+evidence, and live Atlas CAS/revocation proof remains required. Source-version
+transcription is next in the local queue, but cannot be called production-ready
+until those live and primary-issuance gaps close. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Source-bound transcription core Phase 3F-C8ck (2026-08-31):** commits
+`70fcb23b1`, `369bc043f`, `561899cc8`, `0739bc893`, `26c2537ac`,
+`062493efd`, `a2c535ddd`, `adf90ec46` and `e68de6b3b` establish the bounded
+local owner chain without claiming production cutover. Transcription timing is
+now explicitly measured rather than inferred from billing/runtime telemetry.
+The immutable source binding owns the exact source content/storage/version,
+source role, language request, precision and transcriber contract. External
+processing records the exact egress request and authorization, while local
+processing records no egress. Cache identity was advanced so older V2 records
+cannot collide with or be promoted into this stronger evidence contract.
+
+The orchestration owner reads and validates the exact cache first, then checks
+current source rights and ProjectService revision before allowing a cache hit.
+A miss additionally requires the privacy-egress policy owner, its approved
+provider set, an exact qualified source lease and a source-bound provider
+result. It revalidates the lease, rights and revision before immutable cache
+write, and rechecks revision after the write before releasing evidence for
+current-project consumption. Corrupt cache evidence, denied egress,
+unapproved-provider output, stale leases, lost rights, pre-write revision
+drift and post-write revision drift all stop. Provider or resource failures
+remain blocked/unverifiable and cannot be rewritten as `no-speech`. Source
+URLs never appear in the returned evidence. The focused source-bound cache,
+egress, provider-timing and orchestration battery passes 24/24; repository
+TypeScript, repository-wide quiet ESLint and `git diff --check` pass.
+
+This result is
+`SOURCE_BOUND_TRANSCRIPTION_CORE_LOCALLY_VERIFIED_PRODUCTION_COMPOSITION_AND_LIVE_PROVIDER_OPEN`.
+There is no non-test production caller yet, and no live Atlas ledger, private
+R2 source, provider call or customer project was exercised. The upload route
+still dispatches the legacy asset-transcription worker independently of source
+qualification, sends an asset-scoped URL payload, and can begin provider work
+before the source is qualified. That legacy worker catches transcription
+exceptions and records `no-speech`; the qualification worker currently
+dispatches only V3 cadence and selected-source audio materialization. The next
+bounded slice must compose the source-bound owner after qualification using
+the exact selected proxy/master pin, current ProjectService revision, durable
+rights ledger and real egress-policy issuer; only then may downstream analysis
+consume the evidence. The legacy asset-only path must not remain an alternate
+success route. Live Atlas/R2/provider proof and primary binding-time rights
+issuance remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Project-selected transcription composition and read-only admission Phase
+3F-C8cl (2026-08-31):** commits `5fe1b1b69`, `6debc5bd8`, `6e8fd747c`,
+`67853303e`, `b3c0b1a9a` and `d02e469af` advance the local source-bound chain
+without claiming a product caller or production cutover. The existing
+project-selected proxy/master resolver now exposes the exact immutable
+`sourceVersion` it selected. A narrow composition owner passes that exact
+version, source role, ProjectService revision and project/principal scope to
+the source-bound transcription core. The five-track preparation owner no
+longer reconstructs a second proxy/master choice from asset flags or overlay
+URLs; it reuses the selection owner's result.
+
+External transcription now has an explicit durable policy authority. Its
+grant binds tenant, actor, organization, project, exact privacy-policy
+artifact, allowed providers, media kinds, source roles, timing precisions,
+validity and revocation. No default grant, seed or write shortcut exists. The
+selected-source lease adapter can open the current source version or an exact
+retained qualified proxy only when immutable source-version evidence and that
+version's own qualification agree; an arbitrary historical source cannot be
+leased. This closes the earlier mistake where an asset-global `isProxy` state
+could masquerade as project-specific source authority.
+
+The transcription input now requires `FULL | CACHE_ONLY`. Both modes may use
+a valid cache hit only after current rights and ProjectService revision checks.
+On a validated miss, `CACHE_ONLY` returns
+`ASSET_TRANSCRIPTION_CACHE_MISS` before egress-policy, source-lease, provider
+or cache-write owners are required or called. It cannot spend, egress, invent
+silence or create durable evidence. The focused current core/composition
+battery passes 12/12; the selected-source lease checkpoint passed 16/16, the
+durable egress-policy checkpoint passed 25/25 and the five-track selected-
+source cleanup checkpoint passed its 29-test battery. Repository TypeScript,
+repository-wide quiet ESLint and `git diff --check` pass at `d02e469af`.
+
+This result is
+`PROJECT_SELECTED_TRANSCRIPTION_PREREQUISITES_LOCALLY_COMPOSED_FIVE_TRACK_PRODUCT_CONSUMPTION_AND_LIVE_PROOF_OPEN`.
+The source-bound transcription owner is still not called by the authenticated
+five-track product path. No current durable policy-grant writer or production
+grant record was introduced, and no live Atlas policy/rights read, private R2
+lease, provider call, customer project or downstream edit was exercised. The
+legacy upload/asset-transcription dispatch and its false `no-speech` failure
+semantics remain separate unsafe paths and are not accepted as fallback
+success. The next bounded slice must compose the concrete cache, rights,
+ProjectService revision, egress-policy, exact selected-source lease and
+provider ports behind project five-track analysis; pass measured transcript
+and word timing into the same-rate analysis input; bind timestamp-path evidence
+without claiming an unimplemented speech consumer; and prove that the
+five-track `CACHE_ONLY` pass never generates on a miss. Only after the new path
+is authoritative may the legacy alternate-success route be disabled or
+migrated. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
+programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
+continuity” means that after the filmstrip releases, the surviving source
+continues naturally as the full-screen picture; under that definition the
+answer is yes. Candidate A's simultaneous-three-source and motion/layout
+failures remain. For RHC-02, the portrait return is confirmed and the explainer
+voice continues across that return in the expected J/L-cut-style overlap. The
+portrait is static, so return-to-live-motion remains untestable, and the owner
+reports the interview/portrait portion as audibly dead silent: human room-tone
+preservation therefore fails even though the synthetic baseline/PCM technical
+comparison passed. Technical sample equivalence cannot override that audible
+review result.
+
+RHC-03's visible subject-clearance result remains `FAIL`. “Subject” must be an
+explicit selected target, not whatever a detector happens to find. NVIDIA
+NanoOWL is an Apache-2.0, TensorRT-optimized open-vocabulary OWL-ViT detector
+and is a useful candidate evidence producer, not the safety authority:
+<https://github.com/NVIDIA-AI-IOT/nanoowl>. The production candidate pipeline
+is text/selection-conditioned detection -> mask/temporal track (for example a
+separately licensed and benchmarked SAM-family/DeepStream owner) ->
+source-version/epoch-bound mask tube -> conservative clearance dilation ->
+all-frame deterministic overlay-intersection proof. Low confidence, track
+loss, identity swap, uncovered frames or user ambiguity blocks/reroutes the
+layout. A sampled box or NanoOWL result alone can never pass `RHC03-T2`.
+
+RHC-04 V2 must include a route-neutral source/pairing board: every original
+close-up appears once with a stable source ID, thumbnail/frame reference,
+source-version hash and the number it is intended to illustrate; the initial
+and corrected outputs then name those IDs. Route identities remain hidden.
+This lets a reviewer distinguish the intended `30% -> 35%` paired-source
+correction from an accidental source swap. The board and a fresh measured
+hands-on correction session are both required; the V1 packet is preserved and
+not retroactively repaired.
+
+The native exact-font gap has a concrete closure contract. Register the
+rights-cleared font bytes as an immutable font asset with licence, SHA-256,
+SFNT face index, family, weight, style and variation axes; replace the bare
+family string with that `fontAssetRef`; mount/load the exact bytes in both the
+native isolated renderer and generated sandbox; and bind the loaded-byte hash,
+resolved face metadata and text-geometry probe into the render receipt. A
+missing/substituted font or metric mismatch fails before candidate promotion.
+System font lookup by the string `Noto Sans` is never sufficient proof.
+
+The long-form visual blocker also remains explicit. The existing five-minute
+receipt is audio-only. Queue items 8-9 must render a rights-cleared five-minute
+moving-picture timeline containing native media, overlays and transitions;
+decode the complete output; verify A/V sync and boundary samples across the
+duration; record browser/GPU/worker memory; deliver and reread the final object;
+exercise proxy/master visual relink; and recover one interrupted hosted render
+without duplicate or false success. Only that evidence can close “no full
+five-minute visual timeline.”
+
+The 2026-08-29 read-only render-owner audit adds two important separations. A
+five-minute project currently takes the standard single-render path because the
+chapter threshold is fifteen minutes, so a five-minute A/V success would not
+prove chapter admission, chapter concatenation or chapter-boundary recovery.
+The first successor proof must therefore render and completely decode exactly
+9,000 moving-picture frames at 30 fps plus 14,400,000 sample frames per channel
+at 48 kHz, exercise native video, overlays and transitions, measure A/V marker
+error to no more than one video frame, observe motion at early/middle/late/tail
+and transition points, reread the entire delivered object twice with matching
+byte count and SHA-256, and resume one interrupted attempt without duplicating
+admission, provider, billing, finalization or output identities. A separate
+greater-than-fifteen-minute proof must exercise the chapter path. Current
+delivery verification reads only one byte, no recovery sweeper was found, and
+the UI does not resume a `finalizing` job after refresh; none of those gaps is
+closed by the audio receipt.
+
+The historical five confounded rows remain immutable and unscored, while their
+successor remediation remains required rather than forgotten. Runtime safety
+and product proof come first. If a model cohort is still decision-critical at
+queue item 11, a new identity must implement reversible-term lint,
+key-order-invariance tests, public positive/negative/equivalent examples,
+independent clarity sign-off, a comprehension sentinel and unseen isomorphic
+failure tasks before any separately capped dispatch. The corrected 74/74
+zero-inference gate is harness proof only. No old 24-row rerun is authorized.
+
+In parallel programme order, the corrected RHC-02/RHC-03 candidates and V2
+packet must precede formal blind review. None of this changes
+`FROZEN_MODIFY_DECISION_ISSUED`; a successor `GO` still requires the entire
+declared supported-project blocker set to close and a new readiness receipt.
+
+The 2026-08-29 read-only RHC owner audit freezes the implementation sequence.
+RHC-02 has no corrected moving-interview successor: its file labelled media V2
+only changes font metadata while retaining the looped portrait, voiceover and
+synthetic pink-noise fixture. A new identity requires an immutable rights/
+consent receipt plus exact-format moving interview media with genuine location
+ambience before any corrected render may claim readiness. RHC-03 likewise has
+no V2 candidate. Its V1 visual check samples only four frames, measures glyphs
+against static panel rectangles and cannot substantiate `RHC03-T2`; it must not
+be promoted as all-frame subject-clearance evidence. The successor must bind an
+explicitly selected subject and source/version/epoch mask tube, conservative
+dilation and the complete label treatment across all 150 frames, failing on
+ambiguity, missing masks, identity swap, track loss or overlap. RHC-04 needs no
+rerender: its accepted receipt already binds all four source hashes and exact
+initial/corrected pairings, so the next bounded RHC slice is a deterministic
+route-neutral source/pairing board plus tamper tests. That board may be marked
+`RHC04_V2_REFERENCE_READY_PACKET_NOT_ISSUED`; it cannot issue the V2 review
+packet until corrected RHC-02/RHC-03 artifacts exist, and it does not replace
+the measured hands-on correction session.
+
+**Real mutation-owner inventory checkpoint (2026-08-29):** the read-only audit
+confirms that `ProjectService` is the intended authority but does not yet have a
+universal mutation prerequisite envelope. Revision CAS, exact range receipts,
+cut locks, rights transactions, generated state tokens, Director leases and
+delivery receipts exist as strong specialized mechanisms; they are not
+consistently required by every writer. Generic add/update/delete operations
+self-sample the current revision instead of binding the caller's earlier
+evidence, `cutTimelineRangeV1` can run without its optional cut lock, and no
+production caller currently acquires/releases that lock. Whole-state saves,
+family replacement, several delivery/restoration paths and rights writers do
+not all expose equivalent exact affected-range coverage. Every current timeline
+receipt still declares durable artifact invalidation
+`UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`.
+
+The audit also found nineteen production files that mutate the `projects`
+collection outside `ProjectService`; some are metadata-only, while at least the
+video-analysis worker writes overlay native-audio evidence without advancing
+`projectRevision` or `updatedAt`, so ProjectService CAS cannot observe that
+change. This is an authority bypass, not convergence. Wrappers that merely
+delegate to ProjectService are not counted as new owners, and
+`captureMutationReceipts` remains an observer rather than an admission gate.
+
+Queue item 5 must start with one five-file production pilot on the existing
+pipeline-video delivery path, not a new mutation registry. The dispatcher must
+attach a ProjectService-owned prerequisite value containing expected project
+revision, exact target fingerprint/range, applicable lock assertions,
+source/replacement evidence, rights receipt, predecessor generation receipt and
+invalidation requirement; the worker relays it unchanged; and
+`commitPipelineVideoDeliveryV1` independently re-derives all current facts
+before its CAS. Tests must prove zero mutation and no success receipt for wrong
+project, stale revision, changed range/fingerprint, active Director lease,
+overlapping cut lock, missing/forged rights or generation evidence, absent
+predecessor, unsafe replay and unmaterialized required invalidation. Until a
+durable invalidation owner exists, the last case remains fail-closed/
+`UNVERIFIABLE`. This pilot is not universal-envelope completion. Any later edit
+to `project-service.ts` must preserve the frozen CAP-2 V10 source identity and
+issue a separately versioned V11 reconciliation rather than rewriting history.
+
+**Concurrent ThinkForge production-safety closure (2026-08-28):** the
+previously unstaged ThinkForge work now has a clean repository typecheck and a
+complete no-file-parallelism ThinkForge run: 172 test files and 1,524 tests
+pass; the two skipped tests are explicitly opt-in live/provider evaluations.
+The verified slice binds capture decisions to exact document/evidence hashes,
+requires explicit acquisition and preferred-space choices, derives physical
+geometry only from stance-specific user/live measurements, enforces technical
+capture limits and approval semantics, preserves long-form input-integrity
+error identity, and accounts for provider-reported usage/output size even when
+a structured result is rejected as incomplete. Valid original VideoTreatment
+V1 records without later optional fields remain readable as explicit
+`unspecified` state; orphan capture requirements remain a loud re-review
+condition because no safe owner can infer their intended narrative moment.
+This is ThinkForge authoring/capture safety evidence only. It is not an Editron
+ProjectService mutation-owner audit, RHC repair render, five-minute visual
+timeline, qualified human review, cost closure or Stage 2.5 readiness receipt,
+and it does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
@@ -4149,8 +12657,23 @@ foundation and is no longer the active queue. The next three slices are:
    QStash;
    then run a fresh
    zero-inference preflight and obtain explicit authorization before any paid
-   resumed inference. Exercise realistic long-form sequence/range plans under
-   bounded evidence; and collect blind-editor quality, correction-time,
+   resumed inference. Commit `7319da514` now freezes and structurally validates
+   one realistic 4.5-hour Sequence/Range proposal against the existing
+   PlanService without inference or project effects. Commit `30a2ed776` issues
+   its immutable nine-row Luna/Terra/Gemini cohort and preflight contract with a
+   `$1.5051264` absolute ceiling. Live manifest `59a022ed...` and receipt
+   `4ae58954...` now verify nine bound requests, exact production model
+   identities and official Google token counts with zero inference. Commit
+   `4a0538847` adds the source-hash-valid provider-episode evaluator and compiles
+   accepted proposals through the existing deterministic PlanService compiler;
+   19/19 focused cases plus repository typecheck/lint pass. Its result is
+   `PASS_STRUCTURAL_ONLY`, never editorial or rendered proof. Because this code
+   postdates manifest `59a022ed...`, that manifest/receipt are historical
+   zero-inference evidence and are not eligible for paid dispatch. Next bind a
+   durable runner, evaluator and exact authorization into a successor identity,
+   repeat zero-inference production-credential preflight, obtain explicit approval
+   for that successor ceiling, and only then measure model planning quality under
+   the bounded evidence packet; then collect blind-editor quality, correction-time,
    latency and cost receipts. Only a frozen passing gate may authorise
    ProjectService-owned proposal integration design, never direct model writes.
 
@@ -5338,10 +13861,110 @@ canonicalizer, `0917a6c4e` streams the existing demux file path and
 `54273324d` registers its derived artifacts, `a70a37158` binds those receipts
 into newly issued V2 source envelopes, and `849ecc8a5` streams the remote frame
 sampler plus JPEG materialization. The next bounded reliability order is
-therefore: one execution-root composition, signed route export,
-non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
-paid preflight with explicit approval.
+therefore: signed route export, a non-production QStash/Atlas
+crash/redelivery exercise, and only then a fresh paid preflight with explicit
+approval.
 Canonical project mutation remains disabled.
+
+**Product execution-root checkpoint (2026-08-23):** commit `f5b192f2c`
+completes the former first item in that order. One composition root now binds
+the existing definition-bound Plan execution owner to canonical-media ports,
+the CreditsService runtime guard, exact live route transport/token counters,
+the ProjectService isolated clone, existing cut/keyframe writers and proof,
+and terminal settlement. It admits exactly `cut_section` and `set_keyframes`;
+research-catalog operations without a concrete isolated writer are rejected
+before budget, media, project or provider resource use. The root has no route,
+performs no provider call by construction, and cannot mutate the canonical
+project. Its composed-owner battery passes 107/107 plus repository typecheck
+and quiet ESLint. This is product composition, not production certification,
+operator-catalog completion, live-store proof or authorization for paid
+inference. The next bounded slice is the authenticated signed route, followed
+by non-production QStash/Atlas/CreditsService recovery proof.
+
+**Finance-owned customer-pricing checkpoint (2026-08-23):** commit
+`2e030edfd` implements the previously missing product customer-charge owner and
+an exact, read-only Mongo policy locator. An immutable Finance policy binds its
+owner/version/hash, approval window, `main` credit pool and an integer
+provider-spend-to-centicredit formula. The owner rounds once at the episode
+total, rejects copied policy identity, approval-window drift, missing policy,
+provider spend above the reservation and customer charge above the reserved
+centicredits. It never moves wallet balances or mutates projects; terminal
+settlement still delegates the resulting receipt to the sole CreditsService
+writer. No rate row was invented or seeded, and no live Mongo lookup or wallet
+transaction occurred. Focused dependent proof passes 27/27 plus repository
+typecheck and quiet ESLint.
+
+**Authenticated product-worker route checkpoint (2026-08-23):** commit
+`c5c49a593` exports the exact dispatch target
+`/api/internal/workers/editorial-plan`. The route exports only `runtime` and
+`POST`, applies the existing request-time QStash signature boundary before
+body parsing, and composes the product root with lazy ports to the sole
+ProjectService and CreditsService owners. Import performs no Mongo, object
+storage, wallet or provider I/O. Missing QStash keys, either provider credential
+family, or the required `EDITRON_PROVIDER_NATIVE_STORAGE_READ_TIMEOUT_MS`
+configuration fails closed before a job claim. The 40/40 route/worker/root/
+security battery, repository typecheck and quiet ESLint pass. This is a signed
+route **export**, not a deployed or live-delivered workflow: no QStash message,
+Atlas transaction, storage read, wallet movement, provider call or canonical
+project mutation occurred. The next gate is the non-production QStash/Atlas/
+CreditsService crash/redelivery exercise.
+
+**Development recovery-redelivery checkpoint (2026-08-24):** commit
+`a481f4d32` adds an opt-in, development-only integration proof over the real
+Atlas-backed durable-job and CreditsService owners, the official local QStash
+emulator, and the exported signed Next route. The probe reserves one test
+credit, marks the exact job cancelled, injects a crash immediately after the
+atomic cancellation settlement commits, redelivers the same terminal job, and
+proves one reserve plus one settle history entry, `RELEASED` reservation,
+`cancelled` job with zero execution attempts, and no project row. The signed
+worker returned HTTP 200 and QStash recorded `DELIVERED`. Receipt SHA-256:
+`120ab844e39130f7cad1538ed6ac51aa663de98841c7abb11c96d8f556ce4f96`.
+The probe then deletes only its unique job, reservation, user and project
+identities. The live probe passes 1/1; the adjacent default battery passes
+60/60 with the live case intentionally skipped; repository typecheck and quiet
+ESLint pass.
+
+This is `DEVELOPMENT_CANCELLATION_RECOVERY_PROVEN`, not hosted-QStash,
+provider-attempt, actual-usage customer-pricing, canonical project mutation or
+production-deployment proof. The configured development `QSTASH_URL` pointed
+at EnterpriseDB's Apache process on port 8080, not QStash; the proof therefore
+started the repository's bundled official emulator on an isolated port and
+overrode its ephemeral URL/token/signing keys without editing environment
+files. The stale port-8080 configuration must be repaired before treating the
+normal development environment as runnable. Next: freeze a fresh zero-
+inference paid-run preflight and obtain explicit spend approval; provider calls
+remain forbidden until then.
+
+**CAP-2A current-truth V7 checkpoint (2026-08-24):** commit `3703c0815`
+preserves V6 and issues a new research-only census after a fresh extractor
+found one new signed route, eight new durable worker/job modules and eleven
+changed evidence paths. V7 binds 231 exact source paths, 11 source
+observations, 486 observed identifier occurrences and normalized source
+snapshot `d476471bda793c1857152036da47804668532a115e23cdd7c04cca474a24c1d8`.
+Its manifest is
+`939ec670b175b7dd8144afd7f065e2a5619315e3c98f191334a2c6dd4155f770`.
+The catalog remains 37 declared operations, zero certified operations and zero
+production-eligible operations. The 11/11 V6/V7/inventory tests, repository
+typecheck and quiet ESLint pass.
+
+This reissue grants no runtime authority. Do not confuse two different V3R4
+records. **Native handoff/order V3R4** already executed eighteen rows and
+remains valid bounded evidence for its DEV-03 writer-revision claim.
+**H03 generated-source V3R4** also already executed all eighteen authorised
+rows at `7064fe381`; receipt `47a57bf2...` records four rendered passes, eight
+proof-unverifiable OpenAI rows, six Gemini HTTP-429 non-evaluations,
+`$0.21068595` spend and zero project access. Those historical results are not
+invalidated by CAP-2A V7.
+
+What stopped before network use on 2026-08-24 was an attempted **current-code
+reconstruction** of H03 V3R4. Its immutable manifest binds CAP-2A V6, while its
+operator-input builder reconstructs the older V2 -> V3 -> V3R2 base from
+mutable current builders; current tests therefore fail closed with
+`HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT`. Do not patch or redispatch V3R4. A
+current-source comparison, if still needed, must use a new V7-bound identity
+with a committed pinned historical-base input, a fresh zero-inference
+preflight and new explicit spend approval. The old run remains historical
+evidence, not current-source evidence or production authority.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
@@ -5409,3 +14032,3947 @@ accurate within their dated sections.
 **VERDICT:** CEO + ENGINEERING CLEARED K/OE-0 ONLY. OE-1 requires the frozen reviewed K/OE-0 artifact; OE-2 requires OE-1. No production runtime integration is cleared.
 
 NO UNRESOLVED DECISIONS
+
+## 2026-08-31 founder-scope and current-source reconciliation
+
+This section supersedes the immediately preceding historical statement that
+there are no unresolved decisions. It does not rewrite any frozen receipt,
+audit, cohort result or dated checkpoint.
+
+### Product destination is unchanged
+
+The destination remains an Adobe-class, web-native NLE with an LLM control
+plane. Nothing in the twelve-item successor-GO queue, CAP-1, CAP-2 or Stages
+3-8 is deleted, waived or reclassified as unnecessary by this reconciliation.
+"Needed later" means sequencing only; it never means implemented or removed.
+
+The current planning defect is different: the successor-GO queue accumulated
+work that the governing stage model also assigns to Stages 4-8. In particular,
+full CAP-1/CAP-2 closure, professional collaboration/interchange, complete
+long-form production proof and broad delivery certification are necessary for
+the final product, but the plan has not yet declared which bounded subset is a
+pre-Stage-3 prerequisite and which subset is certified in its owning later
+stage. Treating every final-parity row as a pre-Stage-3 blocker would put the
+work of Stages 4-8 before Stage 3 while still describing those stages as future
+work. Treating the rows as optional would contradict the product destination.
+Neither interpretation is authorized. The founder must choose the first
+supported project class and its required capability families; all remaining
+rows stay in the plan and retain their later-stage owners.
+
+No agent may add a new capability family to the immediate queue merely because
+it is useful or because Adobe/Resolve supports it. A new immediate blocker must
+be one of: an existing plan requirement, a correctness/security defect in an
+already selected project class, or an explicit founder priority. Otherwise it
+is recorded against its existing CAP/stage row and scheduled through the
+founder-priority decision below.
+
+### Stage 2.5 naming and status
+
+Two bodies of work have been called "Stage 2.5" and must now be kept separate:
+
+1. The original external-planner experiment is complete. Its immutable result
+   is `FROZEN_MODIFY_DECISION_ISSUED`; it did not produce `GO`.
+2. The active work is the successor-GO remediation programme created after
+   that decision. It has materially advanced media/time/proxy/right/evidence
+   foundations, but it has not issued a successor readiness receipt.
+
+Stage 3 model-driven production mutation remains blocked and unauthorized. A
+local proof, a passing focused test, or completion of one queue sub-owner does
+not change that status.
+
+### Current twelve-item successor-GO queue
+
+The twelve-item queue remains intact. Items 1-10 and 12 are required under the
+full Adobe-plus-LLM destination; item 11 remains explicitly conditional and
+must not run unless its recorded necessity and separate authority gates pass.
+The status below is current at source commit
+`5f12fbed14fa337e2863b295f536850bd1267174`; it is not a claim that later work
+may be discarded.
+
+| # | Queue item | Current status | Verified present | Still required |
+|---:|---|---|---|---|
+| 1 | Audit, reviewer workflow and qualification | `PARTIAL` | Frozen parity audit, review guide and separately labelled programme-owner feedback | Deterministic reviewer qualification/blinding policy, corrected V2 packet and qualified submissions |
+| 2 | Canonical lossless time/rate/epoch foundation | `FOUNDATION_COMPLETE` | Rational/integer time, V3 PTS/epoch contracts and compatibility foundations | Product-wide consumer cutover is deliberately owned by items 3-4, not implied by the foundation |
+| 3 | Timestamp-aware ingest/preview/conform/analysis/final render | `ACTIVE_PARTIAL` | Durable V3 timing owners, exact selected-source visual analysis, exact PCM windows, source rights gates and source-bound transcription composition | Authenticated five-track transcription consumption, browser/device playback, ordinary mixed-rate/VFR product workflow, remaining EDL/retime/audio consumers and live proof |
+| 4 | Private PTS plus proxy/master online conform | `ACTIVE_PARTIAL` | Private-object contracts, scanner/finalizer, correspondence, qualification, active CAS, per-project source pins, exact ProjectService relink and selected preview/render/analysis consumers in local proof | Deployed private R2/Atlas proof, all writers and legacy migration, full invalidation/rerender/rollback/delivery/recovery and customer-class proof |
+| 5 | Universal mutation prerequisite envelope | `INVENTORY_COMPLETE_IMPLEMENTATION_OPEN` | Read-only owner inventory, specialized CAS/lock/right/evidence mechanisms and a five-file pilot contract | Eliminate or mediate the nineteen direct project-collection mutation files, implement the pilot, then enforce the envelope in every authoritative writer |
+| 6 | Production native/generated/hybrid route broker | `RESEARCH_ONLY` | Route-neutral requirements, candidate eligibility/ranking contracts and bounded native/generated/hybrid canaries | One product decision owner, registered real executors, ProjectService compilation and end-to-end correction/rollback/delivery proof without duplicating family form owners |
+| 7 | CAP-1/CAP-2 capability-family closure | `OPEN` | CAP-1 has 52 partial and 8 research-only rows; CAP-2 has 37 declared candidates and substantial owner groundwork | 58 missing CAP-1 rows, zero currently certified CAP-1/CAP-2 rows, fresh CAP-2 V11 reconciliation, and bounded family certification through the stages that own those families |
+| 8 | Rights-cleared real long-form evidence | `OPEN` | Exact five-minute audio proof and substantial long-form/time/recovery primitives | Rights-cleared multi-hour creative material, labelled retrieval accuracy, complete A/V playback/render, compaction/resume and long-running recovery |
+| 9 | Delivery, recovery and complete accounting | `OPEN` | Render/job/storage/finalization components and bounded recovery evidence | Complete moving-picture delivery, proxy/master visual relink, interrupted hosted recovery, full-object verification and local/cloud/optional-provider cost attribution |
+| 10 | Qualified human acceptance | `OPEN` | RHC technical artifacts and programme-owner non-blind feedback | Corrected RHC-02/RHC-03, RHC-04 pairing board, V2 packet, qualified blind reviews and measured hands-on RHC-04 correction |
+| 11 | Corrected successor model evaluation | `CONDITIONAL_DEFERRED` | Ambiguity root cause and corrected zero-inference harness gate | Run only if model evidence remains decision-critical, with a new identity, clarity controls, explicit cap and separate authorization; never rerun the historical cohort |
+| 12 | Successor readiness receipt | `BLOCKED` | Immutable `MODIFY` receipt and receipt finalizer infrastructure | A newly frozen `GO`, `MODIFY` or `NO-GO` receipt after the declared supported-project blockers close |
+
+The fast user-QA system is cross-cutting rather than a thirteenth queue item.
+Its ADR is `FAST_USER_QA_DESIGN_ACCEPTED_IMPLEMENTATION_OPEN`: Q0/Q1 still need
+the one-command isolated fixture, visible edit/playback/correction/undo/reload
+journey, exact before/after diff, trace, cleanup and read-only cockpit. Later
+Q2-Q5 evidence follows the certified media, render, long-form and human-review
+verticals.
+
+### Current stage ledger
+
+| Stage | Current status | What that means now |
+|---:|---|---|
+| 0 | `FROZEN_FOUNDATION_CURRENT_RECONCILIATION_OPEN` | Historical census/feasibility artifacts exist, but the current tree has drifted beyond CAP-2 V10 and needs V11 before it can again be called current truth |
+| 1 | `PARTIAL` | Command, revision, receipt and proof mechanisms exist; caller semantics and false-success prevention are not universal |
+| 1.5 | `PARTIAL` | ProjectService CAS, bounded conflict/rebase and cut-lock proofs exist; complete track/sequence/professional editing semantics are not certified |
+| 2 | `PARTIAL_ACTIVE` | Strong media identity, durable jobs, timestamp, proxy/master, rights and evidence owners exist; several are local-only or not yet authoritative in the user path |
+| 2.5 original experiment | `COMPLETE_WITH_FROZEN_MODIFY` | The experiment ended honestly without GO |
+| Successor-GO remediation | `ACTIVE` | Queue items 1-10 are incomplete; item 11 is conditional and item 12 is blocked |
+| 3 | `BLOCKED_NOT_AUTHORIZED` | No production model-driven mutation promotion |
+| 4 | `PARTIAL_FOUNDATIONS_NOT_CERTIFIED` | Captions, transitions, graphics/generated composition, audio and effects have components, not certified end-to-end verticals |
+| 5 | `LARGELY_OPEN` | The mature editor/review/delivery UX and fast user-QA experience are not complete |
+| 6 | `PARTIAL_FOUNDATIONS_MAJOR_GAPS` | NLE/long-form foundations exist; professional tracks/trims, multicam, colour, VFX, audio, interchange and long-form delivery remain materially incomplete |
+| 7 | `NOT_STARTED_AS_CERTIFICATION_STAGE` | No agency project class has a frozen accepted-run certification receipt |
+| 8 | `NOT_STARTED_AS_CERTIFICATION_STAGE` | No production-house/film-post project class has a frozen accepted-run certification receipt |
+
+### What Editron can handle at this commit
+
+The labels below distinguish a visible/product path from a bounded engineering
+proof. "Available" does not mean CAP-certified.
+
+| Level | Current capability truth |
+|---|---|
+| Existing product paths, not production-certified | Create/open/save projects; upload and place ordinary video/image/audio assets; basic overlay/timeline editing; text, captions, transitions, transforms, keyframes, speed and volume controls; project analysis/auto-edit/chat/director/render job paths for their existing supported fixtures |
+| Strong bounded/local proof, not yet a general user promise | Lossless V3 timestamp/epoch representation; qualified exact-frame selected-source analysis; per-project proxy/master pins and exact relink; bounded PCM verification; source-rights authorization/migration; source-bound transcription orchestration; selected conflict/lock/rebase behavior; generated-composition lifecycle pieces; native/generated/hybrid RHC rendering mechanics; exact five-minute audio continuity |
+| Partial or unsafe to advertise generally | Ordinary mixed-CFR/VFR consumption; discontinuity handling through every UI/render consumer; universal mutation prerequisites; production route arbitration; complete proxy/master invalidation and rollback; full visual long-form playback/render; semantic retrieval accuracy; hosted recovery and complete accounting |
+| Materially missing or uncertified | Professional source/record and trim modes, complete track/routing model, multicam, masks/mattes/keying/roto/tracking/stabilization, managed colour/HDR/scopes, professional mixing/restoration/loudness/stems, professional interchange/conform, mature collaboration/review/approval, secure delivery classes, agency and film-post certification |
+
+The apparent disparity between many implemented components and zero certified
+CAP rows is therefore real but not contradictory. Certification requires the
+same owner semantics through caller, save/reload, render, proof, undo/replay,
+rights, conflicts and the declared project class. A partial row may contain
+substantial code while still failing that complete chain.
+
+### Current-source audit defect: CAP-2 V11 is required
+
+CAP-2 V10 remains an immutable historical source audit and must not be edited.
+At this commit, the focused CAP battery reports 19 passing tests and one
+failure: `CAP-2 v10 current source coverage drift`. This is expected evidence
+that 552 later commits and the current owner tree have outgrown V10; it is not a
+runtime editing failure and it must not be hidden by weakening the assertion.
+Queue item 7 must issue a separately identified CAP-2 V11 reconciliation before
+any new "current source" or certification claim.
+
+### Founder market and agency-first release-order decision
+
+The founder declared on 2026-08-31 that Insturix/Editron must ultimately be
+sellable to all three target groups: content agencies, filmmakers and
+production houses. The resulting destination requires the complete
+professional capability programme rather than a permanently narrowed creator
+editor. No CAP family or Stage 3-8 outcome is removed by this declaration.
+
+The founder also declared limited remaining runway and excessive elapsed time
+in the current remediation programme as material product constraints. Progress
+must therefore be measured by sellable end-to-end project classes and visible
+user journeys, not by an indefinitely growing count of isolated infrastructure
+owners. Correctness, rights, mutation safety and truthful certification remain
+mandatory; the runway constraint does not authorize false success or unsafe
+shortcuts.
+
+The release-order decision is now partially frozen. The first certification
+class is `AGENCY_100GB_4H_V1`: agency-centric production on the same global
+architecture, with at most 100 GB of total ingested source bytes and at most
+four hours of aggregate raw source duration. Admission stops at whichever
+ceiling is reached first. This is an initial supported-class envelope and not
+the product's ultimate scalability ceiling; the existing four-, five- and
+ten-hour long-form/film-post targets remain mandatory.
+
+The class must cover a real multi-client/brand agency journey rather than a
+synthetic render demo: authenticated project creation/import; source identity,
+rights and mixed-timebase admission; proxy use where required; manual and LLM
+editing through the same owners; timeline, captions, graphics/motion design and
+audio operations; preview and bounded correction; save/reload and undo/redo;
+client-review state; complete A/V render; declared multi-output delivery;
+recovery; and one finalized QA evidence bundle with no false success. Exact
+codec, camera, final-duration, delivery-profile and advanced colour/VFX
+subclasses remain to be frozen from the CAP matrix rather than invented here.
+
+Long-form production is not deferred by the agency-first order. Queue items
+3-4 and 8-9 plus QA Q4 remain active because the four-hour raw-source envelope
+already requires streaming ingest, bounded analysis, proxy/master identity,
+memory discipline, resumable jobs and reliable delivery. Full filmmaker and
+production-house certification expands this same infrastructure and remains in
+Stages 6-8.
+
+The twelve-item queue is the successor-GO remediation created because the
+original Stage 2.5 experiment issued `MODIFY`; it is not the original experiment
+itself. Items 1-6 and 10-12 are direct decision/safety/acceptance machinery.
+Items 7-9 contain both successor-GO evidence and the broader capability,
+long-form and delivery programmes assigned to Stages 4-8. Preserve every item,
+but do not silently force the complete final breadth of Stages 4-8 to execute as
+one serial pre-Stage-3 block. The supported-project declaration must identify
+the exact item 7-9 blocker subset for its successor receipt; the remaining rows
+retain their later-stage owners and are still mandatory for the full three-
+market destination.
+
+Until the remaining codec/camera/delivery and advanced-family subclass choices
+are frozen from current CAP evidence, preserve the queue order and continue
+only work already explicitly selected by the plan or necessary to correct a
+verified safety defect. Do not invent a narrower product class and do not
+declare broad Adobe/Resolve parity.
+
+### Convergent cross-stage execution model
+
+The programme may parallelize across stages, but only by dependency rather than
+by starting unrelated stage backlogs:
+
+```text
+Lane A - media/time/proxy       (Queue 3-4; Stages 2 and 6)
+Lane B - mutation/route safety (Queue 5-6; Stages 1, 1.5, 2.5 and 3 prep)
+Lane C - agency edit verticals (Queue 7; Stages 4 and 7)
+Lane D - visible QA/review      (Q0-Q5; Stages 5 and 7)
+Lane E - render/delivery/scale  (Queue 8-9; Stages 6 and 7)
+                                  |
+                                  v
+             AGENCY_100GB_4H_V1 evidence bundle
+                                  |
+                                  v
+                qualified review + readiness receipt
+```
+
+Each lane must preserve its current sole owners, declare prerequisite receipts
+and converge on the same agency scenario. Work sharing a writer or mutable
+source of truth serializes. Stage 3 production mutation remains blocked until
+its required decision receipt even if Stage 4-7 preparatory implementations are
+underway.
+
+Scope discovery is admitted through four explicit buckets:
+
+| Bucket | Immediate action |
+|---|---|
+| `ACTIVE_CLASS_BLOCKER` | Implement and connect it to `AGENCY_100GB_4H_V1` |
+| `GLOBAL_SAFETY_INVARIANT` | Implement before the affected operation can run |
+| `DECLARED_LATER_CAP_ROW` | Keep mandatory in its owning stage; do not interrupt the active journey |
+| `UNRELATED` | Record outside the Editron programme or take no action |
+
+The next execution checkpoint is one vertical-convergence tranche, not another
+unbounded owner chain: establish QA Q0/Q1 around an existing real agency edit,
+finish the currently open exact selected-source/five-track consumer connection
+inside that journey, issue CAP-2 V11 current-source reconciliation, and expose
+their remaining media/mutation/render gaps in the same evidence bundle. Q0/Q1,
+the consumer connection and read-only V11 work may proceed as independent
+lanes; their first merge point is the visible agency journey. The full-envelope
+100 GB/four-hour run belongs to the release/nightly lane after the scaled fast
+fixture proves the same manifest and owner path.
+
+### Canonical active programme roadmap - 2026-08-31
+
+This section is the sole authority for programme order after the founder's
+agency-first clarification. It supersedes earlier prose that says only "next"
+or describes one bounded implementation tranche as though it were the whole
+roadmap. It does not replace the numbered stages, the twelve-item successor
+queue, CAP-1/CAP-2, or the frozen Stage 2.5 evidence.
+
+The predecessor task transcript at
+`C:\Users\admin\.codex\sessions\2026\08\09\rollout-2026-08-09T13-46-08-019fe597-f478-71a1-9e15-e44ff8230c0a.jsonl`
+was processed sequentially to EOF on 2026-08-31: 215,121 JSONL records and
+1,233,175,410 bytes, with zero JSON parse failures. Only redacted decision
+labels and line/byte checkpoints were emitted; no credential or raw secret was
+copied. The transcript confirms the durable intent already represented by this
+plan: Adobe-class NLE plus LLM, long-form on the same architecture, no preset
+profiles, all authorized technical queue work pursued, and human-only evidence
+left until its packet is technically ready. The newer agency-first decision is
+therefore an execution and certification order layered on that intent, not a
+product-scope reduction.
+
+#### One dependency-ordered roadmap
+
+1. **Reconcile current truth and establish the visible QA spine.** Issue CAP-2
+   V11 without rewriting V10, implement QA Q0/Q1 around one real visible agency
+   edit, and finish the already-open exact selected-source/five-track consumer
+   connection from Queue item 3. These three disjoint tasks may proceed in
+   parallel and merge in the same visible evidence bundle; every following
+   slice must connect to that bundle.
+2. **Finish Stage 1 and Stage 1.5 safety required by the active journey.** Close
+   Queue item 5's universal mutation envelope across authoritative writers:
+   evidence, project/source revision, ranges, locks, rights, predecessors,
+   invalidations, receipts, truthful proof state, conflicts, safe rebase,
+   undo/replay and reload. No direct writer may bypass ProjectService.
+3. **Finish the Stage 2 media chain.** Complete the remainder of Queue item 3,
+   then Queue item 4, through
+   authenticated product consumers: timestamp-driven ingest, preview,
+   transcription/analysis and final render; ordinary mixed-CFR/VFR/epoch
+   conform; private PTS; per-project proxy pins; exact proxy/master relink;
+   invalidation, rerender, rollback, delivery and recovery. A small fixture
+   proves behavior first; the same owners then run the full resource fixture.
+   Steps 2 and 3 are independent pre-Stage-3 lanes and may proceed concurrently;
+   within the media lane Queue item 3 precedes Queue item 4, and neither lane may
+   remain open when the successor readiness receipt is issued.
+4. **Build the production route decision boundary without enabling production
+   model mutation.** Complete Queue item 6 against the real media and mutation
+   owners. The broker qualifies and ranks native, generated and hybrid
+   candidates; family resolvers retain final-form ownership and ProjectService
+   retains mutation authority.
+5. **Close the agency capability verticals.** Execute the `AGENCY_100GB_4H_V1`
+   portion of Queue item 7 through the real product: core timeline, captions,
+   graphics/generated composition, audio, brand/multi-client state, canonical
+   masks/mattes/rotoscoping/keying/tracking, plates/EXR/VFX pulls,
+   non-destructive relighting, online conform/reconform/change lists, mastering,
+   the declared agency IMF delivery class, archive/restore, correction,
+   save/reload, undo/redo and client review. Each family must pass its complete
+   caller-to-render-to-proof chain; isolated component coverage is not closure.
+6. **Prove long-form, delivery and recovery on that same journey.** Complete the
+   active agency portions of Queue items 8 and 9 using rights-cleared media:
+   labelled retrieval accuracy, complete A/V playback and render, compaction/
+   resume, proxy/master visual relink, multi-output delivery, interruption/
+   recovery, full-object verification, performance, memory and complete local/
+   cloud/optional-provider accounting. The release proof uses a real fixture at
+   the declared 100 GB/four-hour envelope; a small fixture cannot certify it.
+   Delivery evidence includes master-source conform, version change reporting,
+   VFX turnover, IMF package verification and a destructive test of archive
+   restoration into a fresh isolated runtime.
+7. **Finish acceptance evidence.** Complete Queue item 1's reviewer operations
+   and corrected packet, then Queue item 10's qualified blind reviews and fresh
+   measured RHC-04 correction session. Human execution occurs here, after the
+   technical candidates and review packet are correct; no human result is
+   fabricated or inferred from telemetry.
+8. **Decide whether new model evidence is necessary.** Queue item 11 remains
+   conditional. Run it only when the preceding product/runtime evidence leaves
+   model competence decision-critical, under a new identity, clarity gates,
+   zero-spend preflight, separate exact authorization and cap. Never rerun the
+   historical cohort.
+9. **Issue Queue item 12's successor readiness receipt.** Freeze a new `GO`,
+   `MODIFY` or `NO-GO` for the declared pre-Stage-3 class. Until it permits
+   production mutation, Stage 3 remains `BLOCKED_NOT_AUTHORIZED`.
+10. **If permitted, implement Stage 3.** Build the production LLM control plane,
+    typed plan/proposal loop, evidence and constraint materialization, action
+    guard, model routing, budgets, isolation, review/repair and audit over the
+    already certified ProjectService/media/family owners.
+11. **Complete Stages 4-6 rather than treating their foundations as done.**
+    Certify every remaining creative family, the mature editor/review/delivery
+    experience, and professional NLE/long-form foundations through the same
+    caller, state, render, proof, undo, rights, conflict and recovery contract.
+12. **Run Stage 7, then Stage 8 certification.** First freeze the real agency
+    accepted-run receipt for `AGENCY_100GB_4H_V1`. Then extend and certify the
+    production-house/film-post classes. Editron is complete against the declared
+    vision only when the retained CAP rows and both certification stages close;
+    agency certification alone is not programme completion.
+
+Steps 1-6 may use the convergent independent lanes above, but dependency gates
+still control promotion and shared writers serialize. The phrase "current
+next" refers only to the first unfinished dependency in this roadmap; it may
+not create a thirteenth queue or replace the remaining steps.
+
+#### Exactly what agency-first sequences later
+
+Agency-first defers only **certification and agency-unneeded capability rows**,
+not their shared architecture and not the twelve-item queue:
+
+- Stage 8's production-house/film-post accepted-run certification occurs after
+  Stage 7 agency certification.
+- Capacity certification beyond the initial 100 GB/four-hour raw-source class,
+  including the retained five- and ten-hour film-post targets, occurs after the
+  first agency class. Streaming, sharding, bounded memory, resumable work and
+  long-form A/V proof up to the agency envelope are not deferred.
+- Film-specific workflows still sequenced later are camera-card/reel/audio-roll
+  and dailies workflows, script sync and high-end multicam subclasses; full
+  RAW/log/managed-colour/HDR/scopes certification; and ADR/restoration/buses/
+  automation/stems/surround/Atmos handoff.
+- The founder explicitly moved these formerly later rows into the agency class:
+  rotoscoping, keying, tracking, plates, EXR and VFX pulls; picture-lock/version
+  identity required by online conform, reconform and change lists; mastering;
+  a declared agency IMF delivery class; archive and restoration testing; and
+  non-destructive temporally consistent relighting. They are no longer deferred
+  to Stage 8. CAP-2 V11 must freeze production-grade agency-supported
+  subclasses and proofs without pretending they cover every film-post variant.
+- CAP-1/CAP-2 rows outside the frozen agency capability/source/delivery matrix
+  retain their Stage 4-6/8 owners and remain mandatory. CAP-2 V11 must name the
+  exact row boundary; no agent may call an unclassified row deferred by guess.
+- Queue item 11 is deferred unless it becomes decision-critical and separately
+  authorized. Qualified human execution is scheduled at roadmap step 7, not
+  discarded.
+
+The following are explicitly **not deferred** by agency-first: Queue items 1-10
+and 12; QA Q0-Q4; universal mutation safety; ordinary mixed-CFR/VFR and epoch
+consumption; private PTS and proxy/master online conform; the production route
+broker; agency timeline/caption/graphics/audio operations; rights-cleared
+multi-hour retrieval; agency VFX preparation and relighting; conform/reconform,
+change lists, mastering, agency IMF, archive/restore; complete visual and audio
+render; client review; delivery, recovery and cost accounting; Stage 3's
+readiness gate; and the eventual full Stages 4-8 programme.
+
+The governing implementation and proof contract for this expansion is
+[the agency VFX, finishing and relighting ADR](./editron/editron-agency-vfx-finishing-relight-adr-2026-08-31.md).
+
+#### Agency completion forecast after the scope expansion
+
+This is a planning forecast, not a completion promise or evidence receipt. At
+current source truth, relighting has no product owner, moving mattes/tracking
+are explicit capability gaps, and professional reconform/IMF/archive restore
+are absent even though proxy/master foundations are substantial. Assuming the
+scope remains fixed, required cloud/storage/GPU environments are available,
+rights-cleared fixtures arrive when needed, and independent lanes actually run
+concurrently, the current critical-path forecast is:
+
+| Milestone | Forecast from 2026-08-31 | Calendar range |
+|---|---:|---|
+| Current reconciliation, QA spine and pre-Stage-3 media/mutation foundations | 4-7 weeks | late September to mid-October 2026 |
+| Integrated agency editing candidate including route broker and core verticals | 9-14 weeks cumulative | early November to early December 2026 |
+| Technical agency candidate including the newly added VFX, relight, conform, IMF and archive owners | 14-20 weeks cumulative | early December 2026 to mid-January 2027 |
+| Full `AGENCY_100GB_4H_V1` release evidence, human acceptance and readiness receipt | 18-26 weeks cumulative | early January to early March 2027 |
+
+CAP-2 V11 is the first forecast recalibration point because it must freeze the
+exact supported codec, camera, VFX, colour and delivery subclasses. A missing
+private deployment, full-envelope fixture or qualified reviewer may extend the
+calendar even when code is ready. Removing lower-level tests or calling a
+research demo production would shorten the date only by creating false
+completion and is not authorized.
+
+## 2026-09-01 vertical-convergence Phase 1 checkpoint
+
+This checkpoint reconciles the first implementation tranche of roadmap step 1
+against committed source and one live disposable browser journey. It does not
+replace the roadmap, close Stage 2.5 or authorize Stage 3.
+
+### Committed source
+
+The stable implementation snapshot is the following four atomic commits on
+`infrastructure-improvs-+Editron`:
+
+- `9d14e90b7` - authenticated project analysis binds the exact selected source
+  to source-bound transcription and the same-rate five-track analysis input.
+- `22c53a767` - manual save, autosave and ProjectService share a bounded named-
+  marker contract and persist supplied markers under the project revision CAS.
+- `0642b289a` - the timestamp-preview coordinator republishes recovery when a
+  required project revision arrives after an initial fail-closed update.
+- `8f55c50a1` - a disposable visible-user QA runner, Playwright journey and
+  evidence cockpit exercise the real editor and ProjectService path with all
+  external media/model provider keys disabled for the child processes.
+
+### What is now proved
+
+Fast run `fast-qa-20260831200346-4ff3eecaab9a` passed the declared Q0/Q1 text-
+timeline fixture through:
+
+```text
+authenticated project load
+-> exact-preview gate READY
+-> visible play/pause state transition
+-> visible timeline drag
+-> manual save and revision 2
+-> visible corrective drag
+-> manual save and revision 3
+-> undo/save and revision 4
+-> redo/save and revision 5
+-> page reload
+-> preserved redo state
+-> exact-preview gate READY after reload
+-> verified ProjectService deletion and fresh database absence check
+```
+
+The run recorded no browser failure and no provider request. The exact layer
+passed. Perceptual/rendered-frame and human layers remained explicitly
+`UNVERIFIABLE`; the text-only fixture did not prove decoded video, PCM, A/V
+synchronization, editorial quality or the agency resource envelope.
+
+The run also exposed and then verified two defects rather than hiding them:
+
+1. A valid revision reached the editor context, but the preview coordinator
+   retained its previously published `SESSION_PROJECT_REVISION_REQUIRED`
+   snapshot on a zero-video timeline. The coordinator now republishes the
+   valid recovery transition while preserving the original fail-closed state.
+2. The timeline item was below the 720-pixel browser viewport even though a
+   full-page screenshot made it appear visible. The QA gesture now scrolls the
+   real item into view before pointer input. The underlying editor-fit issue is
+   still open: this observed layout required a 48-pixel page scroll.
+
+Focused verification passed 75 tests across the marker, selected-source,
+five-track, fast-QA and preview-coordinator owners. `pnpm exec tsc --noEmit`,
+`pnpm exec eslint . --quiet` and `git diff --check` also passed.
+
+### Status limits and immediate continuation
+
+- Queue item 3 remains `ACTIVE_PARTIAL`, not complete. The authenticated route
+  now consumes exact selected-source transcription and feeds same-rate five-
+  track analysis. Mixed-rate/VFR transcription remains timestamp evidence
+  rather than approximate project-frame evidence. Explicit UI provider/policy
+  controls, project-coordinate downstream consumption and live private storage,
+  grant, provider and device proof remain open.
+- QA Q0/Q1 is proved only for the declared disposable text-timeline fixture.
+  The cockpit is the spine on which media, caption, graphics, audio, VFX,
+  delivery and long-form fixtures must be added. Q2 perceptual render/PCM, Q3
+  human review, Q4 resource/full-envelope and Q5 regression breadth remain
+  open.
+- Project duration authority remains inconsistent in the current editor. The
+  disposable project persisted `durationInFrames: 300`, while the mounted UI
+  derived a 210-frame composition from the last overlay end. This must be
+  reconciled before duration-sensitive QA can be called exact.
+- CAP-2 V11 remains the next read-only reconciliation task and must be generated
+  from this committed snapshot. The earlier provisional draft was not retained.
+- No model inference, paid cohort rerun or external provider spend occurred.
+- Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`; Stage 3 production model-
+  driven mutation remains `BLOCKED_NOT_AUTHORIZED` until Queue item 12 issues a
+  successor receipt supported by the remaining evidence.
+
+## 2026-09-01 vertical-convergence Phase 2 checkpoint
+
+This checkpoint completes roadmap step 1's read-only current-source
+reconciliation against committed source `1ada3fa6108bf595a4d62861cbf57ff716ae8d8e`.
+It also reconciles the two independent read-only audits of the media/time/proxy
+lane and the visible-QA/capability boundary. It does not certify a CAP row,
+prove the agency resource envelope, close Stage 2.5 or authorize Stage 3.
+
+### CAP-2 V11 current-source truth
+
+CAP-2 V11 is a separately identified reissue. V10 remains immutable historical
+evidence and is expected to fail its current-tree assertion after later owners
+changed. V11 binds the current extractor result:
+
+- 351 normalized source paths across the same 11 observation families;
+- 636 identifier occurrences;
+- source snapshot hash
+  `597f43a3c9faf7ccd33adfdf7de87fe13efdca99facded3737447c20439b2cdd`;
+- 120 paths and 150 identifier occurrences added since V10; and
+- four changed observation families: Editron-linked API exports,
+  ProjectService public methods, proof/render/delivery candidates and
+  worker/job candidates.
+
+The artifact preserves the V2-through-V10 manifest chain and explicitly keeps:
+
+```text
+authority: RESEARCH_CENSUS_NO_RUNTIME_MUTATION
+status: REISSUED_CURRENT_TRUTH_RESEARCH_ONLY
+declared operations: 37
+certified operations: 0
+production-eligible operations: 0
+planner registry wired: false
+planner project mutation authorized: false
+production certification granted: false
+```
+
+Source inventory is not owner reconciliation, product reachability or
+certification. The broad observations still overlap and still require bounded
+caller-to-consumer reconciliation before any CAP row can be promoted.
+
+### Frozen `AGENCY_100GB_4H_V1` support boundary
+
+V11 hash-binds a declaration-only capability/source/delivery boundary derived
+from the accepted agency VFX/finishing/relighting ADR. Admission is bounded by:
+
+```text
+at most 100 GB total ingested source bytes
+AND
+at most four hours aggregate raw source duration
+-> stop admission when either ceiling is reached first
+```
+
+Only rights-cleared media with project, source-version, stream, epoch and range
+identity is eligible. Immutable inputs, proxy/master mapping and versioned
+sequence identity are required. The frozen first-agency families are:
+
+1. canonical masks, mattes, rotoscoping, keying and point/planar/object/face
+   tracking;
+2. plates, declared EXR interchange and VFX pulls with handles and identity;
+3. non-destructive, range-scoped, temporally consistent relighting;
+4. picture lock, online conform, deterministic reconform and human/machine
+   change lists;
+5. versioned master-source mastering and independent QC;
+6. one explicitly declared agency IMF class with independent validation; and
+7. content-addressed archive plus interrupted creation and fresh-environment
+   restore/relink/reread/rerender proof.
+
+Every row must close the same proof chain:
+
+```text
+caller
+-> decision owner
+-> form owner
+-> mutation owner
+-> stored revision
+-> renderer
+-> exact/perceptual/human proof
+```
+
+This is a supported-subclass declaration, not an implementation or readiness
+receipt. VFX, relighting, professional conform/reconform, concrete IMF package
+generation/validation and fresh archive restoration remain implementation
+gaps. The five-/ten-hour capacity targets, production-house accepted run,
+camera-card/dailies/high-end multicam, full RAW/log/HDR/scopes and professional
+ADR/buses/stems/surround/Atmos subclasses retain their later stage owners.
+
+### Reconciled QA and Queue 3-4 truth
+
+- QA Q0/Q1 is `BOUNDED_PASS_TEXT_OVERLAY_ONLY`. It proves one authenticated
+  visible text-overlay edit/correction/undo/redo/reload/delete journey. Its
+  artifact recorded `playerElementCount: 0`; therefore it proves no decoded
+  video/audio, waveform, A/V sync, caption, graphics, VFX, resource-envelope or
+  human-quality behavior.
+- The observed project-duration split remains open: the fixture persisted 300
+  frames while the mounted UI derived 210 frames from the last overlay end.
+- Queue item 3 remains `ACTIVE_PARTIAL`. Exact selected-source and same-rate
+  five-track analysis are connected, while ordinary mixed-rate/VFR, retimed or
+  repeated-use project coordinates, authenticated browser/device playback and
+  remaining transcription/audio/final-render consumers are incomplete.
+- Queue item 4 remains `ACTIVE_PARTIAL`. Qualification, per-project source pins,
+  exact ProjectService relink and bounded local consumers exist. Deployed
+  private R2/Atlas proof, legacy/all-writer migration, full invalidation,
+  rollback, delivery and interrupted recovery remain open.
+- Per-operation limits such as bounded PTS, preview and final-render reads do
+  not prove the 100 GB/four-hour agency envelope. A rights-cleared accepted run
+  using the same manifest and owners is still mandatory.
+
+### Ledger update and next dependency
+
+- Stage 0 current-source reconciliation is now
+  `FROZEN_FOUNDATION_CURRENT_RECONCILED_V11`; zero CAP rows are certified.
+- Canonical roadmap step 1 is complete at its declared bounded scope: V11,
+  Q0/Q1's text-overlay QA spine and the selected-source/five-track connection
+  are present and verified.
+- Roadmap steps 2 and 3 are the next independent implementation lanes and may
+  proceed concurrently: the universal mutation prerequisite envelope, and the
+  remaining Stage 2 media/time/proxy product chain. Shared writers still
+  serialize and every slice must attach to the same visible agency journey.
+- Queue item 6 and agency creative-family implementation remain downstream of
+  those real mutation/media owners; declaration-only V11 rows do not authorize
+  premature route-broker or family certification claims.
+- No model inference, historical cohort rerun or external provider spend was
+  performed. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`; Stage 3 remains
+  `BLOCKED_NOT_AUTHORIZED` until Queue item 12 issues a successor receipt.
+
+Phase 2 verification: the focused CAP gate passed 20/20 tests, the full
+repository TypeScript check passed, repository ESLint passed with `--quiet`,
+and `git diff --check` passed. A transient TypeScript failure observed while an
+unrelated ThinkForge billing-state edit was incomplete cleared after that edit
+settled; no ThinkForge file was changed or staged by this Editron phase.
+
+## 2026-09-01 vertical-convergence Phase 3B checkpoint
+
+This checkpoint reissues CAP-2 current truth as V12 against committed source
+`8656a5688d09f4cb155d189743677c357bc44929`. V10 and V11 remain immutable. V12
+is an incremental, research-only current-source delta over V11: it re-hashes
+the V11 observation paths at the current commit and binds the five files of
+the pipeline-video prerequisite pilot. It is not a new universal owner census.
+
+### CAP-2 V12 current-source truth
+
+The artifact is
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v12.ts`
+with focused coverage in
+`tests/editron/cap2-current-truth-reissue-v12.test.ts`. V12 preserves the V11
+351-path, 11-observation, 636-identifier source surface while recomputing its
+current normalized source snapshot as
+`f0c5137c263b9f89d9d106a93af12835d6e13b6d6be54407a846090e732f4cf6`.
+The exact five-file pilot snapshot is
+`338fb07d5775aae0ace22ae0a8077df4b0a2fce13960d39b5e49402cff80f8ff`; the
+artifact manifest is
+`cc600656aaa78e3f28e684a7c8b2068c18dcc6c7583c44dae5d29ad08ae3421d`.
+These identities are recomputed from current code rather than copied from the
+stale V11 source hash. The V11 agency support-class freeze is hash-bound and
+unchanged; its implementation and certification status remain open.
+
+### Pipeline-video prerequisite pilot
+
+The committed pilot wires this verified path for one
+`AGENCY_100GB_4H_V1` journey:
+
+```text
+authenticated storyboard producer
+  -> exact ProjectService project/revision and target snapshot
+  -> typed/hash-bound prerequisite
+  -> unchanged signed-worker relay
+  -> ProjectService independent admission and mutation owner
+  -> project revision / exact overlay / delivery receipt when admitted
+```
+
+ProjectService independently re-derives project and revision, the complete
+preserved target fingerprint and exact range, Director lease and overlapping
+cut-lock state, source/replacement evidence, rights, generated predecessor
+receipt and current invalidation admission before any CAS. A wrong, stale,
+changed, locked, forged, missing, unsafe-replay or unmaterialized required
+invalidation fails closed without a success receipt. Because the current source
+has no durable current-target invalidation admission owner, project-linked
+regeneration is currently rejected before credits or provider dispatch with an
+`UNVERIFIABLE` disposition. Non-project generation is unaffected.
+
+This is one pilot, not universal Queue 5 enforcement, full agency
+`AGENCY_100GB_4H_V1` certification, a Stage 2.5 GO, a successor readiness
+receipt or Stage 3 authorization. The 24 focused pilot tests are lower-level
+evidence only; they do not prove the full agency media, creative-family,
+render, delivery, recovery, resource-envelope or human-review chain. Queue 5's
+remaining authoritative writers and the durable invalidation owner remain open.
+
+### Phase 3B verification and next dependency
+
+The baseline pilot suites passed 24/24 tests; the V12 reconciliation suite
+added two hash-chain/tamper tests, for 26/26 in the combined focused run. The
+full repository TypeScript check passed, repository ESLint passed with
+`--quiet`, and `git diff --check` passed. No model inference, historical
+cohort rerun or external provider spend occurred. The next bounded dependency
+is the already-audited five-file duration authority correction first (UI loaded
+duration, generic save preservation and visible QA), then the selected pinned
+proxy/master timestamp consumer slice. Durable invalidation ownership and the
+remaining Queue 5 writers remain mandatory subsequent blockers; no
+declaration-only CAP artifact authorizes downstream certification or production
+mutation.
+
+## 2026-09-01 vertical-convergence Phase 3C checkpoint
+
+This append-only checkpoint reissues CAP-2 current truth as V13 against
+committed source `2e11e18e3032649a973b128c6bb06ab21b36a9d2`. V10, V11 and V12
+remain immutable historical artifacts. V13 is an incremental, research-only
+delta over V12: it re-hashes the inherited observation surface and binds the
+landed duration-authority correction and selected pinned-source timestamp
+consumer phase. It is not a new universal owner census.
+
+### CAP-2 V13 current-source truth
+
+The artifact is
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v13.ts`
+with focused coverage in
+`tests/editron/cap2-current-truth-reissue-v13.test.ts`. V13 chains the
+immutable V12 manifest
+`cc600656aaa78e3f28e684a7c8b2068c18dcc6c7583c44dae5d29ad08ae3421d` and its
+historical source snapshot
+`f0c5137c263b9f89d9d106a93af12835d6e13b6d6be54407a846090e732f4cf6`.
+
+The inherited current-source surface remains 351 normalized paths across 11
+observation families and 636 identifier occurrences. Rehashing those exact
+paths at V13 source gives
+`05ea0e563a6611463de7227f1af6c62c7866f092a5f3ac50c777861d7402d00a`; the
+observation shape is unchanged and this does not claim universal source
+coverage. The audit verifies this exact-path hash against the declared
+`2e11e18e3032649a973b128c6bb06ab21b36a9d2` commit tree, so unrelated
+shared-worktree edits cannot alter the checkpoint's bound source truth. The
+V13 manifest is
+`ff5803ede99bb3b3770b79ce1f1f3151dfe3ee58a62611f06195194125beb61a`.
+
+### Landed duration-authority correction
+
+The five-file duration phase is bound to commit
+`8a786eb43e448c043aa1a385785d455c2f59e03a` with snapshot
+`c088847bb6b4e6e29d4d3bcccdc1ce32102ceac908d167035c3bd9c930b75625`.
+It makes a loaded positive persisted duration authoritative in the editor,
+preserves that value through generic manual/autosave payloads when omitted,
+and records Fast User-QA `PASS` through the visible edit, correction, undo,
+redo and reload stages: persisted 300 frames / visible `00:10.00`. Generic
+save-preservation tests also pass. This is exact visible QA for the declared
+fixture, not agency resource-envelope or production certification evidence.
+
+### Selected pinned-source timestamp consumer phase
+
+The five-file consumer phase is bound to commit
+`2e11e18e3032649a973b128c6bb06ab21b36a9d2` with snapshot
+`c9c73588960e32a4a05f3a71c1149a44b454ce9496942c6e32a52b8d3ecdfacc`:
+
+```text
+lib/editron/services/native-media-timestamp-preview-materializer-v1.ts
+lib/editron/services/project-timestamp-video-analysis-v1.ts
+tests/editron/native-media-timestamp-consumer-v1.test.ts
+tests/editron/native-media-timestamp-preview-paired-materializer-v1.test.ts
+tests/editron/project-five-track-analysis-v2.test.ts
+```
+
+The verified path is:
+
+```text
+ProjectService-selected source pin/time-binding owner
+-> timestamp preview materializer
+-> project timestamp analysis
+-> project five-track analysis caller
+-> authenticated read-only analysis response
+```
+
+Managed overlays without a valid source pin fail before decoder admission.
+Selected source-version evidence and exact V3 binding hashes are revalidated,
+and post-decode selected-source, audio-artifact-state and project-revision
+drift checks remain fail-closed with cleanup. The five affected suites passed
+43/43 tests (15 + 4 + 8 + 10 + 6). Project-coordinate timestamp analysis is
+read-only here; its legacy timeline admission remains blocked and no mutation
+authority is added.
+
+### Queue and authority limits
+
+- Queue 3 remains `ACTIVE_PARTIAL` for other downstream/live/browser/R2,
+  mixed-rate/VFR and delivery consumers.
+- Queue 4 remains `ACTIVE_PARTIAL` for other proxy/master, live private
+  storage, invalidation, rerender, delivery and recovery consumers.
+- Queue 5 remains `OPEN`: no durable current-target/current-revision
+  invalidation admission owner exists, and the remaining authoritative
+  project-collection writers are not covered by these slices.
+- `AGENCY_100GB_4H_V1` remains the V11 declaration-only supported subclass
+  boundary; implementation and certification remain open. CAP catalog counts
+  remain 37 declared, 0 certified and 0 production eligible. Stage 2.5 remains
+  frozen and Stage 3 remains blocked.
+- V13 performed no model inference, paid cohort rerun, provider call, live
+  Atlas/R2 proof or production mutation. It does not certify the agency class,
+  close Queue 5, authorize Stage 2.5/Stage 3, or establish universal
+  enforcement.
+
+### Phase 3C verification and next dependency
+
+The selected pinned-source consumer suites passed 43/43, and the V13
+reconciliation suite passed 3/3. `pnpm exec eslint . --quiet` and
+`git diff --check` passed, and `pnpm exec tsc --noEmit` completed with exit 0
+and no diagnostics after the concurrent ThinkForge edit settled. No ThinkForge
+file was changed by this phase.
+The next bounded order is the durable current-target/current-revision
+invalidation admission owner, followed by the remaining Queue 5 writers and
+the still-open Queue 3/4 downstream/live/browser/R2/mixed-rate/delivery
+consumers. No declaration-only CAP artifact authorizes downstream
+certification or production mutation.
+
+## 2026-09-01 vertical-convergence Phase 3D checkpoint
+
+At declared commit `4d0b7edc8`, ProjectService is the durable admission owner
+for the owner/project/target/revision/range/fingerprint tuple, but admission
+remains `PENDING` while the required artifact chain is not materialized and
+current. The first admission attempt durably records that pending admission
+and increments the project revision. The route and direct mutation paths then
+remain fail-closed before charge, provider dispatch, QStash dispatch, delivery
+or timeline replacement, and any success receipt because that artifact chain
+is pending. Safe replay and a fresh HTTP retry add no further write or revision
+churn; multi-target admission remains blocked.
+
+The focused source-truth run passed 27/27 tests; the full TypeScript, ESLint
+(`--quiet`) and `git diff --check` gates passed. No provider spend occurred.
+This checkpoint explicitly supersedes V13's statement that no durable
+current-target/current-revision invalidation admission owner exists; V13 and
+all earlier versioned artifacts remain immutable historical records.
+
+Queue 5 remains `OPEN`; Queues 3 and 4 remain `ACTIVE_PARTIAL`. The next
+bounded dependency is an active-artifact registry with stale marking and an
+outbox, followed by the corresponding consumer gates. This does not close
+Queue 5 or authorize certification, Stage 2.5 or Stage 3.
+
+## 2026-09-01 vertical-convergence Phase 3E checkpoint
+
+At declared commit `718577055`, ProjectService owns the canonical
+owner/project/revision/exact-target artifact binding, with a durable,
+deterministic invalidation outbox and progress CAS. The render schema supports
+optional binding/state, while the new bound current-reader and exact
+stale/history fencing are strict; immutable history remains preserved.
+ProjectService validates pending admission against the current revision before
+enqueue or progress. Authorization remains pending: no route, provider or
+generic-consumer migration and no cross-collection transaction are claimed.
+
+The focused Phase 3E suite passed 6/6; full TypeScript, ESLint (`--quiet`) and
+`git diff --check` passed. The broader unchanged render-route-startup suite
+has four pre-existing mock failures because
+`ProjectAssetSourceUnverifiableErrorV1` is not exported; this is separate
+test-harness debt and is not attributed to Phase 3E.
+
+The next bounded dependency is coherent render route/progress/history binding
+with stale-current gates. Queue 5 remains open, and this checkpoint does not
+authorize a route/provider migration, certification, Stage 2.5 or Stage 3.
+
+## 2026-09-01 vertical-convergence Phase 3F checkpoint
+
+At committed contract `0f931520e` and Step 0 cleanup `610440a38`, a separate
+`PROJECT_SNAPSHOT` whole-project binding exists. It binds the exact project
+revision, render-input fingerprint and contained video targets; URL
+normalization and dual-scope owner/project checks fail closed. Existing
+Overlay V1 contracts and invalidation outboxes are unchanged. No render-route,
+progress, history, finalization or invalidation-outbox consumer migration has
+landed.
+
+The focused source-truth run passed 37/37 tests; full TypeScript, ESLint
+(`--quiet`) and `git diff --check` passed. Queue 5 remains `OPEN`; Queues 3
+and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY` and Stage 3 remains
+blocked. This checkpoint does not authorize production/render/provider
+mutation, certification or convergence.
+
+The next bounded dependency is the strict render-job owner, followed by
+route/progress/history/finalization/invalidation consumer migration.
+
+## 2026-09-01 vertical-convergence Phase 3G checkpoint
+
+At committed strict render-job owner `bff3de835`, project-render mutation
+authorization is bound to the exact tuple
+`(jobId, ownerId, projectId, projectRevision, PROJECT_SNAPSHOT bindingHash)`.
+The binding carries the exact render-input fingerprint and contained video
+targets. Bound reserve, read, start and progress operations validate that
+tuple; their atomic filters require `artifactState: ACTIVE`, no
+`artifactInvalidation`, no legacy `artifactBinding`, and the exact snapshot
+scope, owner, project, revision and binding hash. All generic legacy render-job
+mutators exclude rows carrying a project-snapshot binding.
+
+This is an owner-level contract only. No route/progress/history/finalization
+success path or invalidation-outbox consumer migration is claimed. Bound
+failure/finalization is currently the next in-progress dependency. The focused
+strict-owner run passed 42/42 tests; full TypeScript, ESLint (`--quiet`) and
+`git diff --check` passed. Queue 5 remains `OPEN`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY` and Stage 3 remains blocked.
+This checkpoint does not authorize production mutation, certification or
+convergence.
+
+After bound failure/finalization, the next consumer order is route, progress,
+history, finalization and invalidation-outbox migration with their current
+binding gates.
+
+## 2026-09-01 vertical-convergence Phase 3H checkpoint
+
+At commits `a03c68731` and `e06fc5b63`, strict whole-project startup failure,
+finalization and completion-effects owners are present. Their bound CAS is
+scoped to the exact owner, project, revision, snapshot binding, delivery
+manifest, provider identity, bucket identity, claim token, expected duration
+and finalizer receipt. Legacy render-job mutators remain fenced away from
+project-snapshot rows.
+
+The focused strict-owner run passed 45/45 tests; full TypeScript and ESLint
+passed. The render route also has its Step 0 dead-state cleanup. This remains
+owner-level infrastructure: product render, progress, webhook, finalizer,
+retry, active/history routes and their success paths are not migrated; no
+provider or live-render proof exists. Queue 5 remains `ACTIVE_PARTIAL`,
+Queues 3 and 4 remain `ACTIVE_PARTIAL`, Stage 2.5 remains `MODIFY` and Stage
+3 remains blocked. No authorization or convergence is claimed.
+
+Bound failure/finalization is the current in-progress dependency, followed by
+the route/progress/history/finalization and invalidation-outbox consumer
+migrations under the same binding gates.
+
+## 2026-09-01 vertical-convergence Phase 3I checkpoint
+
+At commits `3d2d75f60`, `4cb6172c7` and `b5d432bab`, strict
+`PROJECT_SNAPSHOT` render jobs
+bind `requestedByUserId` separately from the persisted `ownerId`. The real
+cloud-render startup path reads one access-authorized ProjectService snapshot
+and binds the exact project revision, owner, snapshot binding and render
+contract before hydration, credit deduction, credential loading or provider
+dispatch. Client form and timing hints remain non-authoritative. A stale
+pre-dispatch check refunds without provider dispatch and atomically closes
+only the exact undispatched admission as `error`/`STALE` with no artifact
+cleanup required. Current-revision, forged-requester and provider-bound jobs
+are ineligible for that transition. If a render has already started but
+provider binding is uncertain, the route returns HTTP 202
+`recovery_required`.
+
+The focused targeted run passed 51/51 tests; full TypeScript and ESLint passed.
+Remaining legacy consumers are progress, active, history, signed
+webhook/finalizer/retry, chapter internals and recovery; these are not yet
+migrated to the strict binding. No provider/live-render proof exists, and no
+Stage 2.5 `GO` or convergence claim is made. Queue 5 remains `ACTIVE_PARTIAL`,
+Stage 2.5 remains `MODIFY` and Stage 3 remains blocked.
+
+The next bounded work is migration of those route and consumer paths under
+the same exact binding and recovery gates, followed by invalidation-outbox
+consumer integration.
+
+## 2026-09-01 vertical-convergence Phase 3J checkpoint
+
+At commit `3e9298d2f`, the signed QStash render-finalization message carries
+strict server-only authorization for a bound project job; that authorization
+is never returned to the browser. The success worker checks the current
+ProjectService revision before media work and again before strict publish. The
+failure worker uses the strict failure owner. Transient revision or database
+failures return HTTP 500 for retry, while an explicit project-not-current
+outcome is skipped without publishing success. Legacy signed messages remain
+supported through their existing generic path.
+
+The focused finalization-worker run passed 49/49 tests; full TypeScript, ESLint
+(`--quiet`) and `git diff --check` passed. This is a bounded queue/worker
+hardening slice, not signed Remotion webhook binding-hash/provider/bucket
+ingress, live-provider proof, certification, convergence, or Stage 3/`GO`
+authorization.
+
+Remaining dependencies are signed Remotion webhook binding-hash/provider/
+bucket ingress; strict provider-failure and failed-retry owners/routes;
+progress, active, history and chapter consumers; and ambiguous-dispatch
+recovery. Queue 5 remains `ACTIVE_PARTIAL`; no live provider proof or
+convergence is claimed, and Stage 2.5 remains `MODIFY` while Stage 3 remains
+blocked.
+
+## 2026-09-01 vertical-convergence Phase 3K checkpoint
+
+Commits `47ab1231e`, `4a412af23`, `e94cf54f9`, `600f8a78a`, `49e472bf9`
+and `39c3bb6fa` harden the bounded whole-project render ingress and signed
+finalizer lifecycle after Phase 3J. The server reconstructs strict
+authorization from the durable admission, binds webhook/retry work to the
+exact project snapshot, requester, binding hash, provider render ID, bucket,
+source output and current ProjectService revision, and preserves distinct
+provider-failure and failed-finalization-retry owners. The signed finalizer
+schema requires its embedded authorization job ID to equal the message job
+ID. Project-snapshot and target-artifact-bound jobs presented as legacy work
+are rejected before finalizer media work or failure mutation.
+
+An exact stale-finalization recovery owner now fences only the bound running
+claim after ProjectService proves the project revision changed or the project
+was deleted. It records the render artifact as `STALE`, preserves the source
+output identity on the job, marks cleanup `PENDING`, clears the exact lease and
+accepts only proved idempotent states such as an already-stale row, a replaced
+claim or an already-terminal claim. The success and failure workers return a
+retryable HTTP 500 when no durable transition or exact idempotent state can be
+proved; they no longer acknowledge an unproved strict state. Existing cleanup
+metadata is an explicit fence precondition and is never overwritten.
+
+The focused owner/startup/finalizer run passed 68/68 tests. Full repository
+`npx tsc --noEmit`, `npx eslint . --quiet` and `git diff --check` passed before
+`39c3bb6fa` was committed and pushed. No provider inference, paid cohort
+rerun, live render, project mutation or external spend occurred.
+
+This checkpoint is partial render-owner safety, not render-chain convergence.
+The cleanup flag is not yet a durable cleanup/invalidation outbox handoff and
+no cleanup consumer has materialized or deleted the preserved provider
+artifact. ProjectService revision is read before the render-job collection
+CAS; the two collections are not atomically coupled, so a project change in
+that interval remains a verified race until the existing ProjectArtifact
+invalidation/outbox path deterministically fences the completed/stale render
+or an equivalent authoritative transaction closes it. Artifact-bound legacy
+service owners outside these two worker routes also retain their separately
+scheduled Queue 5 migration.
+
+The corrected immediate dependency order is therefore: attach stale and
+post-completion render state to the existing durable ProjectArtifact
+invalidation/cleanup outbox and close or deterministically repair the
+cross-collection revision race; then migrate strict progress, active, history
+and chapter consumers. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No live-provider, agency-class, certification,
+successor-receipt or `GO` claim is made.
+
+## 2026-09-01 vertical-convergence Phase 3L checkpoint
+
+Step 0 commit `488afc037` removes the sole verified dead render-authorization
+export. Commits `55fc2c150` and `cfe1512b3` then close the previously recorded
+ProjectService-revision/render-job publication race for the signed finalizer
+success and terminal-failure callbacks.
+
+ProjectService is the transaction owner. It parses the server-only whole-
+project authorization, starts one Mongo session and acquires an exact
+owner/project/revision write fence on the Project document. In the same
+transaction and session, the existing render-job owner either completes/fails
+the exact bound claim or marks the stale claim for cleanup. The temporary
+project fence is removed before commit; a missing exact fence release aborts
+the transaction. Snapshot read concern, majority write concern and primary
+read preference are explicit. This same-document transactional write prevents
+a concurrent ProjectService mutation from being ordered between revision
+validation and final artifact publication.
+
+The signed success worker retains a read-only preflight to avoid unnecessary
+media work, but that read is no longer publication authority. After media
+finalization it calls the ProjectService transaction owner. `STALE`, replaced
+or inactive claims are never published; malformed or otherwise unproved
+strict states return retryable HTTP 500. The signed failure worker uses the
+same transaction owner and no longer performs a separate revision read plus
+render-job write. Genuine unbound legacy messages retain their existing
+explicit path; snapshot-bound or target-bound rows cannot fall back to it.
+
+The focused transaction/render-owner suites passed 19/19 tests. After route
+migration, the combined finalizer/transaction/render-owner run passed 39/39
+tests. The repository TypeScript check passed using the project compiler with
+an 8 GB Node heap after the default 4 GB process exhausted memory without
+emitting a TypeScript diagnostic. `npx eslint . --quiet` and
+`git diff --check` passed. No live provider call, historical cohort rerun,
+model inference, project content mutation or external spend occurred.
+
+This closes only the finalizer callback race identified in Phase 3K. It does
+not establish render-chain convergence. Provider webhook/startup-failure,
+failed-finalization retry and other strict service consumers must still be
+audited and migrated to an equivalent transaction boundary where they combine
+live ProjectService revision with render-job mutation. The current stale row
+still contains only a generic `artifactCleanup: PENDING` marker; it has no
+immutable provider/source cleanup descriptor and no production cleanup
+consumer. The target-range `ProjectArtifactInvalidationOutboxV1` cannot be
+fabricated for a whole-project `PROJECT_SNAPSHOT` render because its required
+overlay/range fingerprint has different semantics.
+
+The next dependency order is therefore: transact the remaining strict
+provider/retry mutation paths; add a truthful whole-project source-artifact
+cleanup descriptor and durable idempotent consumer; then migrate progress,
+active, history and chapter consumers under the same binding gates. Queue 5
+remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
+agency-class completion, convergence, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3M checkpoint
+
+Commits `20d920d65` and `5303cb7ff` extend the ProjectService transaction
+boundary from final artifact publication to the remaining strict provider and
+failed-finalization-retry mutations. Strict provider failure, initial
+finalization claim, compensating claim release, failed-finalization retry
+claim and compensating retry release now validate the exact Project document
+revision and mutate the exact bound render job in one Mongo session and
+transaction. The specialized render-job owners remain responsible for their
+operation-specific provider, bucket, binding, claim and job-state predicates;
+ProjectService remains the revision/write-fence authority.
+
+The signed Remotion webhook and authenticated retry route now consume those
+transaction owners. Their early ProjectService reads remain read-only
+preflights for access and inexpensive rejection; they are not mutation
+authority and their revision is not passed into the write. QStash publication
+remains outside the database transaction. If publication fails after a claim,
+the exact claim is restored through a second ProjectService transaction.
+Genuine unbound legacy jobs retain their explicit legacy path, while project-
+snapshot-bound or target-bound jobs cannot fall back to it.
+
+The coupled dispatcher, webhook/retry, transaction-owner and render-job-owner
+run passed 78/78 tests. The full repository TypeScript check passed using the
+project compiler with an 8 GB Node heap, and `npx eslint . --quiet` plus
+`git diff --check` passed before `5303cb7ff` was committed and pushed. No live
+provider call, historical cohort rerun, model inference, project content
+mutation or external spend occurred.
+
+This closes the known caller-read-revision/write-later race for those strict
+provider and retry consumers; it does not establish render-chain convergence.
+A provider success rejected by the read-only preflight because the project is
+already stale is not yet converted into an immutable source-artifact cleanup
+descriptor. Stale rows that do reach the strict owner still contain only the
+generic `artifactCleanup: PENDING` marker, with no provider/source identity
+contract and no durable idempotent cleanup consumer. Progress, active,
+history, chapter and recovery consumers also remain outside this completed
+slice.
+
+The next dependency is therefore the truthful whole-project source-artifact
+cleanup descriptor and durable idempotent consumer, including the stale-
+before-claim provider-success case. After that, migrate progress, active,
+history, chapter and recovery consumers under the same binding gates. Queue 5
+remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
+agency-class completion, convergence, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3N checkpoint
+
+Commits `bab9aa3e1`, `e2731f251`, `355c06d0f` and `29884c031` replace the
+generic whole-project stale-render cleanup marker identified in Phases 3K–3M
+with an immutable provider cleanup handoff and its production consumer. The
+descriptor binds the exact `PROJECT_SNAPSHOT`, provider render ID, S3 bucket,
+AWS region, provider-derived `renders/<renderId>/` prefix, source-output audit
+URL/size and a deterministic descriptor hash. URL is never deletion
+authority. Standard Remotion renders use the official provider identity;
+`chapter-render` aggregate jobs are rejected because their child-render
+identities require a separate chapter cleanup contract.
+
+The strict stale-finalization owner and stale-before-finalization provider-
+success owner now mark the exact bound render stale, insert the immutable
+cleanup outbox row and link its ID back to the render job in the same Mongo
+session and ProjectService transaction. Missing or conflicting provider,
+source, authorization, binding or handoff identity aborts the transaction.
+Stale provider output is returned to the finalization dispatcher as
+`PROJECT_ARTIFACT_NOT_CURRENT`, never as an enqueueable success claim.
+Historical render rows may still be read without the new optional link; new
+strict cleanup handoffs must belong to a stale project-snapshot render.
+
+The cleanup runtime atomically leases pending or expired-running rows before
+any provider call. It prepares the existing Remotion AWS credential owner and
+calls installed Remotion 4.0.509 `deleteRender` with the exact region, bucket
+and render ID. Exact claim token plus descriptor hash gates completion; the
+completion receipt records `freedBytes`. Provider failures are sanitized and
+rescheduled with deterministic capped exponential backoff. Lost completion or
+release ownership fails loudly. A fail-closed Bearer-`CRON_SECRET` route runs
+a bounded batch every five minutes, and Mongo indexes cover pending-ready and
+expired-running discovery.
+
+The combined cleanup contract, render owner, ProjectService transaction and
+runtime/cron suites passed 34/34 tests. The full repository TypeScript check
+passed with the project compiler and an 8 GB Node heap; full
+`npx eslint . --quiet` and `git diff --check` passed before `29884c031` was
+committed and pushed. No live provider deletion, project content mutation,
+model inference, historical cohort rerun or external spend occurred.
+
+This closes the source-code and local-proof part of the standard Remotion
+stale-render orphan chain; it does not prove deployed cleanup. The deployed
+AWS role still needs verified `s3:DeleteObject` authority and one live
+idempotent deletion receipt. Chapter aggregate child renders still need their
+own exact cleanup descriptor/consumer. Strict progress, active, history,
+chapter and ambiguous-dispatch recovery consumers remain to be migrated and
+proved; therefore render-chain convergence, Queue 5 completion, agency-class
+certification and Stage 2.5 `GO` are not claimed.
+
+The next bounded order is strict progress, active and history consumption,
+then chapter child-render cleanup and ambiguous-dispatch recovery, followed
+by deployed IAM/live deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues
+3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`.
+
+## 2026-09-01 vertical-convergence Phase 3O checkpoint
+
+Commits `5244d0527`, `f1027fd85`, `11ab47aa0`, `a679f4b9a`,
+`5cb301bac`, `c6ccb0e48`, `ed8ebf284`, `dc7a77282` and `bf83b880d`
+migrate the standard whole-project render progress, active-read and history-
+read consumers onto the strict `PROJECT_SNAPSHOT` owners introduced in the
+preceding phases.
+
+The progress route now requires the authenticated requester, current
+ProjectService access/revision and exact admission/provider identity. An exact
+durable admission ID wins; a provider ID is accepted only when it identifies
+exactly one row, so an admission/provider collision cannot select an arbitrary
+job. Strict progress, provider failure, finalization and completion effects use
+the ProjectService transaction owners. The provider resource tuple is now
+`(providerRenderId, bucketName, region)` throughout dispatch, signed webhook
+custom data, progress polling, atomic failure/finalization filters and stale-
+source cleanup materialization. Missing, partial or mismatched strict tuples
+fail before mutation. New browser render state preserves the region across
+reload/resume and scopes active reads by project.
+
+The strict active reader returns only current-revision jobs with exact owner,
+requester, project, binding and manifest identity. The strict history reader
+allows valid prior project revisions while retaining exact owner, requester,
+project, binding, manifest and artifact-state validation. Both HTTP consumers
+first prove live ProjectService access. Genuine unbound rows retain an
+explicit compatibility path; target-artifact-bound or project-snapshot-bound
+rows cannot enter it. Strict history is currently requester-scoped: an
+authorized collaborator sees strict renders they requested, not a complete
+cross-collaborator project audit. That broader collaborative-history product
+contract remains open and is not inferred here.
+
+The active/history route and startup closure passed 50/50 tests, the strict
+read-owner suite passed 19/19, the collision-safe progress suite passed 12/12,
+and the latest provider-tuple owner/transaction/route/finalizer closure passed
+98/98. The full repository TypeScript check passed with the project compiler
+and an 8 GB Node heap; full `npx eslint . --quiet` and `git diff --check`
+passed. No provider call, deletion, paid cohort rerun, model inference, project
+content mutation or external spend occurred.
+
+This is partial standard-render consumer convergence, not complete render-
+chain convergence. Chapter aggregate children still lack their own immutable
+per-child cleanup descriptor and deployed cleanup receipt; concat output has
+separate object identity and must never be passed to Remotion `deleteRender`.
+Ambiguous-dispatch recovery, deployed IAM/live deletion proof and complete
+chapter progress/finalization recovery remain open. Queue 5 remains
+`ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains
+`MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`.
+
+The next bounded order is chapter child-render cleanup with separate concat-
+object cleanup, then ambiguous-dispatch recovery and deployed IAM/live
+deletion proof. No certification, agency-class completion, convergence,
+successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3P checkpoint
+
+Commits `1cbd1a754` and `6acbfcf5a` add the first bounded chapter-child
+identity and cleanup-contract slice without treating the aggregate chapter
+job or concat output as a Remotion render.
+
+The existing leased source-cleanup outbox now has a backward-compatible
+discriminated child artifact kind. Each child descriptor binds the full
+server-owned `PROJECT_SNAPSHOT` identity, parent admission, bounded chapter
+index, exact `(providerRenderId, bucketName, region)` tuple, derived Remotion
+prefix and provider-reported HTTPS output URL/size. The synthetic
+`chapter-render` aggregate bucket is rejected. Child descriptor identity is
+stable across retry timestamps, while the pre-existing standard-render hash
+contract remains unchanged. The cleanup runtime accepts only the two declared
+Remotion artifact kinds and passes their exact persisted tuple to
+`deleteRender`; concat objects remain outside this consumer.
+
+Strict chapter startup now validates and clones the server-owned render
+authorization/binding, persists the selected region and parent admission, and
+records the exact child render ID, bucket, region, output URL and output size.
+Strict polling consumes only the persisted tuple and fails closed when the
+provider or completed-output identity is incomplete. Genuine legacy chapter
+rows retain an explicit environment-derived compatibility path. Completion
+does not automatically enqueue child deletion: a single child may be the
+final delivered source, and multi-child sources remain necessary until concat
+and finalization are durably proved.
+
+The cleanup contract/runtime suites passed 10/10 tests; render startup and
+chapter progress-route suites passed 48/48; the broader chapter-renderer,
+credit and delivery-manifest suites passed 47/47. The full repository
+TypeScript check passed with an 8 GB Node heap; full
+`npx eslint . --quiet`, targeted lint and `git diff --check` passed. No
+provider deletion, deployed IAM change, live render, project content mutation,
+model inference, historical cohort rerun or external spend occurred.
+
+This is exact child identity plus local cleanup-consumer capability, not a
+complete chapter cleanup chain. The concat result is a separate S3 object and
+still lacks a server-owned immutable target, leased worker identity, isolated
+`DeleteObject` cleanup outbox and recovery proof. Child cleanup still needs a
+safe materialization point after concat/finalization or stale fencing; strict
+chapter progress/finalization recovery and ambiguous provider-dispatch
+reconciliation remain open. Deployed delete authority and one live idempotent
+receipt also remain unproved.
+
+The next bounded order is: (1) immutable server-owned concat identity and
+idempotent concat worker, (2) isolated leased concat-object cleanup,
+(3) transactionally safe child/concat cleanup materialization in finalization
+and stale paths, (4) ambiguous-dispatch recovery, then (5) deployed IAM/live
+deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No convergence, agency-class completion, successor
+receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Q checkpoint
+
+Commits `c403d96dc` and `dce906b5e` replace mutable, URL-authorized chapter
+concatenation with one immutable server-owned concat target. The target binds
+the complete `PROJECT_SNAPSHOT`, parent admission, ordered child provider
+tuples and URLs/sizes, source-manifest hash, fixed deployment-owned bucket and
+region, deterministic generation and `editron-concat/v1/<generation>.mp4`
+object key. It is persisted before QStash dispatch and its generation is the
+deduplication identity. Genuine legacy multi-chapter rows that lack the
+snapshot identity are quarantined locally; they are not converted into raw
+URL jobs.
+
+The internal worker requires exact project, requester and owner scope, leases
+one generation, rejects incomplete or mismatched completion receipts and
+supports exact DONE replay. Modal accepts only the HMAC-signed canonical
+target, rechecks the fixed destination, validates every source redirect and
+byte size, and uses `HeadObject` metadata/size to reuse only the exact existing
+generation after a lost response. A conflicting object is rejected instead of
+overwritten or accepted. URL remains presentation/audit data, never deletion
+authority.
+
+The TypeScript contract/renderer suites passed 15/15 tests and the Modal pure-
+helper suite passed 7/7. Full TypeScript, targeted lint, full repository lint
+and `git diff --check` passed across the combined worktree. No provider upload,
+live render, deletion, IAM change, paid cohort rerun, model inference, project
+content mutation or external spend occurred.
+
+This closes immutable concat identity and local idempotent worker plumbing, not
+the chapter cleanup chain. There is still no isolated concat `DeleteObject`
+outbox/consumer, transactionally safe child/concat cleanup materialization,
+recovery sweep for an expired lease after exhausted delivery, deployed IAM
+proof or live deletion receipt. The Modal writer still uses its configured
+deployment credential and `upload_file`; deployed least-privilege and
+concurrent-writer behavior remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3R checkpoint
+
+Commits `51f0a6fe1` and `7018cb47d` add a durable strict render billing/provider-
+dispatch ledger. Every new route-owned `PROJECT_SNAPSHOT` admission persists a
+stable binding-derived credit idempotency key, provider attempt token and exact
+billing wallet before deduction. Billing states distinguish `PENDING`,
+`RECORDED` and `UNKNOWN`; dispatch phases distinguish `NOT_ATTEMPTED`,
+`ATTEMPTING`, `UNKNOWN` and `BOUND`. Provider dispatch requires a recorded
+credit transaction receipt. The first provider bind is fenced to the region
+reserved by the admission, and an already-bound replay is accepted only for
+the same full provider tuple.
+
+A definite credit-owner rejection remains a normal pre-dispatch failure. A
+wallet/database response that may have been lost is quarantined as
+`RENDER_BILLING_UNKNOWN` without automatic refund or provider dispatch. The
+attempt marker is written immediately before the provider call. A returned CAS
+rejection proves that no provider call occurred and remains refundable; a
+thrown/lost CAS response or provider response is quarantined without refund or
+automatic rerender. Those ambiguous outcomes return HTTP 202 with
+`RENDER_DISPATCH_UNKNOWN`, the durable admission ID and `recoveryRequired`, so
+generic 500 retry behavior cannot silently create a second admission/spend.
+
+The focused route and render-owner closure passed 62/62 tests. The full
+8-GB TypeScript check, full `npx eslint . --quiet` and `git diff --check`
+passed. No provider call, wallet mutation, live render, paid cohort rerun,
+model inference, project content mutation or external spend occurred.
+
+This ledger prevents blind refund/retry at ambiguous boundaries; it does not
+itself recover them. The installed Remotion dispatch API still exposes no
+provider idempotency/lookup token, so automatic provider rerender remains
+forbidden until a signed callback or provider lookup proves the result. Chapter
+children still need equivalent per-child attempt/recovery state. Concat-object
+cleanup, safe cleanup materialization, recovery sweeps, deployed IAM/live
+deletion proof and complete chapter finalization remain open.
+
+The next bounded order is therefore: (1) isolated leased concat-object
+`DeleteObject` cleanup, (2) transactionally safe child/concat cleanup
+materialization in success and stale paths, (3) proof-based standard and
+chapter ambiguous-dispatch recovery without blind provider retry, then
+(4) deployed IAM/live deletion proof. Queue 5 remains `ACTIVE_PARTIAL`;
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No render-chain convergence, agency-class
+completion, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3S checkpoint
+
+Commits `d313c69de` and `3b9bdb314` add the isolated concat-output cleanup
+owner required by Phase 3Q. The immutable cleanup descriptor binds the full
+`PROJECT_SNAPSHOT`, parent admission, concat generation/source-manifest hash,
+exact S3 bucket, region and deterministic object key, optional version ID,
+and output URL/size as audit data. Descriptor identity and outbox ID are
+deterministic across retry time. The URL is never deletion authority.
+
+The runtime leases pending or expired-running rows before any provider call,
+uses only cleanup-specific AWS credential variables, issues exact S3
+`DeleteObject(Bucket, Key, VersionId?)`, treats an already-absent key as an
+idempotent success and commits completion only for the exact claim token and
+descriptor hash. Provider errors are sanitized and rescheduled with bounded
+exponential backoff. A Bearer-`CRON_SECRET` route runs a bounded batch every
+five minutes and Mongo indexes cover ready and expired-lease discovery. It
+does not reuse the Remotion `deleteRender` owner or its direct-credential
+fallback.
+
+The dedicated concat cleanup suite passed 6/6 tests and the adjacent standard
+and child cleanup suite passed 7/7. Full TypeScript, targeted/full lint and
+`git diff --check` passed across the verified worktree. No S3 object was
+deleted and no deployed credential or IAM authority was changed.
+
+This is cleanup capability, not cleanup authorization convergence. No
+production finalization/stale/terminal decision yet materializes the concat
+or child outboxes. The current shell also has none of the cleanup-specific
+AWS credential variables or fixed concat destination variables configured,
+so deployed least-privilege `s3:DeleteObject` authority and one live
+idempotent deletion receipt remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3T checkpoint
+
+Commits `00818ea97`, `a382d3209` and `0ba6026fd` add proof-based standard
+dispatch reconciliation on top of the Phase 3R ledger. A bounded classifier
+distinguishes exact persisted provider tuples from `ATTEMPTING`/`UNKNOWN`
+rows that still lack provider identity. Only the former can enter the live
+ProjectService revision-fenced CAS. The mutation owner independently binds
+the admission, binding hash, attempt token, credit idempotency key, recorded
+credit transaction, attempt timestamp, reserved region and exact provider
+tuple. It never calls the provider, refunds credits, rerenders or promotes a
+render to success.
+
+New standard renders now carry the same deterministic attempt token in signed
+webhook custom data as well as render metadata. A signed terminal callback can
+bind a lost provider tuple exactly; a stale signed success is routed through
+the existing transactional stale-output cleanup owner instead of returning
+before cleanup materialization. Genuine pre-ledger callback compatibility is
+kept explicit. A protected five-minute recovery sweep and matching Mongo
+attempt-order index are deployed in configuration; rows without a tuple
+remain quarantined for signed callback/operator evidence.
+
+The recovery/startup/render-owner closure passed 67/67 tests, the direct
+ProjectService transaction suite passed 12/12, and the final focused recovery
+and route closure passed 46/46. Full 8-GB TypeScript, full quiet ESLint and
+`git diff --check` passed before the commits were pushed. No provider call,
+wallet mutation, refund, rerender, deletion, historical cohort run, model
+inference or project-content mutation occurred.
+
+The installed provider API still offers no lookup/idempotent dispatch receipt,
+so a row with no provider tuple cannot be recovered automatically and must not
+be retried or refunded. Chapter children still lack an equivalent per-child
+attempt ledger and signed callback path. Transactional chapter child/concat
+cleanup materialization, stale-before-concat fencing, invalidation/retention
+recovery and deployed IAM/live deletion proof remain open. Queue 5 remains
+`ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains
+`MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No convergence,
+agency-class completion, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3U checkpoint
+
+Commits `8e666a9e3`, `57649a2b3` and `e533647c3` close the local ownership gap
+between a terminal chapter outcome and its child/concat cleanup outboxes. The
+concat cleanup runtime no longer consumes ambient or direct deletion
+credentials. It requires cleanup-specific base credentials and assumes one
+exact cleanup-only IAM role through STS for a bounded 900-second session. A
+missing, mismatched or unassumable role fails closed; there is no direct AWS
+credential fallback. This supersedes the Phase 3S description of direct
+cleanup credentials while preserving that checkpoint as historical truth.
+
+The ProjectService finalization transaction now validates and materializes the
+exact chapter child and concat cleanup descriptors for current success, stale
+finalization/provider output and exhausted terminal-finalization failure. It
+does not clean retryable, ambiguous or in-flight work. Replays reuse the
+durable materialization boundary and timestamps instead of inventing new
+receipts. The finalization worker routes synthetic chapter orchestration away
+from the generic render cleanup owner and accepts a terminal chapter replay
+only after ProjectService has proved/materialized the same terminal cleanup;
+standard terminal rows remain rejected.
+
+The direct materializer and worker closure proves multi/single child cleanup,
+concat cleanup, deterministic replay IDs/timestamps, boundary conflicts,
+missing/mismatched evidence with no writes, current terminal chapter replay
+and standard-row rejection. No deployed role was created or assumed and no
+S3 object was deleted. The live environment still lacks the required cleanup
+role/environment bindings, so least-privilege deletion and a live idempotent
+receipt remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3V checkpoint
+
+Commit `cfcc3216d` adds the durable per-child dispatch ledger that Phase 3T
+identified as missing. Every child moves through `NOT_ATTEMPTED`,
+`ATTEMPTING`, `UNKNOWN` or `BOUND` under a deterministic attempt token bound
+to its parent, child and project snapshot. The attempt marker must be durably
+written with `modifiedCount === 1` before the provider call. A returned exact
+provider tuple can bind only to the corresponding attempt; exact `BOUND`
+replay is read-only and preserves the original provider-acceptance timestamp.
+Malformed tuples, tuple attachment to `NOT_ATTEMPTED`, and `UNKNOWN` rows
+without a durable attempt timestamp fail closed.
+
+The combined adjacent closure passed 92/92 tests across ten chapter dispatch,
+cleanup, concat, progress and finalization files. The full 8-GB TypeScript
+check, full `npx eslint . --quiet` and `git diff --check` passed before the
+commit was pushed. No provider call, wallet mutation, refund, rerender,
+deletion, paid cohort run, model inference or project-content mutation
+occurred.
+
+This is a child dispatch fence, not complete chapter recovery. The signed
+child callback path is still absent; the parent chapter row is still using a
+synthetic `(jobId, "chapter-render", region)` tuple that must not be treated as
+provider evidence; current project revision/invalidation is not yet enforced
+through child progress and concat execution; billing-only reconciliation,
+concat publish/lease recovery and retention fencing remain open. The next
+bounded order is: (1) signed child callback plus explicit parent-orchestration
+routing, (2) billing-only reconciliation, (3) parent revision/invalidation
+recovery, (4) concat transport/lease recovery, (5) retention/index fencing,
+then (6) migration/backfill and deployed IAM/live deletion proof.
+
+Deployment preflight found the concat endpoint/token configured in Vercel but
+the fixed concat destination and cleanup-specific STS inputs absent. The
+current Modal deployment predates the September source and its writer still
+requires deployment/configuration review. The available AWS caller cannot
+inspect, create or assume the intended cleanup role and cannot inspect the
+bucket ownership/versioning/public-access configuration. These are explicit
+external deployment blockers, not reasons to weaken the local contract.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, deployed cleanup proof,
+successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3W checkpoint
+
+Commit `cd8060d5c` adds authenticated terminal evidence ingress for strict
+chapter children. Each child render now receives a Remotion webhook whose
+signed custom data binds the parent admission, child index, deterministic
+attempt token, project-snapshot binding hash and fixed region. The webhook
+route validates production mode, the configured Remotion signature and the
+installed provider payload contract before calling the child dispatch owner.
+The owner accepts only the exact child attempt and provider tuple, can bind a
+retained `ATTEMPTING`/`UNKNOWN` tuple, performs a fenced terminal CAS and makes
+an exact replay read-only. It cannot call the provider, charge/refund,
+rerender, enqueue concat or complete the parent aggregate.
+
+The installed Remotion 4.0.509 success callback contains the output URL but no
+byte-size field. Therefore a signed success without size now proves/binds only
+the provider tuple and returns `BOUND_AWAITING_OUTPUT_PROOF`; it does not mark
+the chapter complete or invent a size. The existing progress owner must still
+prove a positive `outputSizeInBytes` before terminal output identity is
+persisted. Provider-shaped structured errors, including frame/chunk/retry and
+diagnostic fields, are accepted under the strict installed contract. Forged,
+malformed, wrong-token, wrong-binding, wrong-tuple and conflicting-terminal
+callbacks fail closed.
+
+This closes signed child ingress, not parent orchestration. The parent render
+admission still carries the synthetic `(jobId, "chapter-render", region)` tuple
+and must be separated from genuine provider evidence. Live project revision
+and invalidation are still not rechecked throughout child polling and concat.
+
+## 2026-09-01 vertical-convergence Phase 3X checkpoint
+
+Commits `0a58f4dbb`, `4754b7ea4` and `700855538` add billing-only recovery for
+the Phase 3R `UNKNOWN` credit boundary. A read-only credit owner searches only
+the persisted user/organization wallet for one exact existing Editron render
+usage transaction bound to the idempotency key, task and actor. It never calls
+balance initialization, deduction or refund. Missing/evicted history remains
+unverifiable; duplicates, malformed entries, wrong task/actor/wallet and
+identity conflicts remain `UNKNOWN`.
+
+The render-job CAS changes only an exact current `UNKNOWN` admission to
+`RECORDED` while preserving `NOT_ATTEMPTED`. It rechecks the project revision,
+admission/binding, deterministic attempt/key, wallet, transaction and absence
+of provider identity. Exact replay and a proved concurrent winner are
+read-only. A bounded Bearer-`CRON_SECRET` sweep is registered every five
+minutes with a dedicated `billing_recovery_unknown_job_v1` query index. The
+sweep cannot dispatch, rerender, refund, charge, mutate project content or
+promote render success.
+
+The focused signed-ingress/billing/renderer closure passed 72/72 tests. The
+broader adjacent render, cleanup, concat, progress, finalization and recovery
+closure passed 153/153. Schedule/index proof passed 11/11. The full 8-GB
+TypeScript check, full `npx eslint . --quiet` and `git diff --check` passed on
+the final pushed code. No provider call, wallet mutation, refund, rerender,
+deletion, historical cohort run, model inference, project-content mutation or
+external spend occurred.
+
+Repo configuration now schedules billing recovery, but a live deployment and
+real ambiguous-wallet recovery receipt are not yet proved. The next bounded
+order is: (1) separate parent chapter orchestration from provider identity and
+exclude it from standard recovery, (2) add live revision/invalidation fences
+through child polling and concat, (3) recover concat publish/expired leases,
+(4) fence retention and post-invalidation writes, then (5) migration/backfill
+and deployed IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, live recovery proof,
+successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Y checkpoint
+
+Commits `5688798bf` and `3d9c8c1ea` establish a provider-free chapter-parent
+contract and keep that parent outside standard provider recovery. A strict
+`chapterOrchestration` record is now admitted atomically with the immutable
+project-render snapshot and a real billing/dispatch ledger. Its aggregate ID,
+binding hash and selected execution region must match the render admission.
+The parent cannot carry top-level provider identity, a provider-bound generic
+dispatch, a missing project snapshot or a missing dispatch ledger. Reservation
+can create only `NOT_STARTED`; dedicated current-revision-fenced CAS owners
+advance `NOT_STARTED -> STARTING`, bind an exact chapter count and manifest hash
+for `STARTING -> RUNNING`, or quarantine a lost starting boundary as `UNKNOWN`.
+Exact replays are read-only and unproved writes fail closed.
+
+Standard provider recovery now excludes both new
+`CHAPTER_ORCHESTRATION` rows and every `chr_*` compatibility admission at the
+Mongo query, classifier, signed-proof and admission-lookup boundaries. Even an
+adversarial query result cannot reach the provider-binding CAS. No legacy row
+is silently migrated, rebound, retried, refunded or treated as provider
+evidence.
+
+The focused parent/recovery closure passed 16/16 tests and the adjacent
+render-owner closure passed 107/107 across seven suites. Full 8-GB TypeScript,
+full quiet ESLint and `git diff --check` passed before push. No provider call,
+wallet mutation, refund, rerender, deletion, historical cohort run, model
+inference, project-content mutation or external spend occurred.
+
+This is contract/recovery isolation, not chapter-route convergence. The live
+render and progress routes still need to reserve/start/read the orchestration
+record and stop creating or consuming the synthetic
+`(jobId, "chapter-render", region)` parent tuple. Finalization, cleanup and
+legacy migration must then consume explicit orchestration receipts. The next
+bounded order remains: (1) route/progress orchestration rewiring, (2) live
+revision/invalidation fences through child polling and concat, (3) concat
+publish/expired-lease recovery, (4) retention and post-invalidation fencing,
+then (5) migration/backfill and deployed IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, live recovery proof,
+successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Z checkpoint
+
+Commits `0ddc19d8c`, `b2048dd6e`, `22791bfd8`, `8de3a05f8`,
+`f2cfbf5a6` and `fb6768a4f` extend the provider-free parent contract into an
+immutable chapter layout, complete local parent lifecycle, browser polling
+identity, active-render recovery, provider-free finalization dispatch and the
+real render-admission route.
+
+The immutable chapter layout binds the parent admission, project-snapshot
+binding hash, exact contiguous frame boundaries, reduced rational project
+timebase and the existing chapter policy under one canonical SHA-256 identity.
+For a legacy numeric project rate such as `29.97`, the manifest records the
+truthful reduced decimal ratio `2997/100` with read-compatibility provenance;
+it does not pretend the rate was `30000/1001`. Strict chapter startup consumes
+the already-bound layout and rejects project, binding, rate, policy, boundary,
+count or hash drift before a database or provider write.
+
+The live render route now reserves the provider-free parent atomically,
+advances it through dedicated `STARTING` and `RUNNING` owners, compares the
+exact renderer start receipt with the route-created layout and returns a
+first-class `CHAPTER_ORCHESTRATION` polling identity. It no longer binds the
+chapter parent as the synthetic provider tuple
+`(jobId, "chapter-render", region)`. Lost lifecycle responses and any failure
+after child work may have begun suppress refund and generic provider recovery;
+a durably running parent remains resumable rather than being converted into a
+terminal failure. Standard single-provider admission retains its existing
+attempt/bind path.
+
+The active route and client hook preserve the orchestration ID, aggregate
+render ID and selected region across start, poll and reload. Malformed,
+provider-bearing or legacy bucket-only rows are not promoted into strict
+chapter identity. The finalization dispatcher can claim an exact provider-free
+`chr_*` admission without inventing provider evidence, while partial provider
+tuples and provider-free standard admissions fail closed.
+
+The final adjacent closure passed 166/166 tests across immutable layout,
+parent lifecycle, admission, renderer progress, active recovery, client
+payload/resume and finalization worker suites. The full repository TypeScript
+check passed with an 8 GB Node heap; targeted and full quiet ESLint plus
+`git diff --check` passed before push. No live render, provider deletion,
+wallet mutation, paid cohort rerun, model inference, project-content mutation
+or external spend occurred.
+
+This is chapter admission and identity convergence, not complete chapter
+render-chain convergence. The strict progress route still has to consume the
+provider-free orchestration identity, validate the persisted layout and drive
+the parent progress/concat/finalization lifecycle without a synthetic provider
+tuple. Provider-free stale output still needs the ProjectService cleanup
+materializer, and terminal worker completion still needs to close the parent
+lifecycle. Current project revision/invalidation must remain fenced through
+child polling, concat publication, finalization and cleanup. Expired concat
+leases, post-invalidation writes, retention, legacy migration/backfill and
+deployed IAM/Modal/Vercel/live deletion proof also remain open.
+
+The next bounded order is: (1) strict provider-free progress and parent
+lifecycle integration, (2) provider-free stale-output cleanup and terminal
+finalization completion, (3) live revision/invalidation fences through child
+polling and concat, (4) concat publish/expired-lease recovery, (5) retention
+and post-invalidation fencing, then (6) migration/backfill and deployed
+IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path completion, agency-class certification, live recovery proof,
+successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 4A checkpoint
+
+Commits `d07753ed0`, `3a010b2b7`, `5b54f71f8`, `6f1429ec4`,
+`57653536b`, `883f9b855`, `c03ff5687`, `04ae0c5bf`, `f2dca8bb0`,
+`22b70b013`, `a1750faf9` and `8d881378f` close the remaining local
+Phase 3Z chapter-lifecycle order through progress, terminal ownership,
+revision fences, post-invalidation fencing, receipt-gated retention and
+legacy-safe lifecycle migration. `b693e9593` is the required separate Step-0
+Mongo registry cleanup that preceded those structural index additions.
+
+Strict provider-free progress now consumes the immutable parent/layout
+identity. Expired concat leases can be reclaimed only under the exact target
+generation. ProjectService is the sole parent terminal-finalization owner and
+commits the project final output, chapter-parent terminal state and cleanup
+materialization in one transaction. Route-side duplicate terminal writes were
+removed. Child callback/poll completion and concat claim/publication re-read
+the current project revision and retain exact binding, target, lease and
+generation predicates at their mutation boundaries. This is strong repeated
+fencing, not a false claim that the project document and every provider row
+share one cross-collection transaction.
+
+New strict chapter aggregates carry lifecycle version 1 and begin
+`ACTIVE/RETAINED`. Cleanup materialization atomically changes the aggregate to
+`STALE/CLEANUP_PENDING`; all child and concat writers require the exact active
+lifecycle and reject late callbacks, DONE replays, claims, publications,
+terminal failures and retry releases after invalidation. Missing lifecycle is
+not treated as active.
+
+The former retention description was incorrect: `expiresAt` was stamped but
+no chapter TTL index existed, and adding one would have been unsafe because a
+Mongo TTL delete cannot prove that external Remotion/S3 resources were
+deleted. The production owner now requires the plan expiry plus every linked
+child and concat cleanup outbox to validate cryptographically as `DONE` with a
+completion receipt. It then writes a hashed retention tombstone and deletes
+the exact transient chapter aggregate in the same Mongo transaction. A
+bounded Bearer-`CRON_SECRET` sweep and non-TTL candidate/tombstone indexes are
+registered in repository configuration.
+
+Lifecycle migration is explicit and non-inferential. A pre-lifecycle row is
+promoted to `ACTIVE/RETAINED` only when its project-snapshot binding, immutable
+layout, child dispatch ledgers, scope and live project revision all validate.
+A strict row with an already-materialized cleanup is restored only as
+`STALE/CLEANUP_PENDING`; it is never reopened for writes. Unbound legacy,
+malformed-contract and stale-project rows receive auditable blocked
+assessments and remain without an active lifecycle. Partial/mixed lifecycle
+state fails loudly. A bounded protected migration sweep and candidate index
+are registered; this is safe classification/backfill, not fabricated evidence
+for genuinely unbound historical rows.
+
+Focused proof passed across the terminal, dispatch, concat, invalidation,
+retention and migration owners, including 81/81 adjacent lifecycle tests,
+23/23 cleanup/retention contract tests, 13/13 retention runtime tests, 18/18
+migration-plus-retention tests and 8/8 migration runtime tests. The full 8-GB
+TypeScript check and full repository quiet ESLint passed after the final code.
+Deployed/live proof is still required before the next production closure
+receipt. No live provider render, Modal concat, S3 delete,
+wallet mutation, refund, project-content mutation, paid cohort rerun, model
+inference or external spend occurred in this slice.
+
+Repository schedules are not deployment proof. The cleanup-only IAM role,
+real Vercel environment bindings, current Modal deployment/destination,
+deployed indexes, real legacy-row assessment, live child/concat deletion,
+retention tombstone, interruption recovery and idempotent replay still need
+authorized environment execution. Genuine unbound rows remain blocked for
+manual/source-backed reconstruction or safe retirement; the migration owner
+does not guess their project snapshot.
+
+Queue 5 therefore remains `ACTIVE_PARTIAL`: the chapter chain is locally
+closed through retention and migration, but deployed proof and the remaining
+non-chapter mutation owners are still open. Queues 3 and 4 remain
+`ACTIVE_PARTIAL`. Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No chapter-path production convergence,
+agency-class certification, successor receipt or `GO` is claimed.
+
+The next exact order is: (1) run full repository verification and push this
+checkpoint, (2) execute deployed IAM/Modal/Vercel/index/live-deletion proof
+when the required environment authority exists, (3) continue the remaining
+universal Queue 5 mutation owners serially, then (4) return to the unfinished
+Queue 3-4 media chain, where parallel execution is permitted by the founder.
+Queue 6 and agency verticals remain after those items and must stay serial
+unless the founder explicitly authorizes further parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4B checkpoint
+
+Commits `c05b6d629`, `29a4dc0e6`, `843c26fdf`, `68bce0d7d`,
+`53daff7d2` and `8c2acd3ab` migrate every remaining Director-owned project
+fact away from direct Mongo project writes. Auto-BGM decisions are committed
+before dispatch; unified-bundle and post-bundle policy facts, intelligence
+run/skip status, bounded V-JEPA coverage evidence and the bounded calibration
+decision log now pass through exact ProjectService compare-and-set owners.
+
+The decision-log owner requires the active Director lease, exact user/project
+identity and current project revision. It persists at most 100 deterministic
+technique-and-timeline-stratified snapshots, omits unbounded decision params,
+bounds signal context and strings, records source identity and truncation, and
+publishes a mutation receipt only after the project revision advances. A stale
+or lost lease cannot fall through into another Director path. Source inspection
+and tests prove that `director-agent.ts` now contains zero direct
+`projects.updateOne` calls.
+
+The focused final decision-log closure passed 25/25 tests, including bounded
+sampling, malformed-input rejection, exact lease/revision predicates, stale
+conflict with no receipt and cross-project rejection. The full 8-GB TypeScript
+check and targeted quiet ESLint passed on the final code. No provider call,
+render, wallet mutation, project-content edit, paid-cohort rerun, model
+inference or external spend occurred.
+
+This closes the Director's direct project-document bypasses only. It does not
+close universal Queue 5: assist-lane settlement, EDL/MG evidence and remaining
+route/worker lifecycle writers still require owner-by-owner inventory,
+prerequisite enforcement, CAS receipts and consumer proof. The existing
+`p6-provider-coverage-starvation` first-case failure is tracked as a separate
+current-tree regression; it was reproduced in isolation and was not caused by
+the Director persistence changes, but must be resolved before a repository
+completion claim.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order remains: (1) continue universal Queue 5 owners serially,
+(2) finish the Queue 3-4 media chain, where founder-authorized parallel work is
+permitted, (3) implement Queue 6 serially, then (4) certify agency verticals
+serially unless the founder explicitly authorizes further parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4C checkpoint
+
+Commits `cbf83608f`, `69604a03a`, `540186741`, `59d09bb24`,
+`f13b8a9f4`, `c2f0deafc` and `22f215a7f` continue Queue 5 through
+the assist-ready/inline-completion seams and the asynchronous MG render/design
+terminal paths. `01a9b667e` separately restores the previously tracked
+provider-SFX coverage fixture; it is test-fixture repair, not a new editing
+capability. `c2f0deafc` is the required separate Step-0 removal of EDL debug
+logging before the large executor cutover.
+
+Assist-ready transitions now advance through a ProjectService receipt owner,
+and the inline video-analysis completion path uses the existing assist
+completion owner. This is partial assist convergence only: the assist-lane
+settlement saga, batch/cancel/rescue paths and stale/refund recovery still
+contain direct project-document writers and remain open.
+
+The MG render runner no longer manufactures terminal fallback or decline
+project outcomes. ProjectService owns generated, fallback and declined
+terminal delivery under the exact project revision, detects partial persisted
+state and treats a complete replay idempotently. The separate MG-design chain
+now loads one ProjectService mutation snapshot, returns bounded codegen-run,
+kinetic-SFX, delivery-record and taste-contract evidence from `executeEDL`, and
+commits the durable design job plus all returned project evidence in one Mongo
+transaction. A concurrent project revision change requeues within the existing
+bounded attempt/deadline policy; a lost lease or missing project cannot land
+evidence. Parent reconciliation begins only after successful completion.
+
+The cutover removes the old split completion sequence and the active hidden EDL
+project writes for codegen-run, kinetic-SFX, delivery-record and taste evidence.
+It does not close all MG lifecycle mutation ownership: MG-design enqueue/failure
+UI mirrors, parent reconciliation durability and the now-unused legacy taste/
+delivery persistence helpers still require classification or removal. No claim
+is made that all MG, assist or project writers are unified merely because these
+terminal paths share ProjectService.
+
+Focused proof passed 60/60 across the MG worker, live-codegen seam and
+ProjectService payload/transaction suites after the final cutover. The full
+8-GB TypeScript check, full repository quiet ESLint and `git diff --check`
+passed before push. Earlier bounded slices also passed their focused owner
+closures. No provider request, live render, wallet mutation, project-content
+edit, paid cohort rerun, model inference or external spend occurred.
+
+A fresh fixed-string source inventory still finds non-ProjectService project
+writes in the video-analysis and tribe-analysis workers, assist-lane and
+auto-edit batch/asset/cancel/rescue/recovery paths, plus adjacent storyboard,
+Alyzitron and MG lifecycle mirrors. Each site must be classified as canonical
+editor state, durable job state or disposable UI projection before migration;
+raw occurrence count alone is not a completion metric.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order is: (1) finish the remaining Queue 5 owners serially, beginning
+with MG enqueue/failure projection ownership and assist settlement, then the
+video/tribe/auto-edit route families; (2) return to the unfinished Queue 3-4
+media chain, where founder-authorized parallel work is permitted; (3) implement
+Queue 6 serially; and (4) certify the agency verticals serially unless the
+founder explicitly authorizes more parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4D checkpoint
+
+Commits `051b3f1c6`, `117517ab8` and `cb3e88e9d` finish the bounded MG
+lifecycle follow-up from Phase 4C. MG children now carry direct correlation
+instead of relying on project-document UI mirrors, the runner and
+ProjectService payload no longer persist those mirrors, and the unused legacy
+taste/delivery project writers have been reduced to compatibility-only readers.
+This removes those shadow project mutation authorities; it does not certify the
+complete MG vertical or deployed delivery.
+
+Commits `859193f92`, `69e7df3ae`, `80ecfd3ea`, `4f8f29169`,
+`196f30ac6`, `e801bf81b`, `3e6eb2071`, `db88f934f`, `45ddfbd6b`
+and `5bb9d3d1c` close the bounded Assist charge/admission/failure saga across
+batch and single-asset intake. The separate `80ecfd3ea`, `196f30ac6` and
+`db88f934f` commits are required Step-0 dead-log cleanup before structural work
+in the large owners.
+
+One exact deduction identity is now durable before an Assist scan can proceed.
+Batch intake registers the completed deduction against the already-declared
+Assist lane; single-asset intake atomically establishes the lane and charge on
+an otherwise-unused new project. Competing transactions, malformed charges,
+pre-used projects and stale status changes fail closed. Cancellation, worker
+failure, QStash publication failure and inline-analysis failure all converge on
+the same org-aware exact settlement owner. It commits a recoverable pending
+refund before the external wallet call, consumes the transaction pointer only
+after confirmed refund, and supports bounded recovery of pending refunds and
+stale pre-charge scans. Assist inline readiness advances through the existing
+revisioned ProjectService completion receipt rather than a route-owned
+`ready_for_chat` write.
+
+Focused proof passed 31/31 for exact failure settlement, 23/23 for cancellation,
+12/12 for charge registration, 53/53 for batch charge/compose wiring, 17/17 for
+recovery, and the final single-asset admission/handler closure passed 22/22.
+Full 8-GB TypeScript, full repository quiet ESLint and `git diff --check` passed
+after the final code. No live provider call, wallet mutation, refund, render,
+project-content edit, paid cohort rerun, model inference or external spend was
+performed by this checkpoint.
+
+This is not universal Assist or Queue 5 convergence. The current source
+inventory still contains direct lifecycle/evidence project writes in the
+video-analysis and TRIBE workers, remaining batch projections, auto-edit rescue,
+storyboard finalization, Alyzitron and adjacent recovery paths. The remaining
+sites must be classified as canonical project facts, durable job state or
+disposable UI projection, then migrated to an exact owner or removed. Existing
+Assist settlement writes are the canonical money owner and are not counted as
+an accidental bypass merely because they directly execute their own CAS.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order is: (1) continue the remaining universal Queue 5 writers
+serially, beginning with video-analysis/TRIBE lifecycle and evidence ownership,
+then batch/rescue/storyboard/Alyzitron classification; (2) return to the
+unfinished Queue 3-4 media chain, where only those two queues have the founder's
+current permission for parallel execution; (3) implement Queue 6 serially; and
+(4) certify the agency verticals serially unless the founder explicitly grants
+new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4E checkpoint
+
+Commits `2bf137e47`, `ac90b3fc0`, `59fa68324`, `60e162964`, `36db5d750`
+and `f03101c6d` migrate the bounded single-asset Video Analysis and TRIBE path
+onto revisioned ProjectService ownership. Single-asset intake now admits an
+exact analysis run; the Video Analysis worker advances that run through its
+legal lifecycle and commits fixed Phase-1 evidence atomically; TRIBE obtains a
+bounded deep-analysis lease, commits fixed Phase-2 evidence, creates a durable
+Director-dispatch record and publishes with a stable QStash deduplication
+identity. Ownership loss is a conflict rather than an accidental failure or
+refund. The `60e162964` commit is the required Step-0 dead-log cleanup before
+structural work in the large TRIBE owner.
+
+Focused source and integration proof, full 8-GB TypeScript, full repository
+quiet ESLint and `git diff --check` passed after the final code. No live provider
+call, wallet mutation, render, paid cohort rerun, model inference or external
+spend was performed by this checkpoint.
+
+This is shared lifecycle ownership, not complete Director or Queue 5
+convergence. The two development-inline Director call sites still duplicate
+raw `directing` and terminal project writes instead of consuming the canonical
+Director claim/completion owner. The Director worker must first receive its
+required Step-0 cleanup, after which one shared canonical execution path can be
+used by the worker and both inline callers without duplicating creative-form
+authority. Remaining batch projections, auto-edit rescue/recovery, storyboard
+finalization, Alyzitron and adjacent writers still require site-by-site
+classification and migration. Assist settlement also requires an explicit
+analysis-run terminal-state audit. The durable dispatch publication receipt is
+not a substitute for downstream Director claim and completion fencing, and no
+deployed QStash/IAM proof is claimed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order remains: (1) finish Director lifecycle convergence and the
+remaining universal Queue 5 writers serially; (2) return to the unfinished
+Queue 3-4 media chain, where only those two queues have the founder's current
+permission for parallel execution; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly grants new
+parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4F checkpoint
+
+Commits `b76cb16d1`, `e27f7d4d6`, `d28e83522`, `520e72784`,
+`1b0ab9f8c`, `935c4f7ff`, `4ebfa1c30` and `59337f03b` close the
+bounded analysis-to-Director convergence work left open by Phase 4E. The
+separate `b76cb16d1` commit is the required Step-0 removal of Director-worker
+debug logging before structural work in that large owner.
+
+The signed Director worker and both development-inline callers now execute one
+canonical Director service. ProjectService owns exact analysis-run and
+dispatch claims, terminal completion/failure and bounded progress. The shared
+publication owner uses one evidence-bound QStash deduplication identity,
+records the provider message receipt under revision CAS and preserves provider
+acceptance when the local receipt cannot yet be written. The shared inline
+activation owner records `inline_ready` before execution and retries only a
+bounded revision conflict. Video Analysis resumes an exact
+`directing_queued` run by matching run ID and source asset, while TRIBE resumes
+pending Director publication without rerunning Phase-2 analysis. Retryable
+publication failures return 503 without terminalizing the admitted analysis
+run; stale ownership returns 409.
+
+The final focused closure passed 42/42 tests across publication, direct/inline
+wiring, dispatch lifecycle, deep-analysis lifecycle, canonical Director and
+reference-evidence ordering. The repository-wide 8-GB TypeScript check, full
+quiet ESLint and `git diff --check` passed before push. No live provider call,
+wallet mutation, render, project-content edit, paid-cohort rerun, model
+inference or external spend occurred.
+
+This is exact analysis-to-Director lifecycle convergence, not universal Queue
+5 completion. Video Analysis still publishes the upstream TRIBE message
+directly: it has provider retries but no ProjectService-prepared TRIBE dispatch,
+provider receipt or exact inbound dispatch claim. An initial provider outage
+can therefore still terminalize the run, and provider acceptance followed by a
+local ambiguity lacks a durable resume owner. Remaining batch projections,
+auto-edit rescue/recovery, storyboard finalization, Alyzitron and adjacent
+project writers also remain open. No deployed QStash/IAM proof is claimed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order is: (1) add the run-bound Video-to-TRIBE publication and claim
+owner, then continue remaining Queue 5 writers serially; (2) return to the
+unfinished Queue 3-4 media chain, where only those two queues have the
+founder's current permission for parallel execution; (3) implement Queue 6
+serially; and (4) certify agency verticals serially unless the founder
+explicitly grants new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4G checkpoint
+
+Commits `8c7a55eb5`, `017a4a478`, `b19933b19`, `a06635496` and
+`21e53b3b3` close the bounded run-bound Video-to-TRIBE dispatch gap recorded by
+Phase 4F. The separate `a06635496` commit is the required Step-0 removal of a
+Video-worker development debug warning before structural work in that large
+owner.
+
+ProjectService now prepares one evidence-bound deep-analysis dispatch identity
+for the admitted project, analysis run and source asset. The shared publication
+owner sends the exact TRIBE body under a stable QStash deduplication identity,
+records provider acceptance and message identity with bounded revision CAS, and
+preserves retry ownership when provider publication or local receipt recording
+is ambiguous. The TRIBE worker claims only the matching dispatch identity before
+GPU work; pending, forged, stale and duplicate-active claims cannot mutate the
+project or falsely report completion.
+
+The provider-free route now uses one shared inline Phase-2 owner for both first
+execution and retry. It resumes `analysis_complete`, `analyzing_deep` and
+already-prepared Director states without retranscription, prefers the exact
+source-asset-keyed committed Phase-1 evidence, validates it losslessly, reclaims
+only an expired deep-analysis lease and commits Phase-2 evidence under bounded
+revision CAS. Unexpected infrastructure failures remain retryable instead of
+terminalizing an active run; stale ownership remains a conflict. The normal
+queued TRIBE path and the provider-free inline path still have separate primary
+executors, so this is lifecycle convergence around shared ProjectService state,
+not a claim that their analysis implementations are merged.
+
+The final focused closure passed 40/40 tests across Video/TRIBE wiring, deep
+publication, deep dispatch and lease lifecycle, Director publication/dispatch
+and reference evidence. The repository-wide 8-GB TypeScript check, full quiet
+ESLint and `git diff --check` passed before push. No live provider call, GPU
+analysis, wallet mutation, render, project-content edit, paid-cohort rerun,
+model inference or external spend occurred.
+
+This closes the upstream Video-to-TRIBE publication and local-resume gap only.
+Universal Queue 5 remains open for remaining batch projections,
+auto-edit rescue/recovery, storyboard finalization, Alyzitron and adjacent
+project writers, followed by a fresh owner/consumer inventory proving there are
+no unclassified mutation bypasses. Deployed QStash/IAM behavior and live
+provider redelivery remain unproven and belong to later live vertical evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order is: (1) continue the remaining Queue 5 writers serially,
+beginning with batch/rescue/recovery, storyboard and Alyzitron classification;
+(2) return to the unfinished Queue 3-4 media chain, where only those two queues
+have the founder's current permission for parallel execution; (3) implement
+Queue 6 serially; and (4) certify agency verticals serially unless the founder
+explicitly grants new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4H checkpoint
+
+Commits `27dd95df7`, `f4e55a0ad`, `8f8394d7d`, `37db68b17`,
+`9e1557a81`, `5c63c477c`, `daeecd69b` and `98623705a` close the next
+bounded Queue 5 lifecycle slice. The `f4e55a0ad` and `37db68b17` commits are
+the required Step-0 cleanup commits for the large single-asset and batch route
+owners before their structural changes.
+
+The single-asset provider-free path now advances one admitted analysis run
+through Phase 1 and the canonical Director lifecycle. Its automatic QStash
+publication failure uses the shared run failure owner instead of directly
+projecting a terminal status. The Assist rescue path now records its recovery
+transitions with revision receipts rather than bypassing ProjectService.
+
+The batch path now creates and initializes a project through ProjectService,
+commits final composition and `analysis_complete` under the exact expected
+revision, records a durable Director intent, prepares one dispatch identity and
+passes that identity through both QStash and inline Director execution. A
+signed QStash failure callback must prove the exact durable dispatch token (or
+an explicitly supported legacy message identity) before it can project a
+delivery failure. The post-publication raw project message-ID write was removed,
+eliminating a race in which a newer project revision could be overwritten by
+telemetry arriving after publication.
+
+Focused closure passed 24/24 single-asset route tests and 36/36 combined batch
+route and Director-delivery-failure tests. The repository-wide 8-GB TypeScript
+check passed after the token-bound callback change; focused ESLint checks passed
+after the later route changes. No live provider call, wallet spend, render,
+project-content edit, paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 convergence. The remaining batch route writes
+are deliberately classified into three unfinished ownership groups:
+
+1. coverage/resume and terminal batch-analysis transitions;
+2. Assist charge, settlement, cancellation and ready-to-finalize transitions;
+3. refund and failure-recovery transitions.
+
+The shared Assist settlement and cancellation owner must become
+project-revision-aware before the Assist batch finalizer is migrated; otherwise
+money/status CAS can succeed without invalidating a stale project writer. Raw
+single-asset QStash intake publication, storyboard finalization, Alyzitron and
+the final repository-wide mutation-owner inventory also remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish the three batch lifecycle ownership
+groups and remaining universal Queue 5 writers serially; (2) return to the
+unfinished Queue 3-4 media chain, where those two queues alone may be worked in
+parallel under the founder's current authorization; (3) implement Queue 6
+serially; and (4) certify the agency verticals serially unless the founder gives
+new parallelization approval.
+
+## 2026-09-01 vertical-convergence Phase 4I checkpoint
+
+Commits `b68d8c19b`, `eab07e69e` and `045ca935b` close the bounded Assist
+revision and ready-finalization work left open by Phase 4H. A dependency-free
+project-revision primitive now gives the Assist money owner and ProjectService
+the same exact legacy-revision predicate. Charge admission, registration,
+terminal settlement, post-wallet finalization, explicit uncharged cancellation
+and stale uncharged recovery all advance `projectRevision` under compare-and-set
+instead of changing money/status fields outside the project mutation clock.
+
+The Assist batch ready transition no longer saves a timeline and then performs a
+separate raw `ready_for_chat` project update. It loads the current ProjectService
+revision, proves the exact Assist lane and registered charge, and commits the
+chronological timeline, analysis hydration, degraded-source facts, stale-field
+clears and ready status in one receipt-bearing project write. A concurrent
+`scan_failed` cancellation cannot be overwritten; the route re-reads and enters
+the canonical settlement path instead. Generic metadata clears added to the
+existing save boundary reject protected, duplicate and malformed field names
+before database work.
+
+Focused closure passed 103/103 Assist lifecycle tests before the finalizer slice,
+then 79/79 ProjectService payload and batch-route tests after it. The complete
+8-GB TypeScript check, full repository quiet ESLint and `git diff --check`
+passed before `045ca935b` was pushed. No live provider call, wallet mutation,
+render, project-content edit, paid cohort rerun, model inference or external
+spend occurred.
+
+This is exact Assist money/status and ready-finalization ownership, not universal
+Queue 5 or cross-aggregate convergence. A fresh source inventory still finds
+eight direct project writes in the batch route. They are grouped as:
+
+1. coverage resume and dispatch rollback;
+2. no-usable-media, analysis-deadline, insufficient-credit, script-grounding and
+   exhausted-orchestration terminal transitions;
+3. pre-Director auto-lane refund accounting and adjacent failure recovery.
+
+Those project transitions must move behind a revisioned lifecycle owner. Where
+one user action changes both the project and upload-batch aggregates, the
+implementation must use an explicit transaction or durable claim/compensation
+contract; replacing only the project write would not close the split-brain race.
+Raw single-asset QStash intake publication, storyboard finalization, Alyzitron
+and the final repository-wide mutation-owner inventory remain open after the
+batch groups.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 writers serially;
+(2) return to unfinished Queues 3 and 4, which alone may run in parallel under
+the founder's current authorization; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly authorizes
+additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4J checkpoint
+
+Commits `d23878b88`, `e1ff45336`, `50a5fd886`, `34afd8ce4`, `6cc78053b`,
+`73e21da2d` and `0a10bd8ef` close the batch-route project-lifecycle groups left
+open by Phase 4I. ProjectService now owns the auto-lane coverage, terminal and
+pre-Director refund transitions under exact project revision, upload-batch,
+lane, status and transition identity. Coverage dispatch failure compensates the
+same project receipt and batch transition. A provider-accepted callback with a
+lost batch projection reports that projection as pending instead of falsely
+reporting the project mutation as failed.
+
+Auto-lane refund handling is now an explicit durable sequence:
+
+```text
+exact project refund-pending receipt
+→ idempotent wallet refund by original charge transaction
+→ exact project refund-recorded receipt
+```
+
+The wallet adapter throws when the credit owner returns `success:false`; a
+wallet error leaves the exact pending identity for recovery, and a post-wallet
+project-CAS loss is reported separately as `refund-record-pending`. The raw
+`autoEditRefunded:true` marker and its false-success window no longer exist in
+the batch route.
+
+No-usable-media, analysis-deadline, insufficient-credit, terminal
+script-grounding, exhausted-retry and initial-dispatch failures now commit the
+project first through ProjectService. The media-upload batch is a guarded
+downstream projection carrying the transition ID and project mutation receipt.
+Uncharged Assist failures use the existing no-charge cancellation CAS; charged
+Assist failures remain under the Assist settlement owner. A lost batch CAS is
+returned as `batchProjectionPending:true`; there is no raw project fallback.
+
+The final focused closure passed 52/52 ProjectService lifecycle and batch-route
+tests, including refund identity mismatch, the real `analyzing` refund state,
+auto/Assist insufficient-credit separation, project-before-batch ordering,
+terminal script grounding, exhausted retries, initial QStash failure and a
+deliberately lost terminal batch projection. The 8-GB TypeScript check, full
+repository quiet ESLint and `git diff --check` passed before `0a10bd8ef` was
+pushed. A fresh exact source query finds zero direct
+`COLLECTIONS.PROJECTS).updateOne` calls in the from-batch route.
+
+This is batch-route ownership convergence, not universal Queue 5 convergence.
+The fresh exact repository inventory still finds direct project writers outside
+ProjectService in stuck-project recovery, the explicit audio migration route,
+two storyboard-finalization paths and Alyzitron publication. Raw single-asset
+intake publication and any writers using a different Mongo/Mongoose spelling
+still require the final broader inventory. Each site must be classified as a
+runtime mutation, an explicit migration owner or dead/duplicate authority before
+Queue 5 can close.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish single-asset intake, storyboard,
+Alyzitron, recovery/migration classification and the broad Queue 5 writer
+inventory serially; (2) return to unfinished Queues 3 and 4, which alone may be
+worked in parallel under the founder's current authorization; (3) implement
+Queue 6 serially; and (4) certify the agency verticals serially unless the
+founder explicitly authorizes further parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4K checkpoint
+
+Commits `98d59396c`, `c53eae0de`, `8ff1432d0`, `74453fc57`, `fe8b47837`,
+`bb36b7d2a` and `45dec2561` close the bounded single-asset intake,
+storyboard-finalization and Alyzitron project-publication writers left open by
+Phase 4J. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The single-asset analysis route no longer treats raw QStash acceptance as the
+project lifecycle receipt. ProjectService issues the exact intake-dispatch
+identity, records provider publication or explicit inline readiness under the
+run/source/revision predicate, and the worker rejects a supplied dispatch that
+does not match the project-owned run. Provider acceptance followed by a lost
+local receipt is reported as reconciliation pending; it is not refunded or
+relabelled as provider failure.
+
+Storyboard finalization no longer performs two direct project updates around an
+unfenced editor save. Timeline state, project name/stage, storyboard identity,
+music policy/coverage and edit-direction failure state now commit through one
+expected-revision `saveProjectWithReceipt` call. The storyboard document link
+remains a separate storyboard-owned projection. The preceding Step-0 cleanup
+removed debug-only logging without changing BGM or music-off behavior.
+
+Alyzitron admission now binds a linked analysis before charging to the
+authenticated owner, exact project revision, task predecessor, whole-source
+range, source hash, media kind, storage backend and verified source-access
+basis. Completion may publish the bounded score/findings only to that revision
+through ProjectService. A changed project or substituted source is blocked;
+legacy tasks without a binding and infrastructure failures are recorded as
+`UNVERIFIABLE`, not pass/fail. Provider completion and project projection have
+separate durable states. A completed QStash retry performs provider-free
+reconciliation, and deterministic task/source/revision identity recognizes a
+project record already committed before an interrupted task-receipt write.
+
+Focused proof passed 31/31 single-asset dispatch/worker tests, 16/16 storyboard
+ownership plus BGM/music-off canaries, and 29/29 Alyzitron owner, media-source,
+brand/intent and provider-cost tests. Targeted quiet ESLint, `git diff --check`
+and the 8-GB TypeScript check passed for the corresponding phases. No live
+provider call, paid cohort rerun, model inference, render, wallet mutation or
+external spend occurred. Full-repository quiet ESLint remains required at the
+next aggregate closure gate and is not claimed by this checkpoint.
+
+This is not universal Queue 5 convergence. A fresh exact source inventory now
+finds two remaining raw project writers outside ProjectService:
+
+1. stale non-Assist auto-edit recovery;
+2. the explicit one-time audio migration route.
+
+The recovery writer must terminalize only an exact current run/Director owner;
+legacy states without a durable owner must remain unmodified and be reported as
+unverifiable. The migration route must be explicitly authorized, owner-scoped,
+revision-fenced and idempotent; it may not remain an unauthenticated raw update.
+The broader inventory also finds legacy unfenced metadata-helper callers in
+UploaderX project linkage/status refresh, Clickatron commit, Editron quality
+review and pipeline-video status refresh. Different Mongo/Mongoose spellings,
+re-exports, tests and mocks still require the final broad classification before
+Queue 5 can close.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) close recovery, migration, legacy metadata
+callers and the broad Queue 5 inventory serially; (2) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (3) implement Queue 6 serially; and (4) certify the
+agency verticals serially unless the founder explicitly authorizes further
+parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4L checkpoint
+
+Commits `f3d8d12e1`, `3f803d8c1`, `34d5c2b3f`, `78f692af4`,
+`78ceaacc5`, `c0305fa8f` and `c0e1284b0` close the recovery, migration
+and known legacy metadata-helper callers identified by Phase 4K. All listed
+commits are pushed on `infrastructure-improvs-+Editron`.
+
+Stale auto-edit recovery now acts only on an exact analysis run, Director run
+token or queued delivery identity. Tokenless legacy records are reported as
+unverifiable and left unchanged. The one-time audio-overlay migration now
+requires its dedicated migration secret, reads projects through owner scope,
+uses exact ProjectService revisions, processes bounded batches and is
+idempotent; its former raw project update is gone.
+
+Manual quality review now loads one owner-scoped project snapshot, builds the
+existing persisted review form and commits it through one exact
+`saveProjectWithReceipt` call. Clickatron stores a task-side pending binding
+before project publication, binds thumbnail source identity and project
+revision, records a bounded replay receipt, preserves later pipeline stages and
+separates blocked/unverifiable projection from thumbnail selection. UploaderX
+validates linked-project ownership before object upload, binds object/content
+identity and byte/type evidence, stores pending and terminal projection state,
+advances only through ProjectService and never regresses a completed project.
+
+Pipeline-video batch completion no longer calls the ownerless status-refresh
+helper. Exact terminal counters now publish a bounded ProjectService receipt;
+failed, partial and duplicate-counter-overrun batches set
+`needs-attention`, while clean completion does not erase an existing attention
+state. The receipt's observed revision is the direct predecessor for signed
+Director-dispatch preparation. Contradictory or malformed terminal evidence
+blocks dispatch instead of being labelled complete. After all active callers
+were removed, the separate `c0e1284b0` Step-0 cleanup deleted
+`updateProjectMetadata`, `deriveProjectStatus` and `refreshProjectStatus` from
+ProjectService so the project-ID-only bypass cannot be reintroduced by a new
+caller.
+
+Focused proof passed 32 stale-recovery tests, 54 migration tests, 23 quality
+review tests, 10 Clickatron tests, 10 UploaderX tests and 12 pipeline-terminal
+and Director-dispatch tests. The final aggregate legacy-owner check passed
+28/28. Targeted quiet ESLint, `git diff --check` and repeated full 8-GB
+TypeScript checks passed. Full-repository quiet ESLint remains required at the
+aggregate Queue 5 closure and is not claimed here. No live provider call,
+storage spend, wallet mutation, render, paid cohort rerun or model inference
+occurred.
+
+This is closure of the exact raw-writer and known legacy-helper inventory from
+Phase 4K, not universal Queue 5 convergence. The remaining Queue 5 work is a
+fresh broad classification of alternate Mongo/Mongoose write spellings,
+repository/service re-exports, tests and mocks, plus any authoritative writer
+families that inventory exposes. Each finding must be proved canonical,
+migrated behind an exact owner or removed. Full-repository quiet ESLint and the
+aggregate mutation-owner suite must pass before Queue 5 can be considered for
+closure.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) complete the broad Queue 5 writer inventory and
+close every verified authoritative finding serially; (2) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (3) implement Queue 6 serially; and (4) certify the
+agency verticals serially unless the founder explicitly authorizes further
+parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4M checkpoint
+
+Commits `d32b391df`, `efe9e617a`, `8a9f9347c`, `3752c0b58` and
+`e50566ca7` close the broad raw-writer inventory and shared lifecycle-owner
+slice left open by Phase 4L. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The shared project lifecycle state machine no longer performs a raw
+`findOneAndUpdate` against the project collection. It loads the authenticated
+ProjectService mutation snapshot, validates bounded history and error evidence,
+and commits through the exact project revision with a writer receipt. A
+same-state replay is explicitly `ALREADY_CURRENT` and does not duplicate
+history or events. Concurrent revision loss, malformed history and invalid
+transitions remain distinct non-success results.
+
+Every live caller now consumes that result. Render startup preserves a provider
+render that already started but returns `recovery_required` instead of durable
+tracking when the lifecycle CAS is rejected. Verified render completion releases
+its effects lease and blocks link, brand-event and effects-complete writes until
+status reconciliation succeeds. Storyboard finalization and Director completion
+preserve their already-committed primary work, suppress dependent completion
+events, and surface explicit recovery debt rather than silently treating a
+rejected projection as committed.
+
+The permanent mutation-owner inventory gate recursively scans Editron,
+pipeline, shared and adjacent runtime namespaces. It detects direct collection
+writes, local collection aliases, injected `collections.projects` aliases and
+Mongoose-style project-model writes. Only ProjectService, the separately
+revision-certified Assist money/status owner and explicit battle-fixture cleanup
+are classified writers. Removed `updateProjectMetadata`, `deriveProjectStatus`
+and `refreshProjectStatus` helpers are also forbidden from runtime source. A
+fresh source scan finds no other live Editron raw project writer; remaining
+literal project collection uses outside those owners are reads.
+
+Focused verification passed 51 lifecycle/brand/UploaderX tests, 104 lifecycle
+and render-start tests, 22 progress/completion-effects tests, 24
+finalize/Director tests and the two broad inventory gates. Targeted quiet ESLint,
+`git diff --check` and repeated full 8-GB TypeScript checks passed for these
+phases. Full-repository quiet ESLint remains required at the aggregate Queue 5
+closure and is not claimed here. No provider call, render, storage spend, wallet
+mutation, paid-cohort rerun or model inference occurred.
+
+This closes the broad direct-writer/bypass inventory, not universal Queue 5
+enforcement. ProjectService contains many authoritative writer families whose
+prerequisites are operation-specific. The remaining Queue 5 work is to classify
+each real writer and prove that every applicable evidence, project/source
+revision, coordinate range, lock, rights, predecessor and invalidation rule is
+checked before dispatch and independently at the writer CAS. Metadata-only,
+lease-only and fixture operations must declare non-applicable dimensions rather
+than receiving fabricated media evidence. The timeline-cut pilot and selected
+media/relink owners do not by themselves prove that universal surface.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) inventory and enforce the applicable universal
+Queue 5 prerequisite envelope across remaining ProjectService writer families
+serially; (2) return to unfinished Queues 3 and 4, which alone may be worked in
+parallel under the founder's current authorization; (3) implement Queue 6
+serially; and (4) certify agency verticals serially unless the founder explicitly
+authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phases 4N–4O checkpoint
+
+Commits `76cf23369`, `1ac346485` and `cf5a1997f` close the stale-caller
+revision and range-lock slice for direct overlay addition. All listed commits
+are pushed on `infrastructure-improvs-+Editron`.
+
+ProjectService now exposes `addOverlayAtRevisionV1` as the only live direct
+overlay-add owner. It requires the caller's exact project revision and actor,
+requires a positive exactly representable project-frame range and valid overlay
+identity, rejects unsupported project FPS, rejects an active Director mutation
+lease, rejects overlap with an active timeline range lock, rechecks overlay
+identity and project revision in the Mongo CAS, and returns both the project
+mutation receipt and exact range-change receipt. A deliberately stale caller
+and an overlapping lock both stop before mutation.
+
+Every live chat and script-auto-edit add caller now supplies a revision derived
+from the same project snapshot that produced the overlay form. Long-running
+HTML, caption, motion-graphic and SFX generation therefore cannot refresh to a
+new project revision after producing output. Sequential auto-edit clip adds
+advance from the preceding writer receipt. The former `addOverlay` method and
+all executable callers/mocks were removed; historical research/catalog strings
+are not runtime owners.
+
+Focused verification passed 148/148 ProjectService, chat mechanical, provider
+asset, speech/caption, Phase-3G, chat form/intent and stale-recovery tests. The
+targeted quiet ESLint checks, repeated 8-GB TypeScript checks and
+`git diff --check` passed. Full-repository quiet ESLint remains required at the
+aggregate Queue 5 closure and is not claimed here. No provider call, render,
+storage spend, wallet mutation, paid-cohort rerun or model inference occurred.
+
+This is not overlay-mutation or universal Queue 5 closure. Direct overlay
+update/delete and complete-family replacement still infer or partially infer
+current owner state and require their caller-bound command migrations.
+`addOverlayIfAbsent` remains a separate specialized writer requiring its own
+lock/rights/invalidation classification. Media rights/source evidence,
+predecessor proof and durable derivative invalidation are not yet universal for
+direct overlay addition. Multi-write split and transition operations also
+remain non-transactional until their dedicated composite owners land.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. The next
+serial Queue 5 slice is caller-bound overlay update/delete, followed by
+complete-family replacement and the remaining specialized ProjectService
+writers. Only after Queue 5's applicable prerequisites close does work return
+to Queues 3 and 4 under the existing parallelization authorization.
+
+## 2026-09-02 vertical-convergence Phase 4P checkpoint
+
+Commits `1bdf16eed`, `6b842c9f3`, `2730d1cab`, `8eb51d96b`,
+`76b1f2139`, `8b17cf6dd`, `f3d566fe6`, `5328255d5` and `20df97d01`
+close the caller-bound direct overlay update/delete slice and its adjacent
+auto-edit and HTML-scene writers. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+`updateOverlayAtRevisionV1` and `deleteOverlayAtRevisionV1` now require the
+caller's exact project revision, explicit actor and exact stable overlay
+identity. ProjectService rechecks supported FPS, exact positive before/after
+timeline ranges, the active Director lease, overlapping range locks, project
+revision and overlay identity before and inside the Mongo compare-and-swap.
+Every live agent, visual-tool, audio-tool and HTML-scene update/delete caller
+now binds the revision of the project/scene state that produced its proposal.
+Sequential mutations advance only from writer-issued receipts. The obsolete
+inferred-current `updateOverlay` and `deleteOverlay` methods and every compiled
+caller were removed, so a new runtime caller cannot silently reacquire a newer
+revision after doing work against stale state.
+
+The script auto-edit replacement is also no longer a delete/add/duration
+multi-write chain. `applyAutoEditAssemblyV1` validates one exact source video,
+source handles, stable child identities, non-overlap, project duration, active
+lease/range locks and the caller's revision, then replaces the source with its
+ordered cuts, ripples later unaffected overlays and advances project duration
+under one ProjectService CAS and one range receipt. The HTML-scene edit route
+separately verifies the persisted scene and current HTML before its provider
+call and commits only through the revision-bound overlay owner; stale body,
+scene or project state is rejected rather than refreshed behind the caller.
+
+The historical Stage 2.5 conflict proof now identifies the direct edit actor as
+`USER` and supplies its observed revision. Its disjoint safe-rebase, overlapping
+block, range-lock, stale-input and lost-final-CAS scenarios remain intact. CAP-2
+current truth is reissued as V14 in
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v14.ts`.
+V14 chains immutable V13 manifest
+`ff5803ede99bb3b3770b79ce1f1f3151dfe3ee58a62611f06195194125beb61a`,
+binds landed commit `5328255d51d4e1687821836bc73015e2e19428f5`, the inherited 351-path
+issuance snapshot
+`0f71cbaacb28d72f42246d3db615eb117b0a2e58750ffca36c3bedbf8c24be45`
+and the 16-path live Queue 5 overlay-writer snapshot
+`64859075041a6bc092e6e3d2a978667646ea20066f9a957132d7d7784463df8b`.
+V5, V11 and V13 remain immutable historical records; their old live-source
+assertions are not rewritten to bless current code.
+
+Focused verification passed the 77-test ProjectService/conflict closure, the
+27-test V13/V14 and owner-reconciliation closure, the earlier 32-test
+visual/audio caller closure, 60-test atomic auto-edit closure and 3-test
+HTML-scene route closure. Repeated 8-GB repository TypeScript checks, targeted
+quiet ESLint and `git diff --check` passed before the corresponding pushes.
+Full-repository quiet ESLint remains required at the aggregate Queue 5 closure
+and is not claimed here. No live provider call, render, storage spend, wallet
+mutation, project-content edit, paid cohort rerun or model inference occurred.
+
+This is direct overlay update/delete and selected adjacent-writer closure, not
+universal Queue 5 enforcement. Direct overlay receipts still declare
+`UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`. Complete-family replacement,
+`addOverlayIfAbsent`, whole-state save/autosave/checkpoint paths and remaining
+specialized ProjectService writers still require operation-by-operation
+classification and enforcement of every applicable evidence, project/source
+revision, coordinate range, lease/lock, rights, predecessor and invalidation
+prerequisite. Metadata-only and lease-only owners must explicitly declare
+non-applicable media dimensions rather than receive fabricated evidence.
+Multi-write transition/split families still need dedicated composite owners.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) classify and close complete-family,
+`addOverlayIfAbsent`, whole-state and remaining specialized ProjectService
+writers serially; (2) run the aggregate mutation-owner suite plus full
+repository quiet ESLint; (3) return to unfinished Queues 3 and 4, which alone
+may be worked in parallel under the founder's current authorization; (4)
+implement Queue 6 serially; and (5) certify agency verticals serially unless
+the founder explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4Q checkpoint
+
+Commits `782b8a245`, `2ccb0645c`, `821c3528e`, `3d515d1a9`,
+`c181a7c5b`, `05f22bade`, `f7aae685a`, `5b9b89eb2` and `e1db59f6f`
+close the known generic complete-family replacement bypass identified by Phase
+4P. All listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+Caption-family replacement now has one exact-revision ProjectService owner.
+It preserves every stored non-caption overlay, validates exact caption ranges,
+identity, supported FPS, Director lease and overlapping timeline locks, and
+emits one mutation receipt plus one range-change receipt. Add, refresh and
+batch caption callers bind the revision of the project state that produced the
+caption proposal and no longer refresh to a newer revision before writing.
+
+Background-music replacement now has a separate exact-revision owner. It
+preserves every stored non-BGM overlay, validates the canonical coverage plan,
+one exact asset family, matching music-role rights, embedded versus
+reference-only usage, assignment/chat evidence, Director lease and range locks.
+Background-music assignment and chat replacement both use that owner. A BGM
+receipt must explicitly declare zero beat-realigned cuts; music replacement can
+no longer smuggle picture-cut movement into the same family write.
+
+Beat-synchronized cutting is now a distinct operation. The pure
+`resolveBeatSyncMutationV1` form owner applies the existing CKG-bound snap
+window, speech-boundary priority, source-handle checks, minimum clip length,
+transition linkage and four-lock run limit. ProjectService independently binds
+the selected sound overlay to current owned media, durable music rights and
+current stored/cached beat evidence, resolves visual source durations, reruns
+that form, checks the exact project revision, Director lease and affected range
+locks, and commits the linked clips/transitions under one CAS. The chat caller
+supplies intent and evidence selectors only; it cannot submit an authored
+overlay array. Unsafe or handle-incomplete proposals return a structured no-op,
+and stale revisions return a conflict without mutation.
+
+A fresh live-code search found zero callers of
+`replaceOverlayFamilyAtomic`. Commit `e1db59f6f` removed that generic API and
+its obsolete receipt tests. A permanent source assertion confirms it is absent
+from ProjectService. Mentions in V11 and dated design documents remain immutable
+historical evidence and are not current runtime ownership claims.
+
+Focused proof passed the caption owner/caller suites, 25 background-music
+assignment/owner tests, 14 chat/owner BGM tests, eight chat/owner beat-sync
+tests, and the final 78-test generated-composition/save/caption/BGM/beat
+regression closure. Targeted quiet ESLint, repeated 8-GB TypeScript checks and
+`git diff --check` passed before the corresponding pushes. Full-repository quiet
+ESLint and the aggregate Queue 5 owner suite remain required and are not claimed
+by this checkpoint. No provider call, render, storage spend, wallet mutation,
+project-content edit, paid cohort rerun or model inference occurred.
+
+This closes the known generic complete-family bypass, not universal Queue 5
+enforcement. Caption, BGM and beat receipts still declare downstream artifacts
+unmaterialized; durable derivative invalidation remains open. `addOverlayIfAbsent`,
+whole-state save/autosave/checkpoint paths and remaining specialized
+ProjectService writers still require operation-specific classification and
+enforcement of applicable evidence, project/source revision, coordinate range,
+lease/lock, rights, predecessor and invalidation prerequisites. Metadata-only
+and lease-only owners must declare non-applicable dimensions rather than receive
+fabricated media evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) classify and close `addOverlayIfAbsent` serially;
+(2) classify and close whole-state save/autosave/checkpoint and remaining
+specialized ProjectService writers serially; (3) run the aggregate mutation-owner
+suite and full repository quiet ESLint; (4) return to unfinished Queues 3 and 4,
+which alone may be worked in parallel under the founder's current authorization;
+(5) implement Queue 6 serially; and (6) certify agency verticals serially unless
+the founder explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4R checkpoint
+
+Commit `af0fea753` closes the live generic `addOverlayIfAbsent` bypass. The
+commit is pushed on `infrastructure-improvs-+Editron`.
+
+The sole live caller was the uploaded-audio assignment flow, so the generic
+writer was removed rather than widened. `attachUploadedAudioAtRevisionV1` is
+now the dedicated ProjectService mutation owner. It requires the caller's exact
+project revision and explicit actor, a supported project FPS, one exact positive
+in-project frame range, the semantic audio lane, sufficient source handles, a
+current project-bound derivative asset, matching assignment and rights receipts,
+matching server-measured SFX evidence when applicable, no active Director lease,
+and no overlapping timeline range lock. The final Mongo write rechecks project
+revision and overlay identity.
+
+An identical already-persisted assignment returns `ALREADY_ATTACHED` without a
+write or manufactured receipt. A stale project with no identical material is a
+revision conflict. A same-ID different placement/material is a hard collision.
+The former result that conflated stale state with replay is gone. The former
+30-FPS fallback and zero-duration `UNKNOWN_LEGACY_OVERLAY_TIMING` insertion are
+also gone. Caller-side atomic receipt stamping was removed; ProjectService now
+validates evidence, stamps the overlay and emits the project/range receipts.
+
+Focused verification passed 83/83 uploaded-audio assignment and ProjectService
+tests, including exact application, identical replay, stale rejection,
+insufficient-source-handle rejection and active-range-lock rejection. The
+uploaded-SFX render canary's persistence double was migrated to the explicit
+owner result contract. Targeted quiet ESLint, a full 8-GB TypeScript check,
+`git diff --check` and a live-code search proving the old method has no runtime
+definition or caller passed before push. Dated plan, census and research
+mentions remain historical evidence and are not current ownership claims. No
+provider call, render, storage spend, wallet mutation, project-content edit,
+paid cohort rerun or model inference occurred.
+
+This is uploaded-audio attachment closure, not universal Queue 5 closure.
+Direct receipts still declare downstream artifacts unmaterialized; durable
+derivative invalidation remains open. Whole-state save/autosave/checkpoint and
+the remaining specialized ProjectService writers still require
+operation-specific classification and enforcement. Full-repository quiet
+ESLint and the aggregate Queue 5 owner suite also remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) classify and close whole-state
+save/autosave/checkpoint and remaining specialized ProjectService writers
+serially; (2) run the aggregate mutation-owner suite and full repository quiet
+ESLint; (3) return to unfinished Queues 3 and 4, which alone may be worked in
+parallel under the founder's current authorization; (4) implement Queue 6
+serially; and (5) certify agency verticals serially unless the founder
+explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4S checkpoint
+
+Commits `5b1a151cb` and `fe38c17ae` close the first whole-state manual-save and
+autosave safety slice plus the two live creation/import callers that previously
+omitted the writer revision. Both commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+ProjectService no longer exposes the no-receipt `saveProject` wrapper. Manual
+save now requires an options object and autosave statically requires the
+caller's exact ProjectService revision; the common owner also rejects a missing
+revision at runtime before database access. It no longer silently substitutes
+30 FPS or 1920x1080. A whole-state proposal must provide a bounded overlay
+array, supported aspect ratio, valid positive dimensions and an exact supported
+project FPS/duration derived from the payload or durable project. It rejects
+duplicate/malformed overlay identities, non-positive or out-of-project ranges,
+an active Director lease not owned by the caller, and any active timeline range
+lock. The final owner-and-revision Mongo compare-and-set increments the project
+revision and appends one exact `REPLACE_EDITOR_STATE` timeline-range receipt.
+
+The from-asset intake and script-import routes now read an exact ProjectService
+revision after choosing/creating their target project and pass that tuple to the
+whole-state writer. This is required for reused script-import projects as well
+as new projects: a concurrent mutation between target selection and save now
+loses the final CAS instead of being overwritten. Route tests bind the same
+opaque revision tuple into the writer call.
+
+Focused verification passed 94/94 ProjectService, save-payload, chat-mechanical,
+generated-composition and proxy/master tests plus 16/16 from-asset and
+script-import route tests. Targeted quiet ESLint, repeated full 8-GB TypeScript
+checks and `git diff --check` passed before push. Full-repository quiet ESLint
+and the aggregate Queue 5 owner suite remain required and are not claimed here.
+No provider call, render, storage spend, wallet mutation, project-content edit,
+paid-cohort rerun or model inference occurred.
+
+This is not whole-state or universal Queue 5 closure. Server-origin whole-state
+callers still derive actor kind from transport authority rather than supplying
+explicit user/agent/system provenance. Media-bearing whole-state replacement
+still needs operation-specific source, rights, predecessor and durable
+derivative-invalidation enforcement or migration to narrower owners. Checkpoint
+capture/restore remains a separate owner family: capture must stop accepting an
+observed post-write revision in place of a writer-issued receipt, and restore
+must receive the applicable lease/range/evidence/invalidation enforcement.
+Remaining specialized ProjectService writers also require classification. The
+public manual-save revision type remains temporarily runtime-mandatory but
+type-optional until the remaining negative fixtures/callers are migrated; this
+must be made statically mandatory before aggregate Queue 5 closure.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) finish whole-state actor/source/rights and
+invalidation classification; (2) close checkpoint capture/restore; (3) finish
+remaining specialized ProjectService writers serially; (4) run the aggregate
+mutation-owner suite and full repository quiet ESLint; (5) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (6) implement Queue 6 serially; and (7) certify agency
+verticals serially unless the founder explicitly authorizes additional
+parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4T checkpoint
+
+Commits `e4d854989`, `d8037428f`, `22019b2c8`, `306ef5bfe`,
+`70e00deae`, `8babc5489`, `cdddc25fd`, `74a3d298c`, `d031af487`,
+`143e79b17`, `ce1f759a1`, `b120370a4` and `319947e02` close the
+revision/provenance/actor portion of the whole-state checkpoint family. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+Checkpoint capture now has one discriminated provenance contract. A
+post-mutation `after-llm` checkpoint requires the exact writer-issued
+`ProjectMutationReceiptV1` and forbids a separately observed revision. An
+`initial`, `before-llm` or `user-edit` checkpoint requires the exact
+`ProjectRevisionV1` paired with the captured state and forbids a writer receipt.
+The service validates this before project or checkpoint storage access, reloads
+the authoritative ProjectService snapshot, and rejects either a revision or
+state mismatch. The durable editorial-intent and reference-style job owners now
+carry the revision embedded in the project document they captured; no guessed
+or subsequently observed revision is accepted.
+
+Checkpoint restore now requires the caller to name the project, carry the exact
+expected revision and declare an explicit `USER`, `AGENT` or `SYSTEM` actor.
+Automatic rollback is `SYSTEM`, chat undo is `AGENT`, and manual restore is
+`USER`. The former unknown-legacy actor fallback is removed. Public manual
+capture is restricted to `initial` and `user-edit`, requires the caller-bound
+revision, and cannot impersonate the internal `before-llm`/`after-llm`
+transaction phases.
+
+The battle-fixture seed path now creates its pre-edit checkpoint from a real
+ProjectService mutation snapshot, performs the fixture mutation through the
+receipt-bearing ProjectService writer, and binds the post-edit checkpoint to
+that writer receipt. The obsolete duplicate overlay-only checkpoint transaction
+owner and the unsafe browser debug checkpoint utilities were removed instead of
+being migrated as shadow authorities.
+
+The final focused closure passed 102/102 checkpoint, battle, dubbing,
+editorial-intent and reference-style tests. Repeated full 8-GB TypeScript,
+targeted quiet ESLint and `git diff --check` passed before push. No provider
+call, render, storage spend, wallet mutation, paid-cohort rerun or model
+inference occurred.
+
+This is not checkpoint-family or universal Queue 5 closure. Revision and actor
+provenance are now enforced, but each restore/capture use still needs its
+operation-specific classification for source evidence, rights, coordinate
+ranges, locks/leases, predecessors and durable derivative invalidation.
+Media-bearing whole-state replacement has the same open classification. The
+rollback-revision API is runtime-mandatory but its writer receipt is still
+type-optional and must become statically mandatory after the remaining caller
+audit. Remaining specialized ProjectService writers also require
+operation-by-operation enforcement. Full-repository quiet ESLint and the
+aggregate Queue 5 owner suite remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) close whole-state and checkpoint
+source/rights/range/lock/predecessor/invalidation classification; (2) finish the
+remaining specialized ProjectService writers serially; (3) run the aggregate
+mutation-owner suite and full-repository quiet ESLint; (4) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (5) implement Queue 6 serially; and (6) certify agency
+verticals serially unless the founder explicitly authorizes additional
+parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4U checkpoint
+
+Commits `943d7f3e3`, `5d259593e`, `1d77c2770`, `96f576b3a`,
+`e3e37eb27`, `2eaf28d3d`, `a0084baee` and `2a4e156c0` close the
+remaining checkpoint rollback-receipt replay, generic duration-writer and
+current mutation-actor slices left open by Phase 4T. All listed commits are
+pushed on `infrastructure-improvs-+Editron`.
+
+Rollback can no longer reuse one writer receipt to authorize multiple restore
+attempts. The checkpoint owner binds the receipt to its exact project,
+operation and restored revision, persists replay state, and rejects a replay or
+wrong-scope receipt before project mutation. The corresponding tests require a
+writer-issued receipt rather than a caller-observed revision. The prior
+documentation wording that implied weaker provenance was corrected instead of
+being treated as current truth.
+
+The generic duration-update surface was removed. Duration changes now remain
+with their operation-specific ProjectService writers rather than a helper that
+could bypass the applicable revision, timeline and evidence contract.
+
+Current ProjectService mutation commands, active range locks, checkpoint
+restore inputs and current receipt builders now require explicit `USER`,
+`AGENT` or `SYSTEM` authority. `UNKNOWN_LEGACY_CALLER` remains readable only on
+historical receipts and cannot authorize a current mutation. CAP-2 current
+truth V15 and V16 preserve the preceding receipts while binding the rollback,
+duration and actor-provenance source slices. V16 binds landed commit
+`a0084baee93273a1e1a2b5b0f149870c7182ba03`, the 351-path issuance
+snapshot `6a29ab8986e27f97f123bf945cfbf615abcfd8d9cde09220156d0d639d848ce4`,
+the three-path actor snapshot
+`813f94b4384dffed7d21d14e3644fec2b4212c106e2738a3b3083ea8d2e6a4c1`
+and manifest
+`0f38ac5574486fbc153dae08410434846d7cbbf90c8ac09822b996cd13ece433`.
+V16 is now an immutable historical receipt whose live-source assertion
+correctly reports stale after Phase 4V.
+
+This closes actor and rollback provenance for the covered checkpoint/current
+command paths, not universal Queue 5 prerequisites. Source identity, rights,
+predecessors and durable derivative invalidation remained open at this
+checkpoint, as did remaining specialized ProjectService writer
+classification. No provider call, render, storage spend, wallet mutation,
+project-content edit, paid-cohort rerun or model inference occurred.
+
+Queue 5 remained `ACTIVE_PARTIAL`; Queues 3 and 4 remained `ACTIVE_PARTIAL`;
+Stage 2.5 remained `MODIFY`; Stage 3 remained `BLOCKED_NOT_AUTHORIZED`.
+
+## 2026-09-02 vertical-convergence Phase 4V checkpoint
+
+Commits `f9a3e4e76`, `9d1d338b7`, `3fc0cd4d0` and `d4fe72d1e`
+close the durable whole-project render-invalidation admission, render-job fence
+and whole-state/checkpoint commit-link slice. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The project-snapshot invalidation owner is deliberately separate from the
+existing single-overlay artifact invalidation owner. It issues a hashed exact
+before/after revision receipt for both `RENDERED_PREVIEW` and
+`DELIVERY_PROOF`, creates an inert `AWAITING_PROJECT_COMMIT` outbox, activates
+only from the exact link committed in project history, abandons an uncommitted
+record after its bounded activation window, and advances partial or complete
+materialization through an outbox compare-and-set. A receipt or link must
+advance exactly one project revision.
+
+The render-job schema now stores that exact project-snapshot invalidation link
+only on a non-active job carrying the matching pre-change project-snapshot
+binding and pending cleanup. The materializer scans the full active
+owner/project render domain, including nonterminal legacy jobs without an
+artifact-state marker. It fences only exact pre-change whole-project bindings,
+keeps terminal jobs as `HISTORY_ONLY`, marks nonterminal jobs `STALE`, preserves
+another revision, recognizes an exact CAS race replay, and refuses to report a
+derivative class resolved when an active legacy, malformed, single-overlay or
+lost-CAS row remains unresolved. This is conservative shared downstream
+plumbing, not convergence of the overlay and project-snapshot invalidation
+owners.
+
+Manual save, autosave and checkpoint restore now pre-enqueue the inert outbox
+after validation and lock checks but before the project compare-and-set. A
+failed enqueue aborts with zero project mutation. A losing project CAS leaves
+only an inert record that cannot activate without a committed link and can be
+abandoned. A successful project CAS appends the exact invalidation identity to
+the same timeline receipt that advances the project revision. The protected
+proxy source pins survive the whole-state path unchanged.
+
+Focused verification passed the 37-test render materializer/contract closure,
+the 128-test ProjectService save/checkpoint/proxy regression closure, 35
+adjacent ProjectService/conflict tests and the 17-test V16/V17 audit chain.
+Targeted quiet ESLint, repeated full 8-GB TypeScript checks and
+`git diff --check` passed before the corresponding pushes. No provider call,
+render, storage spend, wallet mutation, project-content edit, paid-cohort rerun
+or model inference occurred.
+
+CAP-2 current truth V17 chains immutable V16 and binds landed commit
+`3fc0cd4d06d11954bba97ab632b309c82b2f1516`, the 351-path issuance
+snapshot `14fbd283f631d96822b7084a7c5a42a6691214b5948309f5b76c3fb3b0674521`,
+the nine-path invalidation snapshot
+`f33482feec7195611afd8af143f8202a3694a6a43b9dcc38caed895f08af796f`
+and manifest
+`83e24664e75599440c95068e4831d77ab9d30a1aab8ff2f3dd440e741069570d`.
+It explicitly grants no catalog promotion, runtime planner authority, Stage
+2.5 `GO` or Stage 3 authorization.
+
+This closes durable invalidation admission and commit binding for whole-state
+save/autosave/checkpoint plus exact render-job fencing; it does not close the
+full materialization/recovery loop or universal Queue 5. The remaining Queue 5
+work is now:
+
+1. Implement the worker that reads the committed timeline link, activates the
+   outbox, fences exact render jobs, persists partial progress and reaches
+   `MATERIALIZED` only when both derivative classes are resolved.
+2. Complete cleanup retention, retry/recovery and legacy-safe migration for
+   active unbound render jobs; prove the real Atlas/R2 lifecycle rather than
+   only local collection contracts.
+3. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations. Their revision, actor,
+   timebase, range, Director lease, timeline-lock and invalidation admission
+   checks are now present and must not be reopened.
+4. Add durable invalidation and applicable prerequisite classification to the
+   remaining direct and specialized ProjectService writer families. Metadata-
+   only and lease-only writers must explicitly mark media dimensions
+   non-applicable rather than fabricate evidence.
+5. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 closed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the five Queue 5 items above serially;
+(2) return to unfinished Queues 3 and 4, which alone may be worked in parallel
+under the founder's authorization; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly authorizes
+additional parallel execution. Human-only review remains deferred to the end
+of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4W checkpoint
+
+Commits `5705d5893`, `31cbca2db`, `4825afda4`, `387d02acb`,
+`8c46c193a`, `9dbc9661b` and `03747e6b1` continue the Phase 4V
+project-snapshot invalidation chain through scheduled materialization, cleanup
+retention/recovery and explicit standard-render lifecycle migration. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+The authenticated invalidation cron now reads the exact ProjectService commit
+link, activates only that receipt, fences matching project-snapshot renders
+and persists partial or complete derivative-class progress. Standard render
+cleanup is a separate transaction-required owner. It preserves completed
+history until the job retention deadline, immediately hands stale provider
+output to the existing leased cleanup consumer, closes proven
+`NOT_ATTEMPTED` rows without inventing a provider deletion, keeps ambiguous
+provider outcomes unresolved, and leaves chapter parents with the chapter
+cleanup owner. A second bounded pass selects only actionable handoffs or
+completed deletion receipts, so future-retained artifacts and ambiguous
+provider outcomes cannot starve the queue. The cron executes invalidation
+before cleanup; shared plumbing is not described as one cross-collection
+transaction.
+
+Pre-lifecycle standard render migration is now explicit and non-inferential.
+A row is promoted to `ACTIVE` only when its complete project-snapshot binding,
+delivery manifest, authenticated requester tuple and live ProjectService
+revision satisfy the existing current-render validator. Genuinely unbound,
+malformed-contract and stale-project rows receive canonical hashed blocked
+assessments and remain non-authoritative. Partial lifecycle state and a lost
+compare-and-set fail loudly. A bounded protected hourly sweep and matching
+candidate index are registered. This is safe classification, not fabricated
+reconstruction or silent retirement of unbound provider work.
+
+Focused closure passed the 26-test cleanup/schema set, the 17-test scheduled
+cleanup recovery set, the 30-test migration/current-render set and the 10-test
+migration runtime set. Targeted quiet ESLint, repeated full 8-GB TypeScript
+checks and `git diff --check` passed before the pushes. No provider render,
+provider deletion, wallet mutation, project-content edit, paid-cohort rerun or
+model inference occurred in this checkpoint.
+
+This closes the local worker, retention scheduling, cleanup handoff/retry
+plumbing and migration-classification implementation. It does not establish a
+deployed cron/index, real Atlas transaction, private R2 object lifecycle,
+Remotion/S3 deletion or safe retirement/reconstruction for any genuine
+unbound row. Those require exact temporary live fixtures or source-backed
+operator evidence; no customer row may be inferred or silently promoted.
+
+The remaining Queue 5 order is now:
+
+1. Run and preserve exact live Atlas/private-R2 lifecycle evidence, verify
+   deployed indexes/cron bindings and either reconstruct or safely retire any
+   genuinely unbound render only from source-backed evidence. Live provider
+   deletion remains separately required for the provider cleanup claim.
+2. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations without reopening their
+   closed revision, actor, timebase, range, lock or invalidation checks.
+3. Classify durable invalidation and applicable prerequisites for every
+   remaining direct and specialized ProjectService writer; metadata-only and
+   lease-only owners must explicitly record non-applicability.
+4. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 closed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live closure,
+successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the four Queue 5 items above serially;
+(2) return to unfinished Queues 3 and 4, which alone may be worked in parallel
+under the founder's authorization; (3) implement Queue 6 serially; and (4)
+certify agency verticals serially unless the founder explicitly authorizes
+additional parallel execution. Human-only review remains deferred to the end
+of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4X live lifecycle checkpoint
+
+Commit `3e3fd4620ea014f14cf3ec7e486c6835e29caab5` adds the
+source-bound live lifecycle harness. The committed harness was executed once
+against the configured production-like Atlas/private-R2 bindings. Its
+sanitized immutable result is
+`docs/editron/open-ended-editing/stage25-project-render-invalidation-atlas-r2-live-proof-v1-receipt.json`
+with receipt hash
+`99bb54aad9defcb482492d68402f663e914045c8762fd8965ef782fc74fa4fb7`.
+
+Atlas passed. A unique temporary project, render job and snapshot-invalidation
+outbox were created; the real worker reached `MATERIALIZED`; the exact render
+was fenced; provider-free terminal cleanup reached `CLEANUP_DONE`; replay
+returned the same terminal disposition; and exact cleanup verified every
+temporary Atlas fixture collection at zero rows. This is a real Atlas
+transaction/lifecycle proof for the bounded fixture, not deployed-cron or
+universal mutation-owner proof.
+
+Private R2 did not pass. The configured endpoint returned `NotEntitled` on the
+exact temporary PUT before an object was written. The harness attempted exact
+cleanup, but the same entitlement boundary prevented independent absence
+verification. The receipt therefore records R2 as `BLOCKED`, cleanup as
+unverified and the combined decision as `MODIFY`. No storage reachability or
+private object-lifecycle success is inferred from configuration alone.
+
+No customer row, provider render, provider deletion, wallet, project content,
+historical paid-cohort row or model inference was touched. Deployed cron/index
+presence, private R2 PUT/GET/DELETE, live provider-source deletion and any
+source-backed handling of genuine unbound rows remain open.
+
+The remaining Queue 5 order is now:
+
+1. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations without reopening their
+   closed revision, actor, timebase, range, lock or invalidation checks.
+2. Classify durable invalidation and applicable prerequisites for every
+   remaining direct and specialized ProjectService writer; metadata-only and
+   lease-only owners must explicitly record non-applicability.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, the R2 entitlement allows exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—have source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. The live
+Atlas subclaim is `PASS`; the private-R2/deployment/provider subclaims remain
+`BLOCKED` or unproven. No universal mutation-safety, agency-class
+certification, successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining applicable Queue 5 owners
+serially; (2) run aggregate Queue 5 verification; (3) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4Y media-prerequisite checkpoint
+
+Commits `eca0edb1a`, `e7ad6241f`, `2b3b5eda3`, `6a075f084`,
+`6477a8729`, `091fe240b`, `23ce071ad`, `075a22af8`, `653e27aae`
+and `1873963ca` close the operation-specific media-prerequisite slice for
+whole-state save/autosave, checkpoint capture and checkpoint restore. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+One shared owner now inventories every video, image, sound and generated
+motion-graphics overlay and fails closed unless its asset, qualified source
+version or generated source identity, current source rights, audio evidence
+where applicable, and original/generated/derived predecessor are valid for
+the exact project scope. A sealed content-addressed receipt is written to its
+dedicated Atlas collection before the whole-state project writer runs. The
+project timeline receipt stores only the authenticated compact link. Numeric
+and string overlay identities are supported, while canonical collisions such
+as `1` and `"1"` are rejected.
+
+Checkpoint capture reloads the authoritative ProjectService snapshot, seals
+that exact snapshot's media prerequisites and stores the compact link on the
+checkpoint. Restore does not trust the embedded link. It loads and revalidates
+the sealed Atlas receipt, verifies capture operation/project/user/owner/org
+scope, freshly re-authorizes the candidate restore against the current source
+and rights state, and requires its stable media-content basis and entry count
+to equal the captured basis before invalidation admission or project CAS. The
+stable basis deliberately excludes time-varying rights receipt/timestamp
+details while retaining the rights disposition; the full fresh receipt still
+binds those current details. A legacy full-state checkpoint without the sealed
+media prerequisite is explicitly non-restorable rather than silently trusted.
+
+The combined whole-state/checkpoint regression gate passed 122/122 tests.
+Targeted quiet ESLint, repeated full 8-GB TypeScript and `git diff --check`
+passed before the corresponding pushes. No provider call, render, storage
+spend, wallet mutation, customer project edit, paid-cohort rerun or model
+inference occurred.
+
+This is not universal Queue 5 closure. The receipt write precedes a later
+project/checkpoint CAS or insert, so a losing writer can leave an unreferenced
+content-addressed receipt; bounded retention and recovery classification are
+still required. Existing legacy checkpoints remain safely blocked until an
+authoritative migration/recapture rule can prove their exact media basis.
+Direct and specialized ProjectService writers still require explicit
+operation-by-operation prerequisite/invalidation classification.
+
+The remaining Queue 5 order is now:
+
+1. Classify and enforce durable invalidation plus applicable source, rights,
+   audio, predecessor, revision, range and lock prerequisites for every
+   remaining direct and specialized ProjectService writer. Metadata-only and
+   lease-only owners must explicitly record non-applicability.
+2. Add bounded retention/recovery for unreferenced whole-state prerequisite
+   receipts and an authoritative legacy checkpoint migration/recapture rule;
+   never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4Z direct-overlay invalidation checkpoint
+
+Commits `1ad282f9e` and `ab0fac9c3` close durable project-snapshot
+invalidation admission for the caller-bound `ADD_OVERLAY`, `UPDATE_OVERLAY`
+and `DELETE_OVERLAY` ProjectService writers. Both commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+Each writer now validates its current revision, exact affected range and
+overlapping timeline locks, computes the next revision, durably inserts the
+content-addressed invalidation outbox row, binds that exact before/after link
+into the timeline mutation receipt and only then attempts the project CAS. A
+crash after project commit therefore leaves recoverable invalidation work; an
+outbox persistence failure prevents the project mutation. The existing worker
+continues to decide whether the pre-admitted row activates or is abandoned
+after observing the committed project receipt.
+
+The invalidation is intentionally project-snapshot-wide. It safely prevents
+old rendered previews and delivery proofs from surviving a direct overlay
+change, but it is not claimed as efficient range-cache invalidation. Deletion
+does not require fresh source or rights authorization merely to remove media;
+addition and update still require their operation-specific media-prerequisite
+binding before that part of Queue 5 can close.
+
+The real ProjectService conflict proof now requires the exact durable
+`UPDATE_OVERLAY` invalidation link while continuing to report
+`CUT_TIMELINE_RANGE` as unmaterialized. Its multi-project persistence harness
+models per-project invalidation outboxes and duplicate-key behavior instead of
+mocking the new owner away. The direct-writer regression separately proves
+all three outbox inserts occur before their corresponding project updates.
+
+Focused verification passed 84/84 conflict/range/direct-writer tests and the
+62/62 save-payload suite. Targeted quiet ESLint, full 8-GB TypeScript and
+`git diff --check` passed before the pushes. No provider call, render, storage
+spend, wallet mutation, customer project edit, historical paid-cohort rerun or
+model inference occurred.
+
+This is not universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Bind operation-specific source, rights, audio and predecessor prerequisites
+   to direct media-bearing addition/update and then continue durable
+   invalidation plus applicable revision/range/lock/prerequisite classification
+   across the remaining specialized ProjectService writers. Metadata-only,
+   analysis-only and lease-only owners must explicitly record
+   non-applicability rather than fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state prerequisite
+   receipts and an authoritative legacy checkpoint migration/recapture rule;
+   never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5A direct media-admission checkpoint
+
+Commits `0a988b114` and `0eaf2cad6` close operation-specific media admission
+for caller-bound `ADD_OVERLAY` and `UPDATE_OVERLAY`. Both commits are pushed
+on `infrastructure-improvs-+Editron`.
+
+The direct writers reuse the canonical source-version, rights-ledger, audio
+evidence and predecessor owner for the exact post-mutation overlay. Admission
+is bound to the current project revision and project/user/owner/org scope. The
+sealed content-addressed receipt is stored before render invalidation admission
+and before project CAS, and its authenticated compact link is persisted on the
+same timeline mutation receipt. Failed media admission therefore performs no
+invalidation enqueue and no project mutation.
+
+The scope is intentionally the affected overlay rather than every unrelated
+project overlay. A text or other non-media direct edit receives a sealed
+zero-entry receipt, explicitly proving media non-applicability without
+fabricating rights. A video, image, sound or generated sequence must establish
+its qualified source or generated identity, current rights, audio evidence when
+applicable and original/generated/derived predecessor. `DELETE_OVERLAY`
+remains removable without fresh source rights while retaining its already
+closed project-snapshot invalidation; revoked or missing media must not become
+undeletable.
+
+The adjacent six-suite gate passed 95/95 tests. It covers the canonical owner,
+Mongo receipt runtime, direct ProjectService ordering, exact range/lock/CAS
+behavior and both stateful conflict proofs. The conflict harnesses traverse the
+real zero-entry receipt store for text edits. Only the deliberately unqualified
+video fixture used by the standalone range test stubs media admission, and
+that isolation is explicit in the test module. Targeted quiet ESLint, full
+8-GB TypeScript and `git diff --check` passed before the push.
+
+This is not universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Continue durable invalidation and applicable source, rights, audio,
+   predecessor, revision, range and lock classification across every remaining
+   specialized ProjectService writer. Metadata-only, analysis-only and
+   lease-only owners must explicitly record non-applicability rather than
+   fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state/direct
+   prerequisite receipts and an authoritative legacy checkpoint
+   migration/recapture rule; never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5B timeline-cut admission checkpoint
+
+Commit `de9f5dcd7` closes operation-specific media/audio/predecessor admission
+and durable project-snapshot invalidation for the destructive
+`CUT_TIMELINE_RANGE` ProjectService writer. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+The cut owner now constructs the authoritative post-cut overlay set first,
+including deterministic split children, and selects only surviving overlays
+whose exact project-frame range intersects the affected ripple tail. It then
+materializes the canonical source-version, rights, playable-audio where
+applicable, and predecessor receipt against the applied base revision. Only
+after that receipt exists does it durably enqueue the exact before/after
+project-snapshot invalidation; only after both admissions succeed does it
+attempt the project compare-and-set. Their authenticated links are persisted
+on the same timeline mutation receipt.
+
+The focused negative proof deliberately makes media/audio admission fail and
+confirms that no invalidation row, project mutation or published mutation
+receipt follows. The split-media fixture also confirms that prerequisite
+identity follows the actual surviving child rather than incorrectly retaining
+the removed parent identity. Stateful conflict proofs use a truthful non-media
+shape fixture so their zero-entry prerequisite receipt exercises real
+non-applicability without pretending to prove media decoding.
+
+The five-suite gate passed 33/33 tests. Targeted quiet ESLint, full 8-GB
+TypeScript and `git diff --check` passed before the push. No provider call,
+render, storage spend, wallet mutation, customer project edit, historical paid
+cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The standalone media-bearing cut
+integration fixture stubs the already-tested Mongo prerequisite owner; a
+source-qualified live-database cut proof remains part of aggregate Queue 5
+closure. Specialized retime, duration correction/reconciliation, auto-edit,
+caption, audio, colour, generated-composition, delivery and metadata/lease
+writers still require operation-by-operation prerequisite and invalidation
+classification.
+
+The remaining Queue 5 order is now:
+
+1. Continue durable invalidation and applicable source, rights, audio,
+   predecessor, revision, range and lock classification across the remaining
+   specialized ProjectService writers. Metadata-only, analysis-only and
+   lease-only owners must explicitly record non-applicability rather than
+   fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state/direct/cut
+   prerequisite receipts and an authoritative legacy checkpoint
+   migration/recapture rule; never synthesize evidence for historical state.
+3. Add the source-qualified live-database cut proof, run the aggregate Queue 5
+   mutation-owner suite and full-repository quiet ESLint before considering
+   Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5C video-retime admission checkpoint
+
+Commit `c75946584` closes current media/right/audio/predecessor admission and
+durable project-snapshot invalidation for `APPLY_VIDEO_SPEED_RAMP` and
+`RETIME_VIDEO_SOURCE_RANGE`. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+Both writers retain their existing exact source-time binding, source-handle
+and project-rate checks. The speed-ramp writer now also reads the authoritative
+Director and timeline-range lock state, rejects an active Director lease or an
+overlapping range lock before source/evidence work, materializes the canonical
+prerequisite for the exact updated clip, durably enqueues invalidation and only
+then attempts its overlay CAS. The source-range retime owner applies the same
+admission order to the exact post-retime target plus deterministic shifted
+ripple-tail overlays returned by its existing retime owner.
+
+The same timeline receipts bind the source-time transform, media-prerequisite
+link and exact before/after invalidation link. Focused negative proofs confirm
+that Director/range locks prevent source and evidence work, and that missing
+media/audio evidence for either writer produces no invalidation enqueue,
+project CAS or mutation receipt. Mixed rate, VFR, insufficient handles,
+overlapping dependent overlays and stale revisions remain fail-closed.
+
+The three-suite retime/prerequisite gate passed 23/23 tests. Targeted quiet
+ESLint, full 8-GB TypeScript and `git diff --check` passed before the push. No
+provider call, render, storage spend, wallet mutation, customer project edit,
+historical paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The focused retime integration suite
+stubs the already-tested Mongo prerequisite owner and durable outbox storage;
+source-qualified live-database retime proof remains part of aggregate closure.
+Duration correction/reconciliation, auto-edit, caption, BGM/beat, generated
+composition, delivery and metadata/analysis/lease writers still require their
+operation-specific classification and enforcement.
+
+The remaining Queue 5 order is now:
+
+1. Continue with duration correction/reconciliation and auto-edit assembly,
+   then the remaining family, generated-composition, delivery and
+   metadata/analysis/lease writers. Enforce applicable source, rights, audio,
+   predecessor, revision, range, lock and invalidation prerequisites; record
+   explicit non-applicability where evidence is not relevant.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   an authoritative legacy checkpoint migration/recapture rule; never
+   synthesize historical evidence.
+3. Add source-qualified live-database cut/retime proofs, run the aggregate
+   Queue 5 mutation-owner suite and full-repository quiet ESLint before
+   considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5D duration-owner checkpoint
+
+Commit `5dc4b28a6` closes the current Queue 5 admission slice for
+`CORRECT_VIDEO_ANALYSIS_DURATION` and `RECONCILE_PROJECT_DURATION`. The commit
+is pushed on `infrastructure-improvs-+Editron`.
+
+Video-analysis duration correction no longer converts caller-supplied
+milliseconds into project frames. The worker observation remains audit input,
+but ProjectService now loads the current asset, resolves its verified
+source-time binding, requires exact supported source/project rate compatibility
+and derives the correction from `totalSourceFrameCount`. Missing source timing,
+VFR, mixed/fractional timing or an unrepresentable frame count returns an
+explicit non-eligible result; no approximate conversion runs. The correction
+receipt binds the exact source-time-binding hash, derivation mode and corrected
+frame count.
+
+That media-bearing correction also rejects active Director and overlapping
+timeline locks, materializes current source/right/audio/predecessor evidence
+for the corrected clip, durably enqueues project-snapshot invalidation and only
+then attempts CAS. Historical schema-v1 correction receipts remain readable
+only when all new exact-duration fields are absent; partial hybrid receipts are
+invalid, while every new write contains the complete exact evidence set.
+
+Project-duration reconciliation remains a derived metadata correction: it
+computes the boundary only from exact current overlay ranges and writes no
+overlay/source state. It therefore stores a sealed zero-entry media
+non-applicability receipt, while still rejecting overlapping timeline locks,
+durably invalidating render/delivery snapshots and using exact revision CAS.
+
+The adjacent seven-suite regression gate passed 113/113 tests. Targeted quiet
+ESLint, full 8-GB TypeScript and `git diff --check` passed before the push. No
+provider call, render, storage spend, wallet mutation, customer project edit,
+historical paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The focused correction/reconciliation
+suites mock the external source, prerequisite and outbox stores. Live
+source-qualified Atlas proof remains part of aggregate closure. VFR/rational
+mixed-rate consumption remains Queue 3–4 work rather than an approximate
+duration fallback. Auto-edit, caption, BGM/beat, generated-composition,
+delivery and metadata/analysis/lease writers still require operation-specific
+classification and enforcement.
+
+The remaining Queue 5 order is now:
+
+1. Continue with auto-edit assembly, then the remaining family,
+   generated-composition, delivery and metadata/analysis/lease writers.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   authoritative legacy checkpoint migration/recapture; never synthesize
+   historical evidence.
+3. Add source-qualified live-database cut/retime/duration proofs, run the
+   aggregate Queue 5 mutation-owner suite and full-repository quiet ESLint.
+4. Preserve the external live lane as unresolved until deployed indexes/cron,
+   R2 exact PUT/GET/DELETE, live provider deletion and genuine unbound-row
+   reconstruction or retirement are proved.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5E assembly/family admission checkpoint
+
+Commits `f615c7e6d`, `f63e78b10` and `18d3458e4` close the current Queue 5
+admission slices for auto-edit assembly, caption replacement, background-music
+replacement and beat-synchronized cut alignment. All three commits are pushed
+on `infrastructure-improvs-+Editron`.
+
+`AUTO_EDIT_ASSEMBLY` still uses the existing single ProjectService form owner:
+exact source cuts, handle bounds, identity isolation, dependency exclusion,
+Director lease, ripple-range locks and one project-revision CAS are unchanged.
+The owner now authenticates the post-assembly affected tail—including the new
+clip identities—against current media/source/right/audio/predecessor evidence,
+durably enqueues project-snapshot invalidation, binds both links to the timeline
+receipt and only then attempts CAS. A negative test proves failed media
+admission produces neither invalidation nor a project write. Its focused gate
+passed 73/73 tests with full TypeScript and targeted quiet ESLint.
+
+Caption and background-music family replacement continue to reject any
+non-family mutation, stale revision, Director lease or overlapping timeline
+lock. Caption replacement now stores a sealed zero-media prerequisite receipt,
+which positively proves media non-applicability instead of omitting the check.
+Background-music replacement authenticates the candidate sound asset, music
+rights, audio evidence and predecessor lineage. Both enqueue durable snapshot
+invalidation before CAS and persist the two links. Their focused gate passed
+21/21 tests with full TypeScript and targeted quiet ESLint.
+
+The authoritative `ALIGN_CUTS_TO_BEATS` writer no longer derives visual source
+handles by rounding `asset.duration * project fps`. It now requires a completed
+verified source-time binding, exact representable source-frame count and
+supported same-rate timing for every candidate video source. Missing assets,
+incomplete timing, unsupported VFR/event rebinding, rate mismatch or invalid
+frame count returns a typed `SAFE_STOP`; no project state changes. Queue 3–4
+must later replace those current stops with timestamp-addressed VFR/mixed-rate
+consumption. The existing creative form owner and CKG constraints remain
+unchanged: measured beats, speech-boundary priority, bounded snap and the
+four-lock humanization rule still determine candidate placement.
+
+After exact handle validation, beat alignment authenticates the music source
+plus affected video state, durably invalidates render/delivery snapshots and
+then performs its existing CAS. The chat path accurately reports an
+authoritative safe stop and never converts it into success. Its focused gate
+passed 20/20 tests with full TypeScript and targeted quiet ESLint. The chat
+path's early rounded-duration computation remains advisory planning only; it
+cannot authorize the final write, but should be moved onto the Queue 3–4 exact
+timestamp consumer to avoid avoidable preview/commit disagreement.
+
+These are focused mocked-store gates, not live Atlas/R2 evidence and not
+universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Classify and enforce generated-composition writers, pipeline delivery
+   writers, and metadata/analysis/lease owners without duplicating their
+   creative-form owners.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   authoritative legacy checkpoint migration/recapture; never synthesize
+   historical evidence.
+3. Add source-qualified live-database cut/retime/duration/assembly/family
+   proofs, run the aggregate Queue 5 mutation-owner suite and full-repository
+   quiet ESLint.
+4. Preserve the external live lane as unresolved until deployed indexes/cron,
+   R2 exact PUT/GET/DELETE, live provider deletion and genuine unbound-row
+   reconstruction or retirement are proved.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5F generated/delivery admission checkpoint
+
+Commits `cecfe02a3`, `4c2c0183d`, `a787a122e`, `3daf8328a`,
+`8318040a4`, `a8537ec42` and `62e50a2d7` close the current Queue 5
+admission slices for generated motion-graphic delivery, generated-composition
+promotion, pipeline-audio delivery and single-target pipeline-video
+regeneration. All commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+Generated MG delivery and a passing generated-composition promotion now bind
+their operation-specific media or explicit zero-media prerequisite, exact
+current revision and affected project range, reject active Director or
+overlapping range locks, durably enqueue project-snapshot invalidation and
+only then attempt the existing ProjectService compare-and-set. Their existing
+render/form owners remain authoritative; this work does not add a competing
+creative-form planner.
+
+Pipeline-audio attachment now authenticates the actual candidate audio media,
+rights, playable-audio evidence and predecessor lineage before durable
+snapshot invalidation and project CAS. Destructive beat-aligned picture cuts
+remain a separate authoritative mutation after audio attachment rather than
+being hidden inside the delivery write. The combined focused audio gate passed
+45/45 tests.
+
+Pipeline-video regeneration is no longer impossible by construction. A
+ProjectService admission first reserves one exact current overlay and advances
+the project revision. Before any credit check or provider dispatch, the route
+creates the deterministic target-invalidation outbox, the existing render-job
+owner scans and fences both legacy target-bound artifacts and whole-project
+snapshot renders whose sealed target index contains that overlay, and
+ProjectService persists the completed invalidation checkpoint. Unresolved or
+malformed render rows stop the request before spending. A retry recovers the
+same owner-issued prerequisite without advancing the revision again.
+
+After generation, the worker registers the result under the exact user and
+ProjectService independently requires the materialized target-invalidation
+receipt, exact fps/range/revision/locks, current replacement-media admission
+and a new whole-project snapshot invalidation before replacing the overlay by
+CAS. The core video/invalidation gate passed 32/32 tests; the route, worker,
+render-fence and adjacent accounting/dispatch gates passed their focused
+suites, full 8-GB TypeScript, targeted quiet ESLint and `git diff --check`.
+No provider call, storage spend, customer project mutation, historical cohort
+rerun or model inference occurred.
+
+This is not live end-to-end pipeline-video proof and not universal Queue 5
+closure. Generated video registration still needs the Queue 3-4 production
+source-version/timestamp/audio qualification chain before the real media
+prerequisite can authorize delivery. The target invalidation cleanup receipt
+is materialized, but deployed cleanup/retention and live provider deletion are
+still external evidence blockers.
+
+The remaining Queue 5 order is now:
+
+1. Classify and enforce the remaining specialized mutation owners, beginning
+   with audio-rights attestation, post-retime source-event rebinding and any
+   active-state MG/generated-composition edge. Metadata-only, analysis-only,
+   proof-only and lease-only owners must record explicit non-applicability
+   rather than fabricate source, audio or range evidence.
+2. Add bounded retention/recovery for unreferenced whole-state, direct,
+   cut/retime/family/generated/delivery prerequisite receipts and an
+   authoritative legacy-checkpoint migration or recapture rule. Historical
+   evidence must never be synthesized.
+3. Run a fresh method-level ProjectService classification, the aggregate Queue
+   5 mutation-owner suite, source-qualified live-database mutation proofs and
+   full-repository quiet ESLint before considering Queue 5 locally
+   implemented.
+4. Keep deployed indexes/cron, R2 exact PUT/GET/DELETE, live provider deletion
+   and genuine unbound-row reconstruction or retirement explicitly unresolved
+   until they are proved in the authorized environment.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, where parallel execution is permitted but not required; (4) implement
+Queue 6 serially; and (5) certify agency verticals serially unless the founder
+explicitly authorizes more parallel execution. Human-only review remains
+deferred to the end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5G audio-rights owner checkpoint
+
+Commit `7b23a52d5` closes the current Queue 5 admission slice for the
+ProjectService audio-rights attestation owner. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+The owner no longer trusts caller-supplied overlays or storyboard scenes as
+the state to persist. It reloads the exact current project revision, derives
+only the declared rights changes from persisted overlays and linked persisted
+storyboards, and rejects duplicate storyboard commands. Each attestation must
+be a valid current-version user attestation bound to the exact current user,
+asset and commit timestamp. Assets outside the current project, incompatible
+media families, missing exact project ranges, active Director mutation leases
+and overlapping timeline locks fail before mutation.
+
+Before the Mongo transaction begins, the owner durably enqueues whole-project
+render-snapshot invalidation for the exact before/after revision. The
+transaction then atomically updates matched user-upload assets, rederived
+storyboard copies, rederived project overlays, the project revision and a
+bounded hashed rights receipt that links the affected ranges to that
+invalidation. A stale project compare-and-set rolls back all companion writes.
+This changes export-rights policy only; it does not add or duplicate any
+creative-form owner.
+
+The focused rights/persistence gate passed 77/77 tests, including caller
+content injection, forged attestation identity, stale revision, missing
+source, wrong media family, transactional companion writes and unavailable
+invalidation. Full 8-GB TypeScript, targeted quiet ESLint and
+`git diff --check` passed before the push. No provider call, storage spend,
+customer project mutation, historical cohort rerun or model inference
+occurred.
+
+This is not live Atlas transaction/outbox proof and not universal Queue 5
+closure. A pre-transaction invalidation row can remain unreferenced when the
+later transaction fails; bounded retention/recovery remains required. The
+post-retime source-event rebinding method is read-only and therefore is not a
+mutation owner; its eventual timestamp-addressed consumption remains Queue
+3-4 work.
+
+The remaining Queue 5 order is now:
+
+1. Complete a fresh method-level classification of ProjectService specialized
+   writers. Enforce active-state MG/generated-composition edges and record
+   explicit operation-specific non-applicability for metadata-only,
+   analysis-only, proof-only and lease-only owners rather than fabricating
+   media prerequisites.
+2. Add bounded retention/recovery for unreferenced whole-state, direct,
+   cut/retime/family/generated/delivery/rights prerequisite receipts and an
+   authoritative legacy-checkpoint migration or recapture rule. Historical
+   evidence must never be synthesized.
+3. Run the aggregate Queue 5 mutation-owner suite, source-qualified live
+   database mutation proofs and full-repository quiet ESLint before
+   considering Queue 5 locally implemented.
+4. Keep deployed indexes/cron, R2 exact PUT/GET/DELETE, live provider deletion
+   and genuine unbound-row reconstruction or retirement explicitly unresolved
+   until proved in the authorized environment.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish Queue 5 serially; (2) run aggregate
+Queue 5 verification; (3) return to unfinished Queues 3 and 4, where parallel
+execution is permitted but not required; (4) implement Queue 6 serially; and
+(5) certify agency verticals serially unless the founder explicitly
+authorizes more parallel execution. Human-only review remains deferred to the
+end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5H lifecycle and ProjectService inventory checkpoint
+
+Commits `8df2ccdb7`, `7c43eec76`, `7d0d7776f`, `fcaf4a001`,
+`17bff04f3`, `89247d50f`, `e911b37d8`, `82aae1ec9`, `c275c89d0`,
+`d45a5fd4e`, `271e17fd4`, `d1077e8b3` and `fefdd39eb` are pushed on
+`infrastructure-improvs-+Editron`. They supersede the remaining-order list in
+Phase 5G for the local ProjectService owner inventory, unreferenced
+prerequisite retention, legacy-checkpoint recapture and whole-project
+deletion.
+
+The ProjectService source inventory now classifies all 65 persistence-writing
+or explicitly persistence-delegating methods exactly once. Active timeline,
+delivery, rights and project-lifecycle writers declare revision, range/lock,
+media, rights, predecessor and project-snapshot invalidation applicability.
+The only groups that remain non-local in that inventory are the already
+declared Queue 3-4 dependencies:
+
+- proxy/master active-source cutover;
+- analysis native-audio evidence whose full production source/timestamp
+  qualification still belongs to Queues 3 and 4.
+
+Unreferenced whole-state prerequisite receipts now enter a bounded
+pending-reference lifecycle. Authentic project/checkpoint references pin them;
+unreferenced rows are quarantined and later retired; a late authentic reference
+reactivates its exact receipt. The protected recovery route runs invalidation,
+cleanup and prerequisite retention and fails the request if retention cannot
+be evaluated. Atlas indexes cover pending/quarantined scans and TTL retirement.
+
+Legacy V2 checkpoints are never retroactively granted invented evidence. They
+may be recaptured only when their exact stored state hash equals the current
+authoritative project state at the exact current revision. That path issues a
+real current prerequisite receipt and compare-and-set patches the checkpoint;
+historical mismatches remain `UNVERIFIABLE`.
+
+Whole-project deletion no longer performs independent best-effort writes. The
+two visible project lists carry the exact displayed `ProjectRevisionV1`; the
+DELETE route requires it and returns typed 400/404/409 outcomes. ProjectService
+durably enqueues whole-project render invalidation, then a snapshot/majority
+Mongo transaction deletes the exact owner/revision project plus its checkpoints
+and chat sessions, removes project links, deliberately preserves reusable
+source media and writes a deterministic hashed tombstone. Invalidation recovery
+accepts only that exact tombstone after the active project disappears; project
+absence alone cannot authorize cleanup.
+
+The current deletion/classification/recovery gate passes 24/24 focused tests.
+Targeted quiet ESLint, full 8-GB TypeScript and `git diff --check` pass. Earlier
+focused lifecycle and legacy gates passed at their listed commits. No provider
+call, storage spend, wallet mutation, customer project mutation, historical
+paid-cohort rerun or model inference occurred.
+
+This closes the **local ProjectService method-level Queue 5 implementation
+inventory**, not the aggregate Queue 5 evidence gate and not Stage 2.5. The
+following proof remains mandatory before Queue 5 can be recorded closed:
+
+1. Run the aggregate mutation-owner regression set and full-repository quiet
+   ESLint against the combined tree.
+2. Run the authorized source-qualified live Atlas mutation/outbox/deletion
+   fixture and verify exact cleanup of its temporary records.
+3. Keep deployed index/cron proof, private R2 exact PUT/GET/DELETE, live
+   provider-source deletion and genuine unbound-row reconstruction or
+   evidence-backed retirement in Queues 3-4 until the environment can prove
+   them.
+
+Queue 5 is therefore `LOCAL_IMPLEMENTATION_COVERED / AGGREGATE_LIVE_PROOF_OPEN`;
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No universal production mutation-safety,
+agency-class certification, successor readiness receipt or `GO` is claimed.
+
+The exact binding order is now: (1) run Queue 5 aggregate and authorized live
+proof serially; (2) return to unfinished Queues 3 and 4, where parallel work is
+permitted but no subagents are to be created; (3) implement Queue 6 serially;
+and (4) certify agency verticals serially unless the founder explicitly
+authorizes further parallel execution. Human-only review remains deferred to
+the end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5I aggregate local verification checkpoint
+
+Commit `986ec9b4d` is pushed on `infrastructure-improvs-+Editron`. It repairs
+the chat direct-writer integration fixture so the real `update_overlay` path
+must persist its zero-media whole-state prerequisite and render-snapshot
+invalidation outbox before the exact project compare-and-set. No production
+guard was weakened.
+
+The current Queue 5 mechanics regression set was then run serially with one
+Vitest worker. It passed 32/32 files and 201/201 tests. Full 8-GB TypeScript,
+full-repository quiet ESLint and `git diff --check` also passed against the
+combined tree.
+
+A stronger complete `tests/editron` run was also attempted. It is not green:
+995 files passed, 59 failed and two were skipped; 7,453 tests passed, 110
+failed and 14 were skipped. Observed failure families include immutable sealed
+holdout or CAP current-source identity drift after later implementation
+changes, stale source-string smoke assertions, and one suite that imports a
+live Mongo dependency without `MONGODB_URI`. These failures are not erased,
+rehashed or promoted. They require separate current-truth successor receipts
+or ordinary regression fixes according to their owner; the historical paid
+cohort remains untouched and no provider inference ran.
+
+This establishes `QUEUE_5_LOCAL_MECHANICS_GATE_PASSING`, not production Queue
+5 closure. The authorized source-qualified live Atlas mutation/outbox/deletion
+fixture and exact cleanup are still required. Deployed index/cron proof,
+private R2 exact PUT/GET/DELETE, provider-source deletion and the two
+source-qualified dependencies named in Phase 5H remain Queue 3-4 work.
+
+Queue 5 is therefore
+`LOCAL_IMPLEMENTATION_AND_MECHANICS_COVERED / LIVE_SOURCE_PROOF_OPEN`; Queues
+3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No universal production mutation-safety,
+agency-class certification, successor readiness receipt or `GO` is claimed.
+
+The next order is unchanged: run the live Atlas Queue 5 fixture if the current
+environment is source-qualified, then resume the unfinished Queue 3-4 media
+chain. Queue 3-4 work may be parallelized, but no subagents are to be created.
+Queue 6 and agency vertical certification remain serial unless the founder
+explicitly authorizes further parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 5J source-qualified live proof checkpoint
+
+Commits `0e01e1e7f` and `51c92fe44` are pushed on
+`infrastructure-improvs-+Editron`. The authorized source-qualified live proof
+is frozen in
+`docs/editron/open-ended-editing/stage25-queue5-source-qualified-atlas-live-proof-v1-receipt.json`.
+
+The live fixture generated a playable one-second H.264 MP4, uploaded it to a
+random GCS object, downloaded and byte-hashed the exact object, observed its
+provider generation and issued an immutable media source version. It inserted
+only random temporary Atlas records, migrated an explicit current user rights
+attestation into the source-rights ledger, then called the real
+`ProjectService.updateOverlayAtRevisionV1` owner. The owner advanced revision
+1 to 2 only after materializing the exact whole-state media prerequisite and
+its project-render invalidation; the worker materialized that invalidation.
+
+The same fixture then called the real revision-fenced project-deletion owner.
+The transaction removed the exact project, wrote its authenticated tombstone,
+preserved its reusable source media before fixture cleanup and allowed the
+invalidation worker to materialize deletion cleanup from that tombstone. The
+fixture finally removed and verified absence of every exact temporary Atlas
+record and the exact GCS object. The frozen receipt is `PASS` with receipt hash
+`e69691391ba2d902d95aafbde83274b7404181f8cda572aa5a831a34d689e58e`.
+
+The first live attempts exposed two production integration defects that local
+fixtures had missed. Atomic overlay receipts contain legitimate absent
+optional object fields, while strict canonical hashing rejected those
+transient JavaScript `undefined` values before Mongo persistence. The fix adds
+a separate persisted-document hash boundary that omits only absent object
+properties, retains the strict canonical owner for all ordinary receipts and
+still rejects ambiguous undefined array elements. The second defect allowed a
+full source-rights authorization object to flow structurally into the smaller
+strict prerequisite-rights slot. The owner now allowlists only its four public
+evidence fields; authority, scope and source details cannot leak into the
+downstream receipt.
+
+The focused regression gates passed 77/77 and then 81/81 tests. Full 8-GB
+TypeScript, full-repository quiet ESLint and `git diff --check` passed before
+each pushed fix. No customer project, provider/model inference, wallet state or
+historical paid-cohort result was touched.
+
+This closes the currently available source-qualified Atlas/GCS proof for the
+locally implemented Queue 5 owners. It does **not** establish universal
+production mutation safety while the two Queue 3-4 source dependencies remain
+open: proxy/master active-source cutover and complete analysis-native-audio
+evidence. It also does not prove deployed index/cron operation, private R2
+exact PUT/GET/DELETE, live provider-source deletion or genuine legacy unbound
+row reconstruction/retirement. Those stay explicit Queue 3-4 blockers.
+
+Queue 5 is therefore
+`LOCAL_IMPLEMENTATION_AND_MECHANICS_COVERED / SOURCE_QUALIFIED_ATLAS_GCS_PROOF_PASSING / QUEUE_3_4_DEPENDENCIES_OPEN`.
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No agency-class certification, successor
+readiness receipt or `GO` is claimed.
+
+The next work is the unfinished Queue 3-4 media chain. Work inside Queues 3 and
+4 may be parallelized, but no subagents are to be created. Queue 5 follow-up,
+Queue 6 and agency vertical certification remain serial unless the founder
+explicitly authorizes further parallel execution. Human-only review remains
+deferred to the end of the authorized technical queue.
+
+## 2026-09-02 session transition and founder intake-directive checkpoint
+
+Session transition: the predecessor Codex session exhausted its usage budget
+immediately after pushing `f43b389af` (proxy/master new-write cutover closure)
+with a clean worktree and no interrupted patch. Execution continues from the
+ZCode agent under the same binding rules: serial Queue 3-4 order, no
+subagents, bounded five-file phases, Step-0 before large-file edits, full
+type/lint/test gates before any completion claim, and append-only plan truth.
+The interrupted next slice remains exactly the Phase 5J named order: complete
+analysis-native-audio evidence by routing the video-analysis worker's audio
+producer through the existing exact source-version owner and making
+ProjectService reject legacy run-hash-only evidence, preceded by the required
+Step-0 dead-code/debug audit of that worker.
+
+The founder reviewed the intake/reference audit on 2026-09-02 and issued the
+directives below. They are recorded as roadmap inputs, not implementation
+claims, and none creates a second creative-form owner or authorizes parallel
+execution.
+
+1. **Chat-first intake convergence.** The separate single-video `from-asset`
+   product surface is deprecated in the vibe-editing destination: intake
+   becomes content dropped into the project thread (script, video, images,
+   audio, references, trends, intent) with the timeline/stage beside it, per
+   the locked VIBE system design (`VIBE_SYSTEM_DESIGN_REFERENCE_2026-08-29.md`
+   and the 2026-08-27/29 design chat). Engine intake contracts are preserved;
+   only the surface converges. The single-video script path (currently
+   cache-key-only) and the `imageAssetIds` billing-only forwarding defect
+   (accepted at intake, charged as reference-guided, never forwarded to the
+   analysis worker) are corrected or retired inside this convergence rather
+   than fixed twice.
+
+2. **Reference execution upgrade.** Reference analysis already measures far
+   more than it consumes: fingerprints, adaptive plans and SaaS structure
+   analysis are stored while only three coarse EditDNA dials reach the
+   ProjectBrief. Directive: bind time-bounded `ReferenceBlueprint`
+   (lines 987-1010) to real execution consumers — measured cut rhythm, caption
+   cadence, typography, graphics behavior — and add the audio dimension:
+   measured visual-to-audio landing, SFX usage patterns and music
+   synchronization from reference analysis, not only `musicStyle` metadata.
+
+3. **Reference-by-name research capability.** Verbal creator references
+   ("make it like X") must resolve through a bounded reference-research tool
+   that surveys lawful public examples and measures them into
+   ReferenceBlueprint parameters. The two hardcoded style strings in
+   `unified-edit-intelligence.ts` are transitional only. Parameters are
+   measured, assets are never copied, and any reference media acquisition
+   follows the existing canonicalization and rights contracts.
+
+4. **Trend engine consolidation (island-connection audit 2026-09-02).** Five
+   independent trend implementations exist. `lib/calos/trends` is the only
+   shared provider layer (CALOS + ThinkForge discovery); the editron
+   `lib/trends` ranked store is write-only with zero runtime readers of
+   `getTopTrends`; music discovery keeps a private snapshot collection.
+   Directive: consolidate on the CALOS provider composite as the single fetch
+   layer, retire or wire the orphaned editron store, and expose one trend
+   queue to editron intake and the vibe chat ("three mouths, one queue" per
+   VIBE §14).
+
+5. **Audio as a first-class first-cut input.** Uploaded audio must be able to
+   shape the initial storyline/composition (music-led assembly, voiceover and
+   script alignment) rather than entering only through post-hoc role
+   assignment.
+
+6. **Informed assist/planning surfaces.** The deterministic zero-model
+   starter chips are retained as the no-cost floor, but the assist briefing
+   must gain evidence-grounded, LLM-informed proposal cards (ranked candidate
+   edits with measured support) so planning surfaces are informed rather than
+   purely mechanical.
+
+7. **Auto-lane mechanical ranking disposition.** Content-type detection stays
+   as metadata/brief context (its playbook mapping was already removed,
+   D-016). The genre-dial Thompson-sampling bandits and threshold calibration
+   are auto-edit-coupled learning whose fate in the LLM-driven destination is
+   decided at the already-reserved auto-edit checkpoint: retired with the
+   Director's deterministic creative authority or re-homed as telemetry. No
+   new bandit work is authorized.
+
+These directives do not change the current order. Items enter the Queue 6 /
+agentic-convergence and agency-class backlog (item 4 as an infrastructure
+consolidation slice schedulable within Queue 3-4/6 boundaries). Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`; Queues 3 and 4
+remain `ACTIVE_PARTIAL`. No certification, successor receipt or `GO` is
+claimed by this checkpoint.

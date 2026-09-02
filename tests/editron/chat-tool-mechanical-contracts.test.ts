@@ -18,7 +18,11 @@ import { buildChatEditRenderVerificationRequest } from '@/lib/editron/agent/chat
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import { EDITRON_TEXT_SHADOW_FLOOR } from '@/lib/editron/agent/chat-overlay-safe-placement';
 import { createChatVisualTools } from '@/lib/editron/agent/chat-visual-tools';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  ProjectMutationConflictError,
+} from '@/lib/editron/services/project-service';
+import { cutTimelineRange } from '@/lib/editron/services/timeline-range-cut';
 
 type FixtureProject = {
   projectId: string;
@@ -31,6 +35,7 @@ type FixtureProject = {
   overlays: Array<Record<string, any>>;
   createdAt: Date;
   updatedAt: Date;
+  projectRevision?: number;
   visibility: string;
 };
 
@@ -46,40 +51,215 @@ function makeProject(overlays: Array<Record<string, any>>, durationInFrames = 30
     overlays: structuredClone(overlays),
     createdAt: new Date('2026-07-18T00:00:00.000Z'),
     updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+    projectRevision: 1,
     visibility: 'private',
   };
 }
 
 function installProjectStore(project: FixtureProject) {
   vi.spyOn(projectService, 'loadProject').mockImplementation(async () => structuredClone(project) as any);
-  const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockImplementation(
-    async (_userId, _projectId, overlayId, patch) => {
-      const overlay = project.overlays.find((candidate) => candidate.id === overlayId);
-      if (!overlay) throw new Error(`Overlay ${overlayId} not found`);
-      Object.assign(overlay, structuredClone(patch));
+  const cutTimelineRangeV1 = vi.spyOn(projectService, 'cutTimelineRangeV1')
+    .mockImplementation(async (_userId, projectId, command) => {
+      const beforeDurationInFrames = project.durationInFrames;
+      const beforeRevision = {
+        schemaVersion: 1 as const,
+        value: project.projectRevision ?? 1,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      };
+      const cut = cutTimelineRange({
+        overlays: project.overlays,
+        startFrame: command.startFrame,
+        endFrame: command.endFrame,
+        fps: project.fps,
+        durationInFrames: beforeDurationInFrames,
+      });
+      const committedAt = '2026-07-18T00:00:01.000Z';
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      const removedRange = cut.timelineCoordinateTransform.removedRange;
+      const affectedFrameRangesAfter = removedRange.endFrame < beforeDurationInFrames
+        ? [{ startFrame: removedRange.startFrame, endFrame: cut.newDurationInFrames }]
+        : [];
+      Object.assign(project, {
+        overlays: structuredClone(cut.overlays),
+        durationInFrames: cut.newDurationInFrames,
+        projectRevision: afterRevision.value,
+        updatedAt: new Date(committedAt),
+      });
+      return {
+        cut,
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {
+          schemaVersion: 1 as const,
+          receiptId: 'timeline-cut_chat-tool-test',
+          projectId,
+          operation: 'CUT_TIMELINE_RANGE',
+          actorKind: command.actorKind,
+          coordinateDomain: 'PROJECT_TIMELINE_FRAME_V1',
+          fps: project.fps,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+          committedAt,
+          readFrameRangesBefore: [{ startFrame: 0, endFrame: beforeDurationInFrames }],
+          writeFrameRangesBefore: [{ startFrame: removedRange.startFrame, endFrame: beforeDurationInFrames }],
+          affectedFrameRangesAfter,
+        },
+      } as any;
+    });
+  const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const overlay = project.overlays.find((candidate) => candidate.id === command.overlayId);
+      if (!overlay) throw new Error(`Overlay ${command.overlayId} not found`);
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      Object.assign(overlay, structuredClone(command.updates));
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
-  const addOverlay = vi.spyOn(projectService, 'addOverlay').mockImplementation(
-    async (_userId, _projectId, overlay) => {
-      project.overlays.push(structuredClone(overlay) as Record<string, any>);
+  const addOverlay = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.overlays.push(structuredClone(command.overlay) as Record<string, any>);
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
-  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlay').mockImplementation(
-    async (_userId, _projectId, overlayId) => {
-      project.overlays = project.overlays.filter((candidate) => candidate.id !== overlayId);
+  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.overlays = project.overlays.filter((candidate) => candidate.id !== command.overlayId);
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
-  const updateProject = vi.spyOn(projectService, 'updateProject').mockImplementation(
-    async (_userId, _projectId, patch) => {
-      Object.assign(project, structuredClone(patch));
+  const reconcileProjectDuration = vi.spyOn(
+    projectService,
+    'reconcileProjectDurationFromOverlaysV1',
+  ).mockImplementation(
+    async (_userId, projectId, command) => {
+      const durationInFrames = project.overlays.reduce(
+        (maximum, overlay) => Math.max(
+          maximum,
+          Number(overlay.from) + Number(overlay.durationInFrames),
+        ),
+        0,
+      );
+      if (durationInFrames === project.durationInFrames) {
+        return {
+          disposition: 'ALREADY_CURRENT',
+          durationInFrames,
+          currentRevision: {
+            schemaVersion: 1,
+            value: project.projectRevision ?? 0,
+            compatibilityUpdatedAt: project.updatedAt.toISOString(),
+          },
+        } as any;
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const beforeRevision = {
+        schemaVersion: 1 as const,
+        value: project.projectRevision ?? 0,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      };
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.durationInFrames = durationInFrames;
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        disposition: 'APPLIED',
+        durationInFrames,
+        mutationReceipt: {
+          schemaVersion: 1,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {
+          actorKind: command.actorKind,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+        },
+      } as any;
     },
   );
-  const saveProject = vi.spyOn(projectService, 'saveProject').mockImplementation(
-    async (_userId, _projectId, nextProject) => {
-      Object.assign(project, structuredClone(nextProject));
-    },
-  );
-  return { updateOverlay, addOverlay, deleteOverlay, updateProject, saveProject };
+  const saveProject = vi.fn();
+  return {
+    updateOverlay,
+    addOverlay,
+    deleteOverlay,
+    reconcileProjectDuration,
+    saveProject,
+    cutTimelineRangeV1,
+  };
 }
 
 function toolNamed(name: string) {
@@ -139,10 +319,10 @@ describe('chat mechanical tool contracts', () => {
     });
     expect(project.durationInFrames).toBe(120);
     expect(store.addOverlay).toHaveBeenCalledTimes(1);
-    expect(store.updateProject).toHaveBeenCalledWith(
+    expect(store.reconcileProjectDuration).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      { durationInFrames: 120 },
+      { actorKind: 'AGENT' },
     );
   });
 
@@ -165,25 +345,109 @@ describe('chat mechanical tool contracts', () => {
     expect(project.overlays).toHaveLength(1);
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
-    expect(store.updateProject).not.toHaveBeenCalled();
+    expect(store.reconcileProjectDuration).not.toHaveBeenCalled();
   });
 
   it('carries a visual producer mutation window through postconditions into render verification', async () => {
     const project = makeProject([{
       id: 3,
       type: 'video',
+      assetId: 'asset-video-3',
       from: 0,
       durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
       row: 0,
       src: 'https://cdn.example.com/source.mp4',
     }], 180);
-    installProjectStore(project);
+    const store = installProjectStore(project);
     const beforeProject = structuredClone(project);
+    const beforeRevision = {
+      schemaVersion: 1 as const,
+      value: 1,
+      compatibilityUpdatedAt: project.updatedAt.toISOString(),
+    };
+    const committedAt = '2026-07-18T00:00:01.000Z';
+    const afterRevision = {
+      schemaVersion: 1 as const,
+      value: 2,
+      compatibilityUpdatedAt: committedAt,
+    };
+    const sourceTimeTransform = {
+      schemaVersion: 1 as const,
+      rendererMappingVersion: 'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2',
+      projectId: project.projectId,
+      overlayId: '3',
+      assetId: 'asset-video-3',
+      beforeProjectRevision: beforeRevision,
+      afterProjectRevision: afterRevision,
+      timelineStartFrame: 0,
+      sourceStartFrame: 0,
+      sourceEndFrameExclusive: 180,
+      durationInFrames: 90,
+      transformSha256: 'a'.repeat(64),
+    };
+    const loadForMutation = vi.spyOn(projectService, 'loadProjectForMutation')
+      .mockResolvedValue({ project: structuredClone(project), revision: beforeRevision } as any);
+    const applyRetime = vi.spyOn(projectService, 'applyVideoSourceRangeRetimeV1')
+      .mockImplementation(async (_userId, projectId, command) => {
+        expect(command).toEqual({
+          expectedRevision: beforeRevision,
+          actorKind: 'AGENT',
+          overlayId: 3,
+          playbackRate: 2,
+        });
+        Object.assign(project.overlays[0], {
+          durationInFrames: 90,
+          sourceStartFrame: 0,
+          sourceEndFrame: 180,
+          speedCurve: [{ frame: 0, value: 2 }, { frame: 89, value: 2 }],
+        });
+        Object.assign(project, {
+          durationInFrames: 90,
+          projectRevision: 2,
+          updatedAt: new Date(committedAt),
+        });
+        const sourceRangeRetimeEffect = {
+          beforeTimelineRange: { startFrame: 0, endFrame: 180 },
+          afterTimelineRange: { startFrame: 0, endFrame: 90 },
+          beforeProjectDurationInFrames: 180,
+          afterProjectDurationInFrames: 90,
+          shiftedBeforeRange: { startFrame: 180, endFrame: 180 },
+          shiftedAfterRange: { startFrame: 90, endFrame: 90 },
+          deltaFrames: -90,
+          affectedOverlayIds: [3],
+        };
+        const timelineChangeReceipt = {
+          schemaVersion: 1 as const,
+          receiptId: 'timeline-video-source-retime_chat-tool-test',
+          projectId,
+          operation: 'RETIME_VIDEO_SOURCE_RANGE' as const,
+          actorKind: 'AGENT' as const,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+          committedAt,
+          affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 90 }],
+          sourceTimeTransform,
+        };
+        return {
+          disposition: 'APPLIED' as const,
+          mutationReceipt: {
+            schemaVersion: 1 as const,
+            projectId,
+            revision: afterRevision,
+            committedAt,
+          },
+          timelineChangeReceipt,
+          sourceRangeRetimeEffect,
+          sourceTimeTransform,
+        } as any;
+      });
     const args = {
       videoOverlayId: 3,
-      startFrame: 30,
-      endFrame: 90,
-      targetSpeed: 0.5,
+      startFrame: 0,
+      endFrame: 180,
+      targetSpeed: 2,
       allowDialogueSpeedRamp: false,
     };
 
@@ -193,9 +457,14 @@ describe('chat mechanical tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        affectedFrameRanges: [{ startFrame: 30, endFrame: 90 }],
+        disposition: 'APPLIED',
+        affectedFrameRanges: [{ startFrame: 0, endFrame: 90 }],
+        sourceTimeTransform,
       },
     });
+    expect(loadForMutation).toHaveBeenCalledWith(project.userId, project.projectId);
+    expect(applyRetime).toHaveBeenCalledTimes(1);
+    expect(store.updateOverlay).not.toHaveBeenCalled();
 
     const enforced = enforceChatToolPostcondition({
       toolName: 'apply_speed_ramp',
@@ -227,11 +496,66 @@ describe('chat mechanical tool contracts', () => {
     });
 
     expect(request.mutationRanges).toEqual([{
-      startFrame: 30,
+      startFrame: 0,
       endFrame: 90,
       toolName: 'apply_speed_ramp',
     }]);
-    expect(request.sampleFrames).toEqual([29, 30, 60, 89, 90]);
+    expect(request.sampleFrames).toEqual([0, 45, 89]);
+  });
+
+  it('safe-stops unsupported partial slow motion before calling any writer', async () => {
+    const project = makeProject([{
+      id: 4,
+      type: 'video',
+      assetId: 'asset-video-4',
+      from: 0,
+      durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180);
+    const store = installProjectStore(project);
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: structuredClone(project),
+      revision: {
+        schemaVersion: 1,
+        value: 1,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      },
+    } as any);
+    const applyRetime = vi.spyOn(projectService, 'applyVideoSourceRangeRetimeV1');
+
+    const result = parseEnvelope(await toolNamed('apply_speed_ramp').invoke({
+      videoOverlayId: 4,
+      startFrame: 30,
+      endFrame: 90,
+      targetSpeed: 0.5,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'TOOL_HANDLER_ERROR',
+        details: { raw: { data: {
+          disposition: 'SAFE_STOP',
+          reason: 'UNSUPPORTED_PUBLIC_RETIME_FORM',
+        } } },
+      },
+    });
+    expect(applyRetime).not.toHaveBeenCalled();
+    expect(store.updateOverlay).not.toHaveBeenCalled();
+    expect(project).toEqual(makeProject([{
+      id: 4,
+      type: 'video',
+      assetId: 'asset-video-4',
+      from: 0,
+      durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180));
   });
 
   it('reports exact affected windows from every visual mutation producer', async () => {
@@ -317,13 +641,19 @@ describe('chat mechanical tool contracts', () => {
     expect(filter.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
 
     const reframeDependencies = {
-      loadProject: vi.fn(async () => structuredClone(project) as Record<string, any>),
+      loadProjectForMutation: vi.fn(async () => ({
+        project: structuredClone(project) as Record<string, any>,
+        revision: {
+          schemaVersion: 1 as const,
+          value: 5,
+          compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+        },
+      })),
       loadAnalyses: vi.fn(async () => []),
       loadSourceRasters: vi.fn(async () => ({})),
-      saveProject: vi.fn(async (_userId: string, _projectId: string, next: Record<string, any>) => {
-        Object.assign(project, structuredClone(next));
+      saveProjectWithReceipt: vi.fn(async (input: { project: Record<string, any> }) => {
+        Object.assign(project, structuredClone(input.project));
       }),
-      updateProject: vi.fn(async () => {}),
     };
     const reframeTool = createChatVisualTools({
       userId: project.userId,
@@ -337,6 +667,17 @@ describe('chat mechanical tool contracts', () => {
     };
     expect(reframe.status).toBe('success');
     expect(reframe.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
+    expect(reframeDependencies.saveProjectWithReceipt).toHaveBeenCalledTimes(1);
+    expect(reframeDependencies.saveProjectWithReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 5,
+        compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+      },
+      projectUpdates: expect.objectContaining({
+        'intelligence.lastSubjectReframe': expect.any(Object),
+      }),
+    }));
   });
 
   it('copies only requested style properties and reports missing targets', async () => {
@@ -405,10 +746,10 @@ describe('chat mechanical tool contracts', () => {
     });
     expect(project.durationInFrames).toBe(180);
     expect(store.updateOverlay).toHaveBeenCalledTimes(5);
-    expect(store.updateProject).toHaveBeenCalledWith(
+    expect(store.reconcileProjectDuration).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      { durationInFrames: 180 },
+      { actorKind: 'AGENT' },
     );
   });
 
@@ -531,10 +872,14 @@ describe('chat mechanical tool contracts', () => {
     const deleted = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: '71' }));
     expect(deleted.status).toBe('success');
     expect(project.overlays).toEqual([]);
-    expect(store.deleteOverlay).toHaveBeenCalledWith(
+    expect(store.deleteOverlay).toHaveBeenLastCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      71,
+      expect.objectContaining({
+        actorKind: 'AGENT',
+        overlayId: 71,
+        expectedRevision: expect.objectContaining({ value: 2 }),
+      }),
     );
   });
 
@@ -721,7 +1066,14 @@ describe('chat mechanical tool contracts', () => {
         split: 2,
         created: 2,
         framesCut: 30,
-        affectedFrameRange: { startFrame: 30, endFrame: 31 },
+        affectedFrameRangesBefore: [{ startFrame: 30, endFrame: 240 }],
+        affectedFrameRanges: [{ startFrame: 30, endFrame: 210 }],
+        timelineChangeReceipt: {
+          operation: 'CUT_TIMELINE_RANGE',
+          actorKind: 'AGENT',
+          writeFrameRangesBefore: [{ startFrame: 30, endFrame: 240 }],
+          affectedFrameRangesAfter: [{ startFrame: 30, endFrame: 210 }],
+        },
       },
     });
     expect(project.durationInFrames).toBe(210);
@@ -770,7 +1122,69 @@ describe('chat mechanical tool contracts', () => {
     expect(project.overlays.some((overlay) => overlay.id === 6)).toBe(false);
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
-    expect(store.updateProject).not.toHaveBeenCalled();
-    expect(store.saveProject).toHaveBeenCalledTimes(1);
+    expect(store.reconcileProjectDuration).not.toHaveBeenCalled();
+    expect(store.saveProject).not.toHaveBeenCalled();
+    expect(store.cutTimelineRangeV1).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+      { actorKind: 'AGENT', startFrame: 30, endFrame: 60 },
+    );
+    expect(result.data?.mutationReceipt).toMatchObject({
+      projectId: 'proj_mechanical_tools',
+      revision: { schemaVersion: 1, value: 2 },
+    });
+  });
+
+  it('rejects a stale chat cut without overwriting the newer project state', async () => {
+    const project = makeProject([{
+      id: 7,
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+      content: 'original-source',
+      row: 0,
+    }], 180);
+    const store = installProjectStore(project);
+    const currentRevision = {
+      schemaVersion: 1 as const,
+      value: 8,
+      compatibilityUpdatedAt: '2026-07-18T00:00:08.000Z',
+    };
+    store.cutTimelineRangeV1.mockImplementationOnce(async () => {
+      project.overlays[0].content = 'newer-user-source';
+      project.projectRevision = currentRevision.value;
+      project.updatedAt = new Date(currentRevision.compatibilityUpdatedAt);
+      throw new ProjectMutationConflictError(currentRevision);
+    });
+
+    const result = parseEnvelope(await toolNamed('cut_section').invoke({
+      startFrame: 30,
+      endFrame: 60,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      data: null,
+      error: {
+        code: 'PROJECT_REVISION_CONFLICT',
+        details: { currentRevision },
+      },
+    });
+    expect(project).toMatchObject({
+      durationInFrames: 180,
+      projectRevision: 8,
+      overlays: [{
+        id: 7,
+        content: 'newer-user-source',
+        from: 0,
+        durationInFrames: 180,
+      }],
+    });
+    expect(store.cutTimelineRangeV1).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+      { actorKind: 'AGENT', startFrame: 30, endFrame: 60 },
+    );
+    expect(store.saveProject).not.toHaveBeenCalled();
   });
 });

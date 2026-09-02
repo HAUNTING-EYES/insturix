@@ -14,7 +14,7 @@ import { hashCanonicalCap2ArtifactV1 }
   from '@/lib/editron/research/capability-census/cap2-current-truth-freeze-v1';
 
 describe('CAP-2A current-truth reissue V6', () => {
-  it('chains V5 while binding the corrected H03 evidence without promotion', () => {
+  it('preserves the superseded V6 artifact and reports current-source drift', () => {
     const audit = parseCap2CurrentTruthReissueAuditV6(
       CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6,
     );
@@ -39,7 +39,8 @@ describe('CAP-2A current-truth reissue V6', () => {
       expect(hashNormalizedCap2FileV6(evidence.path), evidence.path)
         .toBe(evidence.normalizedSha256);
     }
-    expect(() => assertCap2CurrentTruthSourcesMatchV6()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV6())
+      .toThrow('CAP-2 v6 current source coverage drift.');
     expect(audit.runtimeAuthority).toEqual({
       plannerRegistryWired: false,
       projectMutationAuthorized: false,

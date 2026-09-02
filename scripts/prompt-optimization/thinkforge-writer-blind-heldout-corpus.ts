@@ -4,6 +4,7 @@ import type { WriterEvalCase } from './thinkforge-writer-eval-scoring';
 export type BlindHeldoutWriterEvalCase = WriterEvalCase & {
   suite: 'heldout';
   promotionCohort: 'blind_heldout';
+  approvedSourceRecord?: readonly { title: string; summary: string }[];
 };
 
 export interface BlindHeldoutRequestFixture {
@@ -158,6 +159,24 @@ export const ADDITIONAL_BLIND_HELDOUT_CASES: readonly BlindHeldoutWriterEvalCase
       'Visual direction must be shootable with one host, one camera operator, a utility room, and simple charts.',
     ].join(' '),
     systemBrief: 'Brand: Signal Yard. Voice: technically curious, skeptical, accessible. Evidence boundaries must remain explicit.',
+    approvedSourceRecord: [
+      {
+        title: 'Signal Yard rating-method record',
+        summary: 'The approved technical record states that a manufacturer efficiency rating belongs to a defined test condition rather than every possible building or weather pattern. A responsible comparison must identify the rated condition, the measurement boundary, and whether the compared field observation uses the same boundary. The record does not authorize a universal ranking of equipment, a promise about household bills, or a claim that one published rating predicts every cold-weather result.',
+      },
+      {
+        title: 'Signal Yard field-performance boundary',
+        summary: 'The approved field record identifies installation quality and building heat loss as factors that can affect observed performance. Installation quality includes whether the installed system and controls operate as intended; building heat loss describes demand from the building being heated. The record supports explaining why a laboratory figure and a home observation answer different questions. It does not supply a causal percentage for either factor or establish which factor dominated the monitored home.',
+      },
+      {
+        title: 'Signal Yard monitored-home note',
+        summary: 'The monitored-home note covers one home and one five-day cold snap. During those five days, recorded electricity use was 18 percent higher than that home\'s seasonal weekly average. The comparison is within the same home and uses the seasonal weekly average only as its reference. The note does not represent a controlled experiment, a national sample, a comparison with other heating systems, or evidence that the same change will occur in another property.',
+      },
+      {
+        title: 'Signal Yard production evidence inventory',
+        summary: 'The approved production record permits a host to compare the rating sheet, the defined test-condition labels, the monitored-home timeline, the five-day electricity record, and simple diagrams of installation and building heat loss. The skeptical section must separate observed measurements from explanations that remain unresolved. The practical conclusion may tell viewers which boundaries to check when reading efficiency figures, but it may not prescribe equipment, estimate savings, diagnose an installation, or generalize beyond the supplied record.',
+      },
+    ],
     expectedPath: 'script',
     grounding: ['Signal Yard', 'defined test conditions', 'installation quality', 'building heat loss', '18%', 'five-day cold snap', ['one home', 'single home']],
     criteria: { groundingFloor: 0.8 },

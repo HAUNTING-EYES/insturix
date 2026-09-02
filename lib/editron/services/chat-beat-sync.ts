@@ -1,7 +1,16 @@
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
-import { ROW, alignCutsToBeatsWithEvidence } from '@/lib/pipeline/scene-to-editron';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { assetResolver, type MediaAsset } from './asset-resolver';
-import { projectService } from './project-service';
+import {
+  resolveBeatSyncMutationV1,
+  type BeatSyncSourceEvidenceV1,
+} from './beat-sync-mutation-v1';
+import {
+  projectService,
+  type ProjectBeatSyncEvidenceSourceV1,
+  type ProjectBeatSyncResultV1,
+} from './project-service';
+import { readProjectRevisionV1, type ProjectRevisionV1 } from './project-revision-v1';
 
 export interface ChatBeatSyncInput {
   audioOverlayId?: number;
@@ -14,22 +23,12 @@ interface ProjectLike {
   projectId: string;
   userId: string;
   fps?: number;
+  projectRevision?: unknown;
   updatedAt?: Date | string;
   overlays?: Array<Record<string, any>>;
 }
 
-interface AnalyzedBeat {
-  frame?: number;
-  timeMs?: number;
-  strength?: number;
-  isDownbeat?: boolean;
-}
-
-interface BeatAnalysisLike {
-  bpm?: number;
-  bpmConfidence?: number;
-  beats?: AnalyzedBeat[];
-}
+type BeatAnalysisLike = BeatSyncSourceEvidenceV1;
 
 export interface ChatBeatSyncDependencies {
   loadProject(userId: string, projectId: string): Promise<ProjectLike | null>;
@@ -38,11 +37,13 @@ export interface ChatBeatSyncDependencies {
   commit(input: {
     userId: string;
     projectId: string;
-    expectedUpdatedAt: Date;
-    overlays: Overlay[];
-    audit: Record<string, unknown>;
-  }): Promise<boolean>;
-  now(): Date;
+    expectedRevision: ProjectRevisionV1;
+    audioOverlayId: string | number;
+    targetOverlayId?: string | number;
+    beatFilter: ChatBeatSyncInput['beatFilter'];
+    strengthThreshold: number;
+    evidenceSource: ProjectBeatSyncEvidenceSourceV1;
+  }): Promise<ProjectBeatSyncResultV1>;
 }
 
 export type ChatBeatSyncResult =
@@ -54,12 +55,21 @@ const DEFAULT_DEPENDENCIES: ChatBeatSyncDependencies = {
   loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<ProjectLike | null>,
   loadAsset: (assetId, userId) => assetResolver.getAsset(assetId, userId),
   analyzeAssetBeats: analyzeAssetBeatsThroughRoute,
-  commit: async (input) => projectService.replaceOverlayFamilyAtomic(input.userId, input.projectId, {
-    expectedUpdatedAt: input.expectedUpdatedAt,
-    overlays: input.overlays,
-    projectUpdates: { latestBeatSync: input.audit },
-  }),
-  now: () => new Date(),
+  commit: async (input) => projectService.alignCutsToBeatsAtRevisionV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision: input.expectedRevision,
+      actorKind: 'AGENT',
+      audioOverlayId: input.audioOverlayId,
+      ...(input.targetOverlayId === undefined
+        ? {}
+        : { targetOverlayId: input.targetOverlayId }),
+      beatFilter: input.beatFilter,
+      strengthThreshold: input.strengthThreshold,
+      evidenceSource: input.evidenceSource,
+    },
+  ),
 };
 
 export async function executeChatBeatSync(
@@ -93,7 +103,7 @@ export async function executeChatBeatSync(
   const persistedGrid = record(audioOverlay.beatGrid ?? record(audioOverlay.metadata).beatGrid);
   const cachedAnalysis = record(audioAsset?.beatAnalysis) as BeatAnalysisLike;
   let analysis: BeatAnalysisLike = cachedAnalysis;
-  let evidenceSource = hasBeatArray(persistedGrid)
+  const evidenceSource: ProjectBeatSyncEvidenceSourceV1 = hasBeatArray(persistedGrid)
     ? 'persisted-beat-grid'
     : hasBeatArray(cachedAnalysis)
       ? 'cached-beat-analysis'
@@ -109,28 +119,6 @@ export async function executeChatBeatSync(
     }
   }
 
-  const sourceBeats = selectSourceBeats(
-    persistedGrid,
-    analysis,
-    fps,
-    args.input.beatFilter,
-    args.input.strengthThreshold,
-  );
-  if (sourceBeats.length === 0) {
-    return noOp(`The selected music has no ${args.input.beatFilter} beat evidence to align against.`, {
-      reason: 'missing-licensed-beats',
-      evidenceSource,
-    });
-  }
-  const audioFamily = soundOverlays.filter((overlay) => overlay.assetId === audioOverlay.assetId);
-  const timelineBeats = projectBeatsOntoTimeline(sourceBeats, audioFamily);
-  if (timelineBeats.length === 0) {
-    return noOp('The analyzed beats do not overlap the active music ranges.', {
-      reason: 'beats-outside-active-music',
-      evidenceSource,
-    });
-  }
-
   const sourceDurationFramesByAssetId: Record<string, number> = {};
   const visualAssetIds = [...new Set(overlays
     .filter((overlay) => overlay.type === 'video' && stringValue(overlay.assetId))
@@ -143,57 +131,87 @@ export async function executeChatBeatSync(
     }
   }
 
-  const nextOverlays = structuredClone(overlays);
-  const alignment = alignCutsToBeatsWithEvidence(nextOverlays, timelineBeats, fps, {
+  const sourceBeatEvidence = hasBeatArray(persistedGrid)
+    ? persistedGrid as BeatSyncSourceEvidenceV1
+    : analysis;
+  const resolution = resolveBeatSyncMutationV1({
+    overlays: overlays as Overlay[],
+    fps,
+    audioAssetId: String(audioOverlay.assetId),
+    sourceBeatEvidence,
+    beatFilter: args.input.beatFilter,
+    strengthThreshold: args.input.strengthThreshold,
     ...(args.input.videoOverlayId == null ? {} : { targetOverlayId: args.input.videoOverlayId }),
-    // CRG mapping:audio.cut_on_downbeat defines a +/-3 frame moderate lock.
-    maxSnapFrames: Math.max(1, Math.round(fps * 0.1)),
-    minClipFrames: 1,
-    // CRG mapping/constraint requires a skipped alignment after four locks.
-    maxConsecutiveBeatCuts: 4,
-    protectedBoundaryFrames: captionPhraseBoundaryFrames(overlays, fps),
-    protectedBoundaryToleranceFrames: Math.max(1, Math.round(fps / 30)),
     sourceDurationFramesByAssetId,
-    requireSourceHandles: true,
   });
-  if (alignment.snappedCount === 0) {
+  if (resolution.sourceBeatCount === 0) {
+    return noOp(`The selected music has no ${args.input.beatFilter} beat evidence to align against.`, {
+      reason: 'missing-licensed-beats',
+      evidenceSource,
+    });
+  }
+  if (resolution.timelineBeatCount === 0) {
+    return noOp('The analyzed beats do not overlap the active music ranges.', {
+      reason: 'beats-outside-active-music',
+      evidenceSource,
+    });
+  }
+  const plannedAlignment = resolution.alignment;
+  if (plannedAlignment.snappedCount === 0) {
     return noOp('No existing cut boundary had a safe, speech-compatible beat alignment.', {
       reason: 'no-safe-boundary-alignment',
       evidenceSource,
-      trackOverlayIds: alignment.trackOverlayIds,
-      rejections: alignment.rejections,
+      trackOverlayIds: plannedAlignment.trackOverlayIds,
+      rejections: plannedAlignment.rejections,
     });
   }
 
-  const expectedUpdatedAt = project.updatedAt instanceof Date
-    ? project.updatedAt
-    : new Date(project.updatedAt ?? '');
-  if (Number.isNaN(expectedUpdatedAt.getTime())) {
+  const expectedRevision = readProjectRevisionV1(project);
+  if (!expectedRevision) {
     return failure('BEAT_SYNC_REVISION_MISSING', 'Project revision is missing; beat alignment was not written.');
   }
-  const audit = {
-    version: 'chat-beat-sync-v2',
-    evidenceSource,
-    audioAssetId: audioOverlay.assetId,
-    beatFilter: args.input.beatFilter,
-    alignedAt: dependencies.now(),
-    changes: alignment.changes,
-    rejections: alignment.rejections.slice(0, 100),
-  };
-  const committed = await dependencies.commit({
-    userId: args.userId,
-    projectId: args.projectId,
-    expectedUpdatedAt,
-    overlays: nextOverlays as Overlay[],
-    audit,
-  });
-  if (!committed) {
+  let committed: ProjectBeatSyncResultV1;
+  try {
+    committed = await dependencies.commit({
+      userId: args.userId,
+      projectId: args.projectId,
+      expectedRevision,
+      audioOverlayId: audioOverlay.id,
+      ...(args.input.videoOverlayId == null
+        ? {}
+        : { targetOverlayId: args.input.videoOverlayId }),
+      beatFilter: args.input.beatFilter,
+      strengthThreshold: args.input.strengthThreshold,
+      evidenceSource,
+    });
+  } catch (error) {
+    if (isProjectRevisionConflict(error)) {
+      return failure(
+        'BEAT_SYNC_PROJECT_CONFLICT',
+        'The timeline changed while beat alignment was being planned. Read the latest timeline and retry.',
+      );
+    }
     return failure(
-      'BEAT_SYNC_PROJECT_CONFLICT',
-      'The timeline changed while beat alignment was being planned. Read the latest timeline and retry.',
+      'BEAT_SYNC_COMMIT_FAILED',
+      error instanceof Error ? error.message : 'Beat alignment could not be committed.',
     );
   }
+  if (committed.disposition === 'SAFE_STOP') {
+    return noOp(beatSyncSafeStopMessage(committed.reason), {
+      reason: committed.reason.toLowerCase().replaceAll('_', '-'),
+      evidenceSource,
+    });
+  }
+  if (committed.disposition === 'UNCHANGED') {
+    return noOp('No current cut boundary had a safe beat alignment at commit time.', {
+      reason: committed.reason.toLowerCase().replaceAll('_', '-'),
+      evidenceSource,
+      trackOverlayIds: committed.resolution.alignment.trackOverlayIds,
+      rejections: committed.resolution.alignment.rejections,
+    });
+  }
 
+  const alignment = committed.resolution.alignment;
   const affectedFrameRanges = alignment.changes.map((change) => ({
     startFrame: Math.max(0, Math.min(change.originalFrame, change.alignedFrame) - 1),
     endFrame: Math.max(change.originalFrame, change.alignedFrame) + 2,
@@ -210,7 +228,7 @@ export async function executeChatBeatSync(
       bpm: positiveNumber(persistedGridMetadata.bpm ?? analysis.bpm),
       bpmConfidence: positiveNumber(persistedGridMetadata.bpmConfidence ?? analysis.bpmConfidence),
       alignedBoundaryCount: alignment.snappedCount,
-      totalLicensedBeats: timelineBeats.length,
+      totalLicensedBeats: committed.resolution.timelineBeatCount,
       beatFilter: args.input.beatFilter,
       changes: alignment.changes,
       rejections: alignment.rejections,
@@ -219,69 +237,21 @@ export async function executeChatBeatSync(
   };
 }
 
-function selectSourceBeats(
-  grid: Record<string, any>,
-  analysis: BeatAnalysisLike,
-  fps: number,
-  filter: ChatBeatSyncInput['beatFilter'],
-  strengthThreshold: number,
-): Array<{ frame: number; strength: number; isDownbeat: boolean }> {
-  const rawDownbeats = new Set<number>(
-    Array.isArray(grid.downbeats)
-      ? grid.downbeats.filter(Number.isFinite).map((frame: number) => Math.round(frame))
-      : [],
-  );
-  const rawBeats = hasBeatArray(grid) ? grid.beats : analysis.beats ?? [];
-  return rawBeats
-    .map((beat: AnalyzedBeat) => {
-      const frame = Number.isFinite(beat?.frame)
-        ? Math.round(beat.frame as number)
-        : Number.isFinite(beat?.timeMs)
-          ? Math.round(((beat.timeMs as number) / 1000) * fps)
-          : null;
-      return frame == null ? null : {
-        frame,
-        strength: Number.isFinite(beat?.strength) ? beat.strength as number : 0,
-        isDownbeat: beat?.isDownbeat === true || rawDownbeats.has(frame),
-      };
-    })
-    .filter((beat): beat is { frame: number; strength: number; isDownbeat: boolean } => beat !== null)
-    .filter((beat) => (
-      filter === 'all'
-      || (filter === 'downbeats' && beat.isDownbeat)
-      || (filter === 'strong' && beat.strength >= strengthThreshold)
-    ));
-}
-
-function projectBeatsOntoTimeline(
-  beats: Array<{ frame: number; isDownbeat: boolean }>,
-  audioFamily: Array<Record<string, any>>,
-): Array<{ frame: number; isDownbeat: boolean }> {
-  const projected = new Map<number, { frame: number; isDownbeat: boolean }>();
-  for (const overlay of audioFamily) {
-    const timelineStart = nonNegativeFrame(overlay.from);
-    const sourceStart = nonNegativeFrame(overlay.startFromSound);
-    const duration = nonNegativeFrame(overlay.durationInFrames);
-    const sourceEnd = sourceStart + duration;
-    for (const beat of beats) {
-      if (beat.frame < sourceStart || beat.frame >= sourceEnd) continue;
-      const frame = timelineStart + beat.frame - sourceStart;
-      const existing = projected.get(frame);
-      projected.set(frame, { frame, isDownbeat: existing?.isDownbeat === true || beat.isDownbeat });
-    }
+function beatSyncSafeStopMessage(
+  reason: Extract<ProjectBeatSyncResultV1, { disposition: 'SAFE_STOP' }>['reason'],
+): string {
+  switch (reason) {
+    case 'SOURCE_ASSET_NOT_FOUND':
+      return 'Beat alignment was safely blocked because a current video source is unavailable.';
+    case 'SOURCE_TIME_EVIDENCE_INCOMPLETE':
+      return 'Beat alignment was safely blocked until exact source timing is available.';
+    case 'SOURCE_EVENT_REBIND_UNSUPPORTED':
+      return 'Beat alignment was safely blocked until timestamp-addressed VFR source handling is available.';
+    case 'SOURCE_PROJECT_RATE_MISMATCH':
+      return 'Beat alignment was safely blocked because the source and project rates cannot yet be conformed exactly.';
+    case 'SOURCE_FRAME_COUNT_UNREPRESENTABLE':
+      return 'Beat alignment was safely blocked because the verified source frame count is invalid.';
   }
-  return [...projected.values()].sort((left, right) => left.frame - right.frame);
-}
-
-function captionPhraseBoundaryFrames(overlays: Array<Record<string, any>>, fps: number): number[] {
-  return overlays
-    .filter((overlay) => overlay.type === 'caption' && Array.isArray(overlay.captions))
-    .flatMap((overlay) => overlay.captions.map((caption: Record<string, unknown>) => (
-      Number.isFinite(caption.endMs)
-        ? Math.round(nonNegativeFrame(overlay.from) + ((caption.endMs as number) / 1000) * fps)
-        : null
-    )))
-    .filter((frame): frame is number => Number.isFinite(frame));
 }
 
 function scoreMusicEvidence(overlay: Record<string, any>): number {
@@ -311,7 +281,9 @@ async function analyzeAssetBeatsThroughRoute(assetId: string, userId: string): P
   return payload.analysis as BeatAnalysisLike;
 }
 
-function hasBeatArray(value: unknown): value is { beats: AnalyzedBeat[] } {
+function hasBeatArray(value: unknown): value is {
+  beats: NonNullable<BeatSyncSourceEvidenceV1['beats']>;
+} {
   return Array.isArray(record(value).beats) && record(value).beats.length > 0;
 }
 
@@ -335,6 +307,11 @@ function positiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function nonNegativeFrame(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+function isProjectRevisionConflict(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'PROJECT_REVISION_CONFLICT',
+  );
 }

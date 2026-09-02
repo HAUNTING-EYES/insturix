@@ -64,7 +64,14 @@ export function evaluateAllTracks(
 export function computeSpeedSegments(
   speedCurve: Keyframe[],
   totalDurationFrames: number,
+  availableSourceFrames: number = totalDurationFrames,
 ): SpeedSegment[] {
+  if (!Number.isFinite(totalDurationFrames) || totalDurationFrames < 0) {
+    throw new RangeError('totalDurationFrames must be a non-negative finite number');
+  }
+  if (!Number.isFinite(availableSourceFrames) || availableSourceFrames < 0) {
+    throw new RangeError('availableSourceFrames must be a non-negative finite number');
+  }
   if (!speedCurve || speedCurve.length === 0) {
     return [{
       compositionStartFrame: 0,
@@ -102,7 +109,7 @@ export function computeSpeedSegments(
   let sourceOffset = 0;
   for (const interval of intervals) {
     const compositionDuration = interval.endFrame - interval.startFrame;
-    const remainingSourceFrames = Math.max(0, totalDurationFrames - sourceOffset);
+    const remainingSourceFrames = Math.max(0, availableSourceFrames - sourceOffset);
     const maximumSafeRate = compositionDuration > 0
       ? remainingSourceFrames / compositionDuration
       : 0;

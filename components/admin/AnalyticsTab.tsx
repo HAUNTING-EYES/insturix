@@ -58,6 +58,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 
 interface ContactMessage {
   _id: string;
+  source?: 'contact' | 'support';
   name: string;
   email: string;
   subject: string;
@@ -66,6 +67,9 @@ interface ContactMessage {
   read?: boolean;
   deleted?: boolean;
   deletedAt?: string;
+  organizationName?: string | null;
+  telephone?: string | null;
+  budget?: number | null;
 }
 
 interface AgencyMessage {
@@ -132,6 +136,7 @@ export default function AnalyticsTab() {
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [deletedContactCount, setDeletedContactCount] = useState<number>(0);
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
+  const [messagesError, setMessagesError] = useState<string | null>(null);
   
   // Metrics state
   const [usersSeries, setUsersSeries] = useState<SeriesPoint[]>([]);
@@ -183,14 +188,18 @@ export default function AnalyticsTab() {
       let queryParams = `page=${page}&limit=10`;
       if (filter === 'unread') queryParams += '&read=false';
       if (filter === 'deleted') queryParams += '&deleted=only';
-      const response = await fetch(`/api/admin/contacts?${queryParams}`);
+      const response = await fetch(`/api/admin/inbox?${queryParams}`);
       const data = await response.json();
-      if (data.ok) {
-        setMessages(data.contacts);
-        setPagination(data.pagination);
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.message || 'Unable to load messages');
       }
-    } catch (error) {
-      console.error('Failed to fetch contact messages:', error);
+
+      setMessages(data.messages || []);
+      setPagination(data.pagination);
+      setMessagesError(null);
+    } catch (error: unknown) {
+      console.error('Failed to fetch inbox messages:', error);
+      setMessagesError(error instanceof Error ? error.message : 'Unable to load messages');
     } finally {
       setLoading(false);
     }
@@ -230,9 +239,9 @@ export default function AnalyticsTab() {
   const fetchCounts = useCallback(async () => {
     try {
       const [contactUnread, agencyUnread, contactDeleted, agencyDeleted] = await Promise.all([
-        fetch('/api/admin/contacts?page=1&limit=1&read=false'),
+        fetch('/api/admin/inbox?page=1&limit=1&read=false'),
         fetch('/api/admin/agencies?page=1&limit=1&read=false'),
-        fetch('/api/admin/contacts?page=1&limit=1&deleted=only'),
+        fetch('/api/admin/inbox?page=1&limit=1&deleted=only'),
         fetch('/api/admin/agencies?page=1&limit=1&deleted=only'),
       ]);
       const [cUnread, aUnread, cDeleted, aDeleted] = await Promise.all([
@@ -319,7 +328,7 @@ export default function AnalyticsTab() {
     if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
     
     try {
-      const endpoint = type === 'contact' ? '/api/admin/contacts/bulk' : '/api/admin/agencies/bulk';
+      const endpoint = type === 'contact' ? '/api/admin/inbox' : '/api/admin/agencies/bulk';
       const res = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -354,7 +363,7 @@ export default function AnalyticsTab() {
     try {
       setBulkLoading(true);
       const ids = Array.from(selectedContacts);
-      const res = await fetch('/api/admin/contacts/bulk', {
+      const res = await fetch('/api/admin/inbox', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, action }),
@@ -451,7 +460,7 @@ export default function AnalyticsTab() {
   const handleConfirmPermanentDelete = async () => {
     try {
       setBulkLoading(true);
-      const endpoint = permanentDeleteType === 'contact' ? '/api/admin/contacts/bulk' : '/api/admin/agencies/bulk';
+      const endpoint = permanentDeleteType === 'contact' ? '/api/admin/inbox' : '/api/admin/agencies/bulk';
       const res = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -481,23 +490,23 @@ export default function AnalyticsTab() {
   // Single item actions
   const handleContactReadToggle = async (msg: ContactMessage, e: React.MouseEvent) => {
     e.stopPropagation();
-    const res = await fetch(`/api/admin/contacts/${msg._id}`, {
+    const res = await fetch('/api/admin/inbox', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ read: !msg.read }),
+      body: JSON.stringify({ id: msg._id, read: !msg.read }),
     });
     const json = await res.json();
     if (json.ok) {
       setMessages((prev) => prev.map(m => m._id === msg._id ? { ...m, read: !msg.read } : m));
-      setUnreadCount((c) => json.contact?.read ? Math.max(0, c - 1) : c + 1);
+      setUnreadCount((c) => json.message?.read ? Math.max(0, c - 1) : c + 1);
     }
   };
 
   const handleContactDelete = async (msg: ContactMessage, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/admin/contacts/${msg._id}`, {
+      const res = await fetch('/api/admin/inbox', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleted: true }),
+        body: JSON.stringify({ id: msg._id, deleted: true }),
       });
       const json = await res.json();
       if (json.ok) {
@@ -523,9 +532,9 @@ export default function AnalyticsTab() {
 
   const handleContactRestore = async (msg: ContactMessage, e: React.MouseEvent) => {
     e.stopPropagation();
-    const res = await fetch(`/api/admin/contacts/${msg._id}`, {
+    const res = await fetch('/api/admin/inbox', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deleted: false }),
+      body: JSON.stringify({ id: msg._id, deleted: false }),
     });
     const json = await res.json();
     if (json.ok) {
@@ -915,7 +924,7 @@ export default function AnalyticsTab() {
               <TabsList className="bg-zinc-100 dark:bg-zinc-800 p-1">
                 <TabsTrigger value="contacts" className="text-[11px] px-3 py-1.5 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-700 gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5" />
-                  Contacts
+                  Messages
                   {unreadCount > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 text-[10px] font-medium bg-fuchsia-500 text-white rounded-full">{unreadCount}</span>
                   )}
@@ -931,8 +940,19 @@ export default function AnalyticsTab() {
             </div>
           </div>
 
-          {/* Contacts Tab */}
+          {/* Messages Tab */}
           <TabsContent value="contacts" className="m-0">
+            {messagesError && (
+              <div role="alert" className="mx-5 mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{messagesError}</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => fetchMessages(currentPage)} disabled={loading} className="h-7 shrink-0 text-[11px]">
+                  Retry
+                </Button>
+              </div>
+            )}
             {/* Toolbar */}
             <div className="px-5 py-3 bg-zinc-50/50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1086,6 +1106,16 @@ export default function AnalyticsTab() {
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Subject</p>
                                 <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{msg.subject}</p>
                               </div>
+                              {msg.source === 'support' && (
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Support details</p>
+                                  <div className="space-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+                                    {msg.organizationName && <p>{msg.organizationName}</p>}
+                                    {msg.telephone && <p>{msg.telephone}</p>}
+                                    {msg.budget != null && <p>Budget: ₹{msg.budget.toLocaleString()}</p>}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <div className="mb-4">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Message</p>

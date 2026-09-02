@@ -102,43 +102,44 @@ describe('director worker completion health', () => {
   });
 
   it('does not persist bad-quality Director completions as successful auto-edits', () => {
-    const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
+    const directorSource = readFileSync(join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'), 'utf8');
     const dashboardSource = readFileSync(join(process.cwd(), 'components/editron/project/project-dashboard.tsx'), 'utf8');
     const learningGateSource = readFileSync(join(process.cwd(), 'lib/editron/services/editron-learning-gate.ts'), 'utf8');
 
-    expect(directorSource).toContain("import { resolveDirectorCompletionHealth }");
+    expect(directorSource).toContain('resolveDirectorCompletionHealth,');
     expect(directorSource).toContain("autoEditStatus: completionHealth.autoEditStatus");
     expect(learningGateSource).toContain("autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete'");
     expect(dashboardSource).toContain("if (status === 'needs_review')");
   });
 
-  it('keeps inline worker bandit writes behind the shared learning gate', () => {
+  it('routes queued and inline Director execution through one quality/terminal owner', () => {
+    const canonicalSource = readFileSync(
+      join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'),
+      'utf8',
+    );
     for (const routePath of [
       'app/api/internal/workers/video-analysis/route.ts',
       'app/api/internal/workers/tribe-analysis/route.ts',
     ]) {
       const source = readFileSync(join(process.cwd(), routePath), 'utf8');
 
-      expect(source).toContain("import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate'");
-      expect(source).toContain('const learningDecision = resolveEditronLearningOutcome({');
-      expect(source).toContain('intelligence.renderedQualityEvidence');
-      expect(source).toContain('qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-      expect(source).toContain('renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount');
-      expect(source).toContain("autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review'");
-      expect(source).toContain('learningDecision.shouldRecord && learningDecision.qualityScore !== null');
-      expect(source).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-      expect(source).not.toContain('if (criticalCount <= 5)');
-      expect(source).not.toContain('?? 50');
+      expect(source).toContain("import('@/lib/editron/services/canonical-director-run')");
+      expect(source).toContain('runCanonicalDirectorV1(');
+      expect(source).not.toContain("{ $set: { autoEditStatus: 'directing' } }");
+      expect(source).not.toContain('executeDirectorPlan(projectId');
     }
+    expect(canonicalSource).toContain('resolveDirectorCompletionHealth(');
+    expect(canonicalSource).toContain('completeDirectorRunV1(');
+    expect(canonicalSource).toContain('failDirectorRunV1(');
   });
 
   it('passes rendered quality evidence into the Director worker bandit write', () => {
-    const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
+    const directorSource = readFileSync(join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'), 'utf8');
 
     expect(directorSource).toContain('intelligence.renderedQualityEvidence');
     expect(directorSource).toContain('const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence');
     expect(directorSource).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-    expect(directorSource).toContain('renderedQualityEvidence?.renderedAestheticStatus ??');
+    expect(directorSource).toContain('renderedQualityEvidence?.renderedAestheticStatus');
   });
 
   it('propagates fatal Director errors after lock cleanup instead of returning fake completion', () => {
@@ -146,11 +147,11 @@ describe('director worker completion health', () => {
 
     expect(directorAgentSource).toContain('let fatalDirectorError: Error | null = null');
     expect(directorAgentSource).toContain('fatalDirectorError = err instanceof Error ? err : new Error(String(err));');
-    expect(directorAgentSource).toContain("await unlockDb.collection('projects').updateOne(");
+    expect(directorAgentSource).toContain('await projectService.releaseDirectorMutationLease(userId, projectId, directorLeaseId);');
     expect(directorAgentSource).toContain('if (fatalDirectorError) {');
     expect(directorAgentSource).toContain('throw fatalDirectorError;');
     expect(directorAgentSource.indexOf('throw fatalDirectorError;')).toBeGreaterThan(
-      directorAgentSource.indexOf("await unlockDb.collection('projects').updateOne(")
+      directorAgentSource.indexOf('await projectService.releaseDirectorMutationLease(userId, projectId, directorLeaseId);')
     );
   });
 });

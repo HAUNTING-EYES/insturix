@@ -9,12 +9,18 @@ import {
   type ThinkForgeSourceLedgerEvidenceBoundary,
 } from '../provenance/source-ledger';
 import type { ThinkForgeContentSignalProfile } from '../signals';
+import {
+  createUnspecifiedAudiovisualIntent,
+  type ThinkForgeAudiovisualIntent,
+} from '../schemas/audiovisual-intent';
 
 export type ScriptNarrationMode =
   | 'anchor'
   | 'complement'
   | 'counterpoint'
   | 'minimal'
+  | 'none'
+  | 'open'
   | 'standard_voiceover';
 
 export type ScriptEvidenceNarrativeMode =
@@ -75,6 +81,7 @@ export type ScriptNarrationPlan = {
 
 export interface ScriptEditorialPlan {
   runtime: ScriptRuntimePlan;
+  audiovisualIntent: ThinkForgeAudiovisualIntent;
   narration: ScriptNarrationPlan;
   evidenceNarrative: ScriptEvidenceNarrativePlan;
   visualVerbal: {
@@ -100,6 +107,8 @@ export interface ScriptEditorialPlanInput {
   sourceLedger?: SourceLedger | null;
   /** Supplied by semantic script intake. Omitted legacy callers preserve their existing behavior. */
   evidenceNarrativeIntent?: ScriptEvidenceNarrativeIntent;
+  /** Explicit production constraints resolved by semantic intake; never a video-type label. */
+  audiovisualIntent?: ThinkForgeAudiovisualIntent;
 }
 
 interface NarrationRateGuidance {
@@ -131,6 +140,16 @@ const NARRATION_RATE_GUIDANCE: Readonly<Record<ScriptNarrationMode, NarrationRat
     minimumModeDensity: 0,
     target: 25,
     comfortableMaximum: 50,
+  },
+  none: {
+    minimumModeDensity: 0,
+    target: 0,
+    comfortableMaximum: 0,
+  },
+  open: {
+    minimumModeDensity: 0,
+    target: 0,
+    comfortableMaximum: 170,
   },
   standard_voiceover: {
     minimumModeDensity: 120,
@@ -258,11 +277,21 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
   const hasExactRuntime = targetDurationSeconds > 0;
   const signals = input.contentSignalProfile?.profile.signals;
   const selectedNarration = selectNarrationTechnique(signals);
-  const narrationMode = selectedNarration
+  const audiovisualIntent = input.audiovisualIntent ?? createUnspecifiedAudiovisualIntent();
+  const graphNarrationMode = selectedNarration
     ? NARRATION_MODE_BY_TECHNIQUE[selectedNarration.id] ?? 'standard_voiceover'
     : 'standard_voiceover';
+  const narrationMode = audiovisualIntent.audibleSpeech === 'forbidden'
+    ? 'none'
+    : audiovisualIntent.audibleSpeech === 'required'
+      ? graphNarrationMode
+      : input.audiovisualIntent
+        ? 'open'
+        : graphNarrationMode;
   const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
-  const narrationDirective = directive(selectedNarration);
+  const narrationDirective = narrationMode === 'none' || narrationMode === 'open'
+    ? undefined
+    : directive(selectedNarration);
   const recommendedStructures = selectStructureTechniques(signals, targetDurationSeconds);
   const evidenceNarrative = resolveEvidenceNarrativePlan(
     input.sourceLedger,
@@ -278,6 +307,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
           maximumDurationSeconds: targetDurationSeconds,
         }
       : { policy: 'open' },
+    audiovisualIntent,
     narration: {
       mode: narrationMode,
       minimumModeWordsPerMinute: rateGuidance.minimumModeDensity,
@@ -305,10 +335,12 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
     },
     evidenceNarrative,
     visualVerbal: {
-      onScreenTextRole: narrationMode === 'minimal'
+      onScreenTextRole: narrationMode === 'minimal' || narrationMode === 'none' || narrationMode === 'open'
         ? 'may_replace_narration'
         : 'selective_complement',
-      defaultUsage: narrationMode === 'minimal' ? 'selective' : 'omit',
+      defaultUsage: narrationMode === 'minimal' || narrationMode === 'none' || narrationMode === 'open'
+        ? 'selective'
+        : 'omit',
       duplicationPolicy: 'forbidden',
       factualTextPolicy: 'source_only',
       doctrineSourceLines: [[729, 741], [4051, 4060]],

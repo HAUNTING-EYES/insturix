@@ -16,6 +16,14 @@ import {
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
+import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
+import type { PipelineVideoProjectDeliveryRequestV1 } from '@/lib/editron/services/pipeline-video-project-delivery-v1';
+import {
+  PipelineVideoBatchTerminalBlockedErrorV1,
+  recordPipelineVideoBatchTerminalV1,
+  type PipelineVideoBatchTerminalStatusV1,
+} from '@/lib/editron/services/pipeline-video-batch-terminal-publication-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -39,6 +47,8 @@ interface VideoWorkerPayload {
   nextSceneImageUrl?: string;
   /** Sub-shot index within a montage scene (undefined for continuous scenes) */
   subShotIndex?: number;
+  /** Exact producer-snapshotted target for a post-generation ProjectService delivery. */
+  projectDelivery?: PipelineVideoProjectDeliveryRequestV1;
   /** Scene context for LLM prompt refinement (moved from route to worker for quality).
    *  If present, worker refines motionPrompt via LLM before generating video.
    *  If absent, motionPrompt is used as-is (backward compat). */
@@ -55,6 +65,20 @@ interface VideoWorkerPayload {
     /** Sound design description from script (ambient + spot SFX). Fed into Seedance
      *  audio layer to generate matching foley natively. Unused for non-Seedance models. */
     sfxDescription?: string;
+  };
+}
+
+interface VideoWorkerProjectDeliveryOutcome {
+  status: 'NOT_REQUESTED' | 'APPLIED' | 'ALREADY_APPLIED' | 'CONFLICT';
+  deliveryId?: string;
+  materialHash?: string;
+  requestedRevision?: ProjectRevisionV1;
+  beforeRevision?: ProjectRevisionV1;
+  afterRevision?: ProjectRevisionV1;
+  rebase?: 'FRESH' | 'SAFE_REBASED_TARGET_UNCHANGED';
+  conflict?: {
+    reason: string;
+    currentRevision?: ProjectRevisionV1;
   };
 }
 
@@ -170,13 +194,6 @@ async function handler(request: NextRequest) {
       userId,
     );
 
-    let storyboardBeforeVideoUpdate: Awaited<ReturnType<typeof getStoryboard>> = null;
-    try {
-      storyboardBeforeVideoUpdate = await getStoryboard(storyboardId, userId);
-    } catch (snapshotErr: any) {
-      console.warn(`[VideoWorker] Could not snapshot storyboard before video update: ${snapshotErr.message}`);
-    }
-
     await recordPipelineVideoProviderCost({
       payload,
       status: 'success',
@@ -281,110 +298,88 @@ async function handler(request: NextRequest) {
       );
     }
 
-    // Also update the Editron project overlay if this storyboard is linked to a project.
-    // Without this, video regen updates the storyboard but the editor still shows the old clip.
-    try {
-      const sb = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
-      const linkedProjectId = sb?.projectId;
-      if (linkedProjectId) {
-        // Find the video overlay for this scene (by matching assetId or from-frame position)
-        const scene = sb.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
-        const oldAssetId = scene?.videoAssetId;
-
-        // Register the new asset first
-        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-          { assetId: result.assetId },
-          {
-            $set: {
-              source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',
-              hasNativeAudio: result.hasNativeAudio || false,
-              ...(result.nativeAudioRights ? { audioRights: result.nativeAudioRights } : {}),
-              ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
-              updatedAt: new Date(),
-            },
-            $setOnInsert: {
-              assetId: result.assetId, userId, type: 'video',
-              filename: `${result.assetId}.mp4`,
-              gcsPath: result.gcsPath,
-              r2Key: (result as any).r2Key || result.assetId || null,
-              cachedUrl: result.videoUrl,
-              urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-              uploadedAt: new Date(),
-            },
-            ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-              $unset: {
-                ...(!result.nativeAudioRights ? { audioRights: '' } : {}),
-                ...(!result.generatedVideoReceipt ? { generatedVideoReceipt: '' } : {}),
-              },
-            } : {}),
+    // A project-linked regeneration receives its exact target from the
+    // producer. The worker never re-discovers a target through a broad asset
+    // query and never falls back to a raw project write.
+    let projectDelivery: VideoWorkerProjectDeliveryOutcome = { status: 'NOT_REQUESTED' };
+    if (payload.projectDelivery) {
+      await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+        { assetId: result.assetId, userId },
+        {
+          $set: {
+            source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',
+            hasNativeAudio: result.hasNativeAudio || false,
+            ...(result.nativeAudioRights ? { audioRights: result.nativeAudioRights } : {}),
+            ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+            updatedAt: new Date(),
           },
-          { upsert: true },
-        );
-
-        // Update the overlay in the project that has the old assetId
-        if (oldAssetId) {
-          await db.collection('projects').updateOne(
-            { projectId: linkedProjectId, 'overlays.assetId': oldAssetId },
-            {
-              $set: {
-                'overlays.$.src': result.videoUrl,
-                'overlays.$.content': result.videoUrl,
-                'overlays.$.assetId': result.assetId,
-                'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
-                'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
-                ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
-                ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
-                updatedAt: new Date(),
-              },
-              ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-                $unset: {
-                  ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
-                  ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
-                },
-              } : {}),
+          $setOnInsert: {
+            assetId: result.assetId, userId, type: 'video',
+            filename: `${result.assetId}.mp4`,
+            gcsPath: result.gcsPath,
+            r2Key: (result as any).r2Key || result.assetId || null,
+            cachedUrl: result.videoUrl,
+            urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            uploadedAt: new Date(),
+          },
+          ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
+            $unset: {
+              ...(!result.nativeAudioRights ? { audioRights: '' } : {}),
+              ...(!result.generatedVideoReceipt ? { generatedVideoReceipt: '' } : {}),
             },
-          );
-          console.log(`[VideoWorker] Updated Editron project ${linkedProjectId} overlay: ${oldAssetId} → ${result.assetId}`);
-        }
-      }
-    } catch (projErr: any) {
-      // H4 FIX: Retry once on project overlay update failure before giving up
-      console.warn(`[VideoWorker] Project overlay update failed (attempt 1): ${projErr.message}`);
+          } : {}),
+        },
+        { upsert: true },
+      );
+
       try {
-        await new Promise(r => setTimeout(r, 1000)); // Brief delay before retry
-        const sb2 = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
-        const linkedProjectId2 = sb2?.projectId;
-        if (linkedProjectId2) {
-          const scene2 = sb2.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
-          const oldAssetId2 = scene2?.videoAssetId;
-          if (oldAssetId2) {
-            await db.collection('projects').updateOne(
-              { projectId: linkedProjectId2, 'overlays.assetId': oldAssetId2 },
-              {
-                $set: {
-                  'overlays.$.src': result.videoUrl,
-                  'overlays.$.content': result.videoUrl,
-                  'overlays.$.assetId': result.assetId,
-                  'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
-                  'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
-                  ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
-                  ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
-                  updatedAt: new Date(),
-                },
-                ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-                  $unset: {
-                    ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
-                    ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
-                  },
-                } : {}),
-              },
-            );
-            console.log(`[VideoWorker] Project overlay update succeeded on retry`);
-          }
+        const { projectService } = await import('@/lib/editron/services/project-service');
+        const deliveryResult = await projectService.commitPipelineVideoDeliveryV1(
+          userId,
+          payload.projectDelivery.projectId,
+          {
+            expectedRevision: payload.projectDelivery.expectedRevision,
+            deliveryId: payload.projectDelivery.deliveryId,
+            target: payload.projectDelivery.target,
+            // The worker relays the producer's admission envelope unchanged;
+            // ProjectService is the only owner that can validate and apply it.
+            prerequisite: payload.projectDelivery.prerequisite,
+            replacement: {
+              assetId: result.assetId,
+              sourceUrl: result.videoUrl,
+              durationMs: result.durationMs || (durationSeconds * 1000),
+              hasNativeAudio: result.hasNativeAudio || false,
+              audioRights: result.nativeAudioRights || null,
+              generatedVideoReceipt: result.generatedVideoReceipt || null,
+            },
+          },
+        );
+        const receipt = deliveryResult.deliveryReceipt;
+        projectDelivery = {
+          status: deliveryResult.disposition,
+          deliveryId: receipt.deliveryId,
+          materialHash: receipt.materialHash,
+          requestedRevision: receipt.requestedRevision,
+          beforeRevision: receipt.beforeRevision,
+          afterRevision: receipt.afterRevision,
+          rebase: receipt.rebase,
+        };
+      } catch (deliveryErr: any) {
+        if (deliveryErr?.code !== 'PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT') {
+          throw deliveryErr;
         }
-      } catch (retryErr: any) {
-        // Non-fatal after retry — user can still re-finalize
-        console.warn(`[VideoWorker] Project overlay update failed on retry (non-fatal): ${retryErr.message}`);
+        const conflictReason = typeof deliveryErr.reason === 'string'
+          ? deliveryErr.reason
+          : 'UNKNOWN';
+        projectDelivery = {
+          status: 'CONFLICT',
+          deliveryId: payload.projectDelivery.deliveryId,
+          conflict: {
+            reason: conflictReason,
+            ...(deliveryErr.currentRevision ? { currentRevision: deliveryErr.currentRevision } : {}),
+          },
+        };
+        console.warn(`[VideoWorker] Project delivery conflict for ${payload.projectDelivery.deliveryId}: ${conflictReason}`);
       }
     }
 
@@ -539,27 +534,33 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
             { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
           );
-          // H5 FIX: Add warning to project document so user can see quality issues in the editor
+          // Quality classification remains an analysis concern. ProjectService
+          // is the only owner allowed to persist the resulting project fact.
           try {
-            const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
-            const sbForQuality = await getSb(storyboardId, userId);
+            const sbForQuality = await getStoryboard(storyboardId, userId);
             const qualityProjectId = sbForQuality?.projectId;
             if (qualityProjectId) {
-              await db.collection('projects').updateOne(
-                { projectId: qualityProjectId },
+              const { projectService } = await import('@/lib/editron/services/project-service');
+              const snapshot = await projectService.loadProjectForMutation(userId, qualityProjectId);
+              const qualityWarning = await projectService.recordPipelineVideoQualityWarningV1(
+                userId,
+                qualityProjectId,
                 {
-                  $push: {
-                    'qualityWarnings': {
-                      sceneIndex,
-                      qualityScore,
-                      message: `Scene ${sceneIndex}: Low quality video (${qualityScore}/100). Consider regenerating this scene.`,
-                      createdAt: new Date(),
-                    } as any,
-                  },
+                  expectedRevision: snapshot.revision,
+                  batchId,
+                  jobId,
+                  storyboardId,
+                  sceneIndex,
+                  assetId: result.assetId,
+                  qualityScore,
+                  qualitySource,
                 },
               );
+              console.log(
+                `[VideoWorker] Project quality warning ${qualityWarning.disposition} for ${jobId}.`,
+              );
             }
-          } catch (err: unknown) { console.warn('[VideoWorker] quality warning push failed:', err instanceof Error ? err.message : err); }
+          } catch (err: unknown) { console.warn('[VideoWorker] quality warning persistence failed:', err instanceof Error ? err.message : err); }
         } else {
           console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
         }
@@ -582,6 +583,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
           hasNativeAudio: result.hasNativeAudio || false,
           ...(result.nativeAudioRights ? { nativeAudioRights: result.nativeAudioRights } : {}),
           ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+          projectDelivery,
           completedAt: new Date(),
         },
       },
@@ -601,6 +603,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
       videoUrl: result.videoUrl,
       hasNativeAudio: result.hasNativeAudio || false,
       generatedVideoReceipt: result.generatedVideoReceipt,
+      projectDelivery,
     });
   } catch (error: any) {
     console.error('[VideoWorker] Error:', error.message);
@@ -701,9 +704,10 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   if (!batch) return;
 
   const done = (batch.completed || 0) + (batch.failed || 0);
-  let status = 'processing';
+  let status: 'processing' | PipelineVideoBatchTerminalStatusV1 = 'processing';
   if (done >= batch.totalScenes) {
-    if (batch.failed === 0) status = 'completed';
+    if (done > batch.totalScenes) status = 'partial';
+    else if (batch.failed === 0) status = 'completed';
     else if (batch.completed === 0) status = 'failed';
     else status = 'partial';
   }
@@ -713,66 +717,147 @@ async function updateBatchStatus(batchId: string): Promise<void> {
     { $set: { status, updatedAt: new Date() } },
   );
 
-  // ─── Dispatch Director Agent when ALL videos are done ──────────
-  // Only runs once (when done count first reaches totalScenes).
-  // Reads pendingDirectorProfileId stored by finalize route.
-  // Gets projectId from storyboard (not batch — batch doesn't always have it).
+  // ─── Prepare + dispatch Director Agent when ALL videos are done ──────────
+  // ProjectService retains the finalize signal until the signed Director worker
+  // has atomically claimed it. The batch only records delivery observations;
+  // it never owns or clears project dispatch state.
   const resolvedProjectId = batch.projectId
     || (batch.storyboardId ? (await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any)?.projectId : null);
 
-  // Refresh derived project status whenever a batch finishes
   if (done >= batch.totalScenes && resolvedProjectId) {
+    const recordDirectorDispatch = async (
+      disposition: string,
+      details: Record<string, unknown> = {},
+    ) => {
+      const observedAt = new Date();
+      await db.collection('pipeline_video_batches').updateOne(
+        { _id: batchId } as any,
+        {
+          $set: {
+            directorDispatch: {
+              schemaVersion: 1,
+              disposition,
+              observedAt: observedAt.toISOString(),
+              ...details,
+            },
+            updatedAt: observedAt,
+          },
+        },
+      );
+    };
+    const userId = typeof batch.userId === 'string' && batch.userId.trim()
+      ? batch.userId.trim()
+      : null;
+    const qstashToken = process.env.QSTASH_TOKEN?.trim();
+    const directorBaseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+    if (!userId) {
+      await recordDirectorDispatch('NOT_DISPATCHED_MISSING_BATCH_OWNER');
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: batch userId is missing.`);
+      return;
+    }
+
+    const terminalStatus = status === 'processing' ? null : status;
+    if (!terminalStatus) {
+      await recordDirectorDispatch('NOT_DISPATCHED_INVALID_TERMINAL_STATUS');
+      console.error(`[VideoWorker] Batch ${batchId} reached dispatch without a terminal status.`);
+      return;
+    }
+
+    let directorExpectedRevision: ProjectRevisionV1;
     try {
-      const { projectService } = await import('@/lib/editron/services/project-service');
-      await projectService.refreshProjectStatus(resolvedProjectId);
-    } catch (statusErr: any) {
-      console.warn(`[VideoWorker] Failed to refresh project status for ${resolvedProjectId}:`, statusErr.message);
+      const terminal = await recordPipelineVideoBatchTerminalV1({
+        userId,
+        projectId: resolvedProjectId,
+        batchId,
+        terminalStatus,
+        completed: batch.completed || 0,
+        failed: batch.failed || 0,
+        totalScenes: batch.totalScenes,
+      });
+      directorExpectedRevision = terminal.observedProjectRevision;
+    } catch (terminalErr: unknown) {
+      const reason = terminalErr instanceof PipelineVideoBatchTerminalBlockedErrorV1
+        ? terminalErr.reason
+        : 'UNVERIFIABLE';
+      await recordDirectorDispatch(`NOT_DISPATCHED_PROJECT_TERMINAL_${reason}`, {
+        terminalStatus,
+      });
+      console.error(
+        `[VideoWorker] Batch ${batchId} cannot dispatch Director: project terminal publication ${reason}.`,
+      );
+      return;
+    }
+
+    if (!qstashToken || !isInternalQStashWorkerAuthConfigured()) {
+      await recordDirectorDispatch('NOT_DISPATCHED_WORKER_AUTH_CONFIGURATION', {
+        missingQStashToken: !qstashToken,
+        missingSigningKeys: !isInternalQStashWorkerAuthConfigured(),
+      });
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: signed QStash delivery is not configured.`);
+      return;
+    }
+    if (!directorBaseUrl) {
+      await recordDirectorDispatch('NOT_DISPATCHED_DIRECTOR_WORKER_URL');
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: no deployed worker URL is configured.`);
+      return;
     }
 
     try {
-      const project = await db.collection('projects').findOne({ projectId: resolvedProjectId }) as any;
-      let profileId = project?.pendingDirectorProfileId;
-      const userId = project?.pendingDirectorUserId || project?.userId;
-
-      // D-016: Profile detection removed — signal system drives editing decisions.
-      // Finalize always stores 'G-01'. This fallback covers DB write failures.
-      if (!profileId) {
-        profileId = 'G-01';
-        console.log(`[VideoWorker] No pendingDirectorProfileId — using G-01 (signal-driven, D-016)`);
-      }
-
-      // Clear pending flag so Director doesn't run twice
-      await db.collection('projects').updateOne(
-        { projectId: resolvedProjectId },
-        { $unset: { pendingDirectorProfileId: '', pendingDirectorUserId: '' } },
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const prepared = await projectService.preparePipelineDirectorDispatchV1(
+        userId,
+        resolvedProjectId,
+        {
+          expectedRevision: directorExpectedRevision,
+          batchId,
+        },
       );
-
-      const directorUrl = (() => {
-        const base = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-        return `${base}/api/services/editron/director/execute`;
-      })();
-
-      if (process.env.QSTASH_TOKEN) {
-        const { Client } = await import('@upstash/qstash');
-        const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
-        await qstash.publishJSON({
-          url: directorUrl,
-          body: { projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true },
-          retries: 1,
-        });
-        console.log(`[VideoWorker] Batch ${batchId} complete (${status}) — Director dispatched for ${resolvedProjectId} (profile: ${profileId})`);
-      } else {
-        fetch(directorUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true }),
-        }).catch(() => {});
-        console.log(`[VideoWorker] Batch ${batchId} complete — Director dispatched via fetch for ${resolvedProjectId} (profile: ${profileId})`);
+      if (prepared.disposition !== 'PREPARED' && prepared.disposition !== 'ALREADY_PREPARED') {
+        await recordDirectorDispatch(`NOT_DISPATCHED_${prepared.disposition}`);
+        console.warn(`[VideoWorker] Batch ${batchId} Director handoff was not eligible: ${prepared.disposition}.`);
+        return;
       }
-    } catch (dirErr: any) {
-      console.error(`[VideoWorker] Director dispatch failed after batch ${batchId} complete:`, dirErr.message);
+
+      const { Client } = await import('@upstash/qstash');
+      const publication = await new Client({
+        token: qstashToken,
+        baseUrl: process.env.QSTASH_URL || undefined,
+      }).publishJSON({
+        url: `${directorBaseUrl}/api/internal/workers/director`,
+        body: {
+          projectId: resolvedProjectId,
+          userId,
+          profileId: prepared.dispatch.profileId,
+          pipelineDirectorDispatchToken: prepared.dispatch.dispatchToken,
+        },
+        retries: 1,
+      });
+      const messageId = typeof (publication as { messageId?: unknown }).messageId === 'string'
+        ? (publication as { messageId: string }).messageId
+        : null;
+      await recordDirectorDispatch('PUBLISHED_SIGNED_DIRECTOR_WORKER', {
+        messageId,
+        prepareDisposition: prepared.disposition,
+      });
+      console.log(
+        `[VideoWorker] Batch ${batchId} complete (${status}) — signed Director handoff published for ${resolvedProjectId}.`,
+      );
+    } catch (dirErr: unknown) {
+      try {
+        await recordDirectorDispatch('PUBLISH_FAILED_RETRYABLE');
+      } catch (recordErr: unknown) {
+        console.error(
+          `[VideoWorker] Batch ${batchId} failed to record Director dispatch failure:`,
+          recordErr instanceof Error ? recordErr.message : recordErr,
+        );
+      }
+      console.error(
+        `[VideoWorker] Director dispatch failed after batch ${batchId} complete:`,
+        dirErr instanceof Error ? dirErr.message : dirErr,
+      );
     }
   }
 }

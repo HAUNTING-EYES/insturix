@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   authorizeThinkForgeEvalProviderDispatch,
+  estimateThinkForgeEvalProviderCost,
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalBudgetExceededError,
   ThinkForgeEvalProviderBudget,
 } from '../../lib/thinkforge/eval/provider-budget';
 import {
+  assertEvalProviderCredentialHealthy,
   runEvalPrompt,
   type EvalProviderConfig,
 } from '../../scripts/prompt-optimization/thinkforge-eval-provider-adapter';
@@ -15,6 +17,7 @@ import {
   fingerprintThinkForgeStructuredWriterOutput,
   fingerprintThinkForgeVisiblePublishableOutput,
   getThinkForgeWriterEvalCorpusManifest,
+  resolveEvalWriterTimeoutMs,
 } from '../../scripts/prompt-optimization/eval-thinkforge-writers';
 import type { PostWriterResult } from '../../lib/thinkforge/agents/post-writer-agent';
 
@@ -43,10 +46,37 @@ function createBudget(overrides: Partial<ConstructorParameters<typeof ThinkForge
 describe('ThinkForge eval provider budget', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS;
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_BASE_MS;
     delete process.env.EVAL_PRICE_OPENROUTER_INPUT_PER_1M;
     delete process.env.EVAL_PRICE_OPENROUTER_OUTPUT_PER_1M;
+  });
+
+  it('fails provider credential preflight before a paid cohort can loop', async () => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response('', { status: 401 }));
+    vi.stubGlobal('fetch', providerFetch);
+
+    await expect(assertEvalProviderCredentialHealthy({
+      provider: 'gemini',
+      model: 'models/gemini-3.6-flash',
+      apiKey: 'invalid-key',
+    })).rejects.toThrow('gemini credential preflight failed (401)');
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks independent judge credentials without generating content', async () => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', providerFetch);
+
+    await expect(assertEvalProviderCredentialHealthy(deepSeekConfig)).resolves.toBeUndefined();
+    expect(providerFetch).toHaveBeenCalledWith(
+      'https://api.deepseek.com/models',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer test-key' },
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it('rejects a role overrun before recording or dispatching the next request', async () => {
@@ -94,6 +124,20 @@ describe('ThinkForge eval provider budget', () => {
       });
     })).rejects.toThrow('price_unknown:openrouter/vendor/unpriced-model');
     expect(budget.snapshot().providerRequests).toBe(0);
+  });
+
+  it('prices Gemini 3.6 Flash before a paid eval is dispatched', () => {
+    expect(estimateThinkForgeEvalProviderCost({
+      provider: 'gemini',
+      model: 'models/gemini-3.6-flash',
+      usage: {
+        promptTokens: 1_000_000,
+        completionTokens: 1_000_000,
+      },
+    })).toEqual({
+      estimatedCostUsd: 4.5,
+      note: 'builtin:google_gemini_3_6_flash_standard_2026_08_30',
+    });
   });
 
   it('preflights cache and writer requests without consuming the runtime budget', () => {
@@ -240,6 +284,19 @@ describe('ThinkForge eval provider budget', () => {
 });
 
 describe('ThinkForge writer paid-run preflight', () => {
+  it('gives the complete writer workflow the production execution envelope', () => {
+    expect(resolveEvalWriterTimeoutMs({})).toBe(300_000);
+    expect(resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_REQUEST_TIMEOUT_MS: '90000',
+    })).toBe(300_000);
+    expect(resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_WRITER_TIMEOUT_MS: '420000',
+    })).toBe(420_000);
+    expect(() => resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_WRITER_TIMEOUT_MS: '90.5',
+    })).toThrow('THINKFORGE_EVAL_WRITER_TIMEOUT_MS must be a positive whole number');
+  });
+
   it('keeps tuned regressions separate and exposes fifteen genuinely blind cases', () => {
     const manifest = getThinkForgeWriterEvalCorpusManifest();
 

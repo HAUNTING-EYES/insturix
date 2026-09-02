@@ -8,6 +8,10 @@ import {
 } from './video-treatment';
 
 export const SCRIPT_SIDECAR_V3_VERSION = 3 as const;
+export const SCRIPT_SIDECAR_V3_LINE_DELIVERIES = [
+  ...LINE_DELIVERIES,
+  'diegetic-speech',
+] as const;
 
 const IdentifierSchema = z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/);
 const NonEmptyTextSchema = z.string().min(1);
@@ -72,7 +76,7 @@ const NarrativeLineV3ModelObjectSchema = z.object({
   speakerId: z.string().optional(),
   languageCode: z.string().optional(),
   onCamera: z.boolean().default(false),
-  delivery: z.enum(LINE_DELIVERIES),
+  delivery: z.enum(SCRIPT_SIDECAR_V3_LINE_DELIVERIES),
   sourceRefs: ModelSourceRefsSchema,
 }).strict();
 
@@ -89,6 +93,9 @@ export const NarrativeLineV3Schema = NarrativeLineV3ObjectSchema.superRefine((li
   }
   if (line.delivery === 'sync-dialogue' && !line.onCamera) {
     addIssue(ctx, ['onCamera'], 'sync-dialogue lines must be on camera.');
+  }
+  if (line.delivery === 'diegetic-speech' && line.onCamera) {
+    addIssue(ctx, ['onCamera'], 'diegetic-speech lines must be off camera.');
   }
 });
 

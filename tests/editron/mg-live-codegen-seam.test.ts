@@ -232,6 +232,28 @@ describe('live MG codegen seam', () => {
     expect(result.overlaysCreated).toBe(0);
     expect(overlays).toHaveLength(1);
     expect(overlays.some((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC)).toBe(false);
+    expect(result.projectEvidence).toMatchObject({
+      schemaVersion: 1,
+      mgCodegenRun: {
+        version: 'mg-codegen-run-v2',
+        queuedCount: 1,
+        generatedCount: 0,
+        failedCount: 0,
+        truncated: false,
+        outcomes: [expect.objectContaining({
+          status: 'queued',
+          jobId: 'mgr_0123456789abcdef0123456789abcdef',
+        })],
+      },
+      mgKineticSfxContexts: [expect.objectContaining({
+        version: 'mg-kinetic-sfx-context-v1',
+        momentId: expect.stringContaining('mg-live-project:'),
+      })],
+      mgDeliveryRecords: [expect.objectContaining({
+        status: 'enqueued',
+        jobId: 'mgr_0123456789abcdef0123456789abcdef',
+      })],
+    });
 
     const [jobInput] = mocks.enqueueDurableMgRenderJob.mock.calls[0];
     expect(mocks.captureMgVisualEvidence).toHaveBeenCalledWith(expect.objectContaining({
@@ -246,16 +268,7 @@ describe('live MG codegen seam', () => {
     expect(jobInput).toMatchObject({ projectId: 'mg-live-project', userId: 'user-1', orgId: 'org-1', sequenceNamespace: 'user-1' });
     expect(mocks.assetsUpdateOne).not.toHaveBeenCalled();
     expect(mocks.recordStorageUsage).not.toHaveBeenCalled();
-    expect(mocks.projectsUpdateOne).toHaveBeenCalledWith(
-      { projectId: 'mg-live-project', userId: 'user-1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          'intelligence.mgCodegenRun.queuedCount': 1,
-          'intelligence.mgCodegenRun.generatedCount': 0,
-          'intelligence.mgCodegenRun.failedCount': 0,
-        }),
-      }),
-    );
+    expect(mocks.projectsUpdateOne).not.toHaveBeenCalled();
   });
 
   it('fails closed before durable dispatch when the video-level designer is unavailable', async () => {
@@ -341,17 +354,15 @@ describe('live MG codegen seam', () => {
       overlay.type === OverlayType.MG_SEQUENCE || overlay.type === OverlayType.MOTION_GRAPHIC
     ))).toBe(false);
     expect(mocks.assetsUpdateOne).not.toHaveBeenCalled();
-    const projectCall = mocks.projectsUpdateOne.mock.calls.at(-1) as unknown as
-      | [unknown, { $set: Record<string, any> }]
-      | undefined;
-    const runEvidence = projectCall?.[1].$set;
-    expect(runEvidence).toMatchObject({
-      'intelligence.mgCodegenRun.generatedCount': 0,
-      'intelligence.mgCodegenRun.failedCount': 1,
-    });
-    expect(runEvidence?.['intelligence.mgCodegenRun.outcomes'][0]).toMatchObject({
-      status: 'fallback',
-      reason: expect.stringContaining('QSTASH_TOKEN'),
+    expect(mocks.projectsUpdateOne).not.toHaveBeenCalled();
+    expect(result.projectEvidence.mgCodegenRun).toMatchObject({
+      queuedCount: 0,
+      generatedCount: 0,
+      failedCount: 1,
+      outcomes: [expect.objectContaining({
+        status: 'fallback',
+        reason: expect.stringContaining('QSTASH_TOKEN'),
+      })],
     });
   });
 

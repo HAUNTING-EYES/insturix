@@ -34,7 +34,7 @@ import { TimelineProvider } from "./contexts/timeline-context";
 // Autosave Components
 import { AutosaveStatus } from "./components/autosave/autosave-status";
 import { AIToolsDebugPanel } from "./components/debug/ai-tools-debug-panel";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAutosave } from "./hooks/use-autosave";
 import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
@@ -54,6 +54,11 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [markers, setMarkers] = useState<NamedMarker[]>([]);
+  const [loadedProjectDuration, setLoadedProjectDuration] = useState<{
+    projectId: string;
+    durationInFrames: number | null;
+  }>(() => ({ projectId, durationInFrames: null }));
+  const activeProjectIdRef = useRef(projectId);
   const [pendingRightsRenderMode, setPendingRightsRenderMode] =
     useState<RenderMusicDeliveryMode | null>(null);
   const [resumeRightsRenderMode, setResumeRightsRenderMode] =
@@ -80,8 +85,11 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     useVideoPlayer();
 
   // Composition duration calculations
+  const persistedDurationInFrames = loadedProjectDuration.projectId === projectId
+    ? loadedProjectDuration.durationInFrames
+    : null;
   const { durationInFrames, durationInSeconds } =
-    useCompositionDuration(overlays);
+    useCompositionDuration(overlays, persistedDurationInFrames);
 
   // Aspect ratio and player dimension management
   const {
@@ -186,7 +194,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   };
 
   // Implment load state
-  const { saveState, loadState } = useAutosave(projectId, editorState, {
+  const { saveState, loadState, projectRevision } = useAutosave(projectId, editorState, {
     interval: AUTO_SAVE_INTERVAL,
     pauseAutosave: isAIProcessing,
     onSave: () => {
@@ -194,7 +202,14 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
       setLastSaveTime(Date.now());
     },
     onLoad: (loadedState) => {
-      if (loadedState) {
+      if (loadedState && activeProjectIdRef.current === projectId) {
+        setLoadedProjectDuration({
+          projectId,
+          durationInFrames:
+            typeof loadedState.durationInFrames === "number"
+              ? loadedState.durationInFrames
+              : null,
+        });
         // Apply loaded state to editor
         setOverlays(loadedState.overlays || []);
         if (loadedState.aspectRatio) setAspectRatio(loadedState.aspectRatio);
@@ -210,6 +225,11 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
 
   // Load project state on mount
   useEffect(() => {
+    // Do not let the previous project's duration remain authoritative while
+    // this project's persisted state is loading. The keyed value above also
+    // makes this reset safe during the render immediately after a prop change.
+    activeProjectIdRef.current = projectId;
+    setLoadedProjectDuration({ projectId, durationInFrames: null });
     const loadProjectState = async () => {
       try {
         await loadState();
@@ -279,6 +299,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     // Add renderType to the context
     renderType: RENDER_TYPE,
     projectId,
+    projectRevision,
     renderMedia: requestRender,
     cancelRender,
     state,

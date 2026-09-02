@@ -388,6 +388,15 @@ describe('ThinkForge script hydration contract', () => {
     expect(page).toContain('initialDraftRequestedRef.current = true');
     expect(page).toContain("status: 'pending'");
     expect(page).toContain('initialDraftRequestedRef.current = false');
+    const selectIdeaStart = page.indexOf('const handleSelectIdea = async');
+    const selectIdeaEnd = page.indexOf('const handleEnsureTrendSession', selectIdeaStart);
+    const selectIdeaFlow = page.slice(selectIdeaStart, selectIdeaEnd);
+    expect(selectIdeaFlow).toContain('const created = await session.hydrate({');
+    expect(selectIdeaFlow).toContain('setPendingSessionId(created.sessionId);');
+    expect(selectIdeaFlow.indexOf('const created = await session.hydrate({'))
+      .toBeLessThan(selectIdeaFlow.indexOf("setWorkspaceMode('scripting')"));
+    expect(selectIdeaFlow.indexOf('setPendingSessionId(created.sessionId);'))
+      .toBeLessThan(selectIdeaFlow.indexOf("setWorkspaceMode('scripting')"));
     expect(chatPanel).toContain('isScriptLoading');
     expect(chatPanel).toContain('claimInitialDraft: true');
     expect(chatPanel).toContain("lastUserAction: 'initial_draft_claim'");

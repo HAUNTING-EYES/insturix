@@ -2,6 +2,11 @@ import type {
   CreativeReferenceSet,
   VideoTreatment,
 } from '@/lib/thinkforge/schemas/video-treatment';
+import { createUnresolvedAudiovisualDecision } from '@/lib/thinkforge/schemas/resolved-audiovisual-decision';
+
+type FixtureVisualEvent = Omit<VideoTreatment['visualEvents'][number], 'visiblePerson'> & {
+  visiblePerson?: VideoTreatment['visualEvents'][number]['visiblePerson'];
+};
 
 const commonTrace = {
   inputFingerprint: 'fixture_input_fingerprint',
@@ -28,8 +33,10 @@ function treatment(input: {
   narrativeArc: string;
   visualVerbalRelationship: VideoTreatment['visualVerbalRelationship'];
   visualRhythm: string;
-  visualEvents: VideoTreatment['visualEvents'];
+  visualEvents: FixtureVisualEvent[];
   captureRequirements?: VideoTreatment['captureRequirements'];
+  audiovisualIntent?: VideoTreatment['audiovisualIntent'];
+  resolvedAudiovisualDecision?: VideoTreatment['resolvedAudiovisualDecision'];
   decisionTrace?: Partial<VideoTreatment['decisionTrace']>;
   referenceSynthesis?: string[];
 }): VideoTreatment {
@@ -47,7 +54,19 @@ function treatment(input: {
     continuityStrategy: 'Repeat the core visual motif only when the argument advances.',
     audioVoiceStrategy: 'Clear narration carries the reasoning; sound supports transitions without masking speech.',
     userConstraints: ['Respect the requested platform and runtime.'],
-    visualEvents: input.visualEvents,
+    audiovisualIntent: input.audiovisualIntent ?? {
+      version: 1,
+      audibleSpeech: 'unspecified',
+      onCameraSpeech: 'unspecified',
+      visiblePerson: 'unspecified',
+      physicalCapture: 'unspecified',
+    },
+    resolvedAudiovisualDecision:
+      input.resolvedAudiovisualDecision ?? createUnresolvedAudiovisualDecision(),
+    visualEvents: input.visualEvents.map((event) => ({
+      ...event,
+      visiblePerson: event.visiblePerson ?? 'unspecified',
+    })),
     captureRequirements: input.captureRequirements ?? [],
     decisionTrace: {
       ...commonTrace,
@@ -133,6 +152,7 @@ export const mixedPresenterCutawayTreatment = treatment({
     momentId: 'moment_opening_claim',
     audienceJob: 'Establish authority and emotional stakes.',
     visualThesis: 'Keep the audience with the host while the claim lands.',
+    visiblePerson: 'required',
     audioRelationship: 'anchor',
     timingNote: 'Begins with the first spoken sentence and remains present through the turn.',
     continuityNotes: ['Return to the host after the counterpoint resolves.'],
@@ -320,6 +340,7 @@ export const unknownSetupTreatment = treatment({
     momentId: 'moment_opening',
     audienceJob: 'Create a credible direct connection before the explanation expands.',
     visualThesis: 'Show the host only after a user-confirmed production profile exists.',
+    visiblePerson: 'required',
     audioRelationship: 'anchor',
     timingNote: 'Opening beat only.',
     continuityNotes: [],

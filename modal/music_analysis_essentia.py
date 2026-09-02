@@ -12,7 +12,7 @@ Analyzes audio for music characteristics using Essentia:
   - duration_ms: total audio duration
 
 Endpoint: POST https://jainnimit728--music-analysis-essentia-analyzer-analyze.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/music-analysis-service.ts → director-agent.ts
 
 Deploy:   modal deploy modal/music_analysis_essentia.py
@@ -48,7 +48,6 @@ image = (
 # ─── Constants ──────────────────────────────────────────────────────────────
 
 TARGET_SR = 44100  # Essentia standard sample rate
-SPEECH_ENERGY_THRESHOLD = 0.02  # RMS below this = silence/very quiet
 
 # ─── Inference Class ────────────────────────────────────────────────────────
 
@@ -65,13 +64,11 @@ class EssentiaAnalyzer:
 
     @modal.enter()
     def setup(self):
-        import essentia
         import essentia.standard as es
 
         self.es = es
-        print(f"[EssentiaAnalyzer] Essentia {essentia.__version__} loaded")
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def analyze(self, request: dict):
         import time
         import numpy as np
@@ -85,12 +82,10 @@ class EssentiaAnalyzer:
         # ── 1. Download + decode audio ─────────────────────────────────
         try:
             audio, sr = _load_audio(audio_url, TARGET_SR)
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] Audio load failed: {e}")
+        except Exception:
             return _empty_response(0, t0)
 
         duration_ms = len(audio) / sr * 1000
-        print(f"[EssentiaAnalyzer] Audio loaded: {duration_ms:.0f}ms, {sr}Hz")
 
         # ── 2. BPM + Beat tracking ─────────────────────────────────────
         try:
@@ -114,8 +109,7 @@ class EssentiaAnalyzer:
                 max_s = max(final_strengths) if max(final_strengths) > 0 else 1.0
                 final_strengths = [s / max_s for s in final_strengths]
 
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] BPM/beat extraction failed: {e}")
+        except Exception:
             bpm = 0
             final_beats = []
             final_strengths = []
@@ -124,8 +118,7 @@ class EssentiaAnalyzer:
         try:
             key, scale, key_strength = self.es.KeyExtractor()(audio)
             key_str = f"{key} {scale}" if key_strength > 0.3 else None
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] Key detection failed: {e}")
+        except Exception:
             key_str = None
 
         # ── 4. Energy curve ────────────────────────────────────────────
@@ -142,8 +135,7 @@ class EssentiaAnalyzer:
             if energy_curve:
                 max_e = max(energy_curve) if max(energy_curve) > 0 else 1.0
                 energy_curve = [e / max_e for e in energy_curve]
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] Energy curve failed: {e}")
+        except Exception:
             energy_curve = []
 
         # ── 5. Music presence estimation ───────────────────────────────
@@ -152,16 +144,14 @@ class EssentiaAnalyzer:
             music_presence = _estimate_music_presence(
                 audio, sr, bpm, len(final_beats), duration_ms, energy_curve
             )
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] Music presence estimation failed: {e}")
+        except Exception:
             music_presence = 0.0
 
         # ── 6. Section detection ───────────────────────────────────────
         # Simple energy-based segmentation (Essentia's SBic or structural segmentation)
         try:
             sections = _detect_sections(audio, sr, energy_curve, duration_ms)
-        except Exception as e:
-            print(f"[EssentiaAnalyzer] Section detection failed: {e}")
+        except Exception:
             sections = []
 
         processing_time_ms = int((time.time() - t0) * 1000)
@@ -180,13 +170,6 @@ class EssentiaAnalyzer:
             "processing_time_ms": processing_time_ms,
         }
 
-        print(
-            f"[EssentiaAnalyzer] Done in {processing_time_ms}ms: "
-            f"BPM={result['bpm']}, {len(result['beats'])} beats, "
-            f"{len(result['sections'])} sections, "
-            f"music_presence={result['music_presence']}, key={key_str}"
-        )
-
         return result
 
 
@@ -199,7 +182,6 @@ def _load_audio(url: str, target_sr: int):
     import tempfile
     import subprocess
     import soundfile as sf
-    import numpy as np
 
     response = requests.get(url, timeout=120)
     response.raise_for_status()

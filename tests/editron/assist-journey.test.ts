@@ -49,6 +49,12 @@ import { buildAssistBriefing } from '@/lib/editron/services/assist-briefing';
 // ── Minimal stateful in-memory Mongo (real operator semantics for what we use) ──
 function matches(doc: Record<string, unknown>, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([k, cond]) => {
+    if (k === '$and') {
+      return (cond as Record<string, unknown>[]).every((clause) => matches(doc, clause));
+    }
+    if (k === '$or') {
+      return (cond as Record<string, unknown>[]).some((clause) => matches(doc, clause));
+    }
     const v = doc[k];
     if (cond && typeof cond === 'object' && !Array.isArray(cond)) {
       const c = cond as Record<string, unknown>;
@@ -57,11 +63,16 @@ function matches(doc: Record<string, unknown>, filter: Record<string, unknown>):
       if ('$in' in c) return (c.$in as unknown[]).includes(v);
       if ('$exists' in c) return (v !== undefined) === c.$exists;
     }
+    if (v instanceof Date && cond instanceof Date) return v.getTime() === cond.getTime();
     return v === cond;
   });
 }
 function makeDb(seed: Record<string, unknown>[]) {
-  const projects = seed.map((d) => ({ ...d }));
+  const projects: Record<string, unknown>[] = seed.map((d) => ({
+    projectRevision: 0,
+    updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    ...d,
+  }));
   const collection = (name: string) => {
     if (name !== 'projects') return { findOne: async () => null, updateOne: async () => ({ matchedCount: 0, modifiedCount: 0 }) };
     return {
@@ -78,6 +89,9 @@ function makeDb(seed: Record<string, unknown>[]) {
         if (!doc) return { matchedCount: 0, modifiedCount: 0 };
         for (const [k, val] of Object.entries((update.$set as Record<string, unknown>) ?? {})) doc[k] = val;
         for (const k of Object.keys((update.$unset as Record<string, unknown>) ?? {})) delete doc[k];
+        for (const [k, val] of Object.entries((update.$inc as Record<string, number>) ?? {})) {
+          doc[k] = Number(doc[k] ?? 0) + val;
+        }
         return { matchedCount: 1, modifiedCount: 1 };
       },
     };
@@ -137,7 +151,12 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
 
   it('3. FAIL: a stage failure settles scan_failed + refunds exactly once (money moved once)', async () => {
     const { db, projects } = makeDb([{ projectId: 'p3', editMode: 'assist', autoEditStatus: 'analyzing_deep', assistCreditTransactionId: 'tx3', assistChargedCredits: 15, userId: 'user_1' }]);
-    const outcome = await settleAssistScanFailure(db as never, 'p3', 'gpu exploded');
+    const outcome = await settleAssistScanFailure(db as never, {
+      projectId: 'p3',
+      userId: 'user_1',
+      reason: 'gpu exploded',
+      creditTransactionId: 'tx3',
+    });
     expect(outcome).toBe('refunded');
     expect(projects[0].autoEditStatus).toBe('scan_failed');
     expect(refundForWallet).toHaveBeenCalledOnce();
@@ -147,8 +166,9 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
 
   it('4. REDELIVERY: QStash re-delivers the same failure — the second attempt refunds NOTHING', async () => {
     const { db } = makeDb([{ projectId: 'p4', editMode: 'assist', autoEditStatus: 'directing_queued', assistCreditTransactionId: 'tx4', assistChargedCredits: 15, userId: 'user_1' }]);
-    expect(await settleAssistScanFailure(db as never, 'p4', 'fail')).toBe('refunded');
-    expect(await settleAssistScanFailure(db as never, 'p4', 'fail-redelivered')).toBe('transition-lost');
+    const run = { projectId: 'p4', userId: 'user_1', creditTransactionId: 'tx4' };
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'fail' })).toBe('refunded');
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'fail-redelivered' })).toBe('unverifiable-run');
     expect(refundForWallet).toHaveBeenCalledOnce(); // exactly one refund across both deliveries
   });
 

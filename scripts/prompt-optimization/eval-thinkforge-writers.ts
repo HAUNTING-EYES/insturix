@@ -62,12 +62,15 @@ import {
 import type { RetrievedContext } from '../../lib/thinkforge/context/fetchContextSources';
 import type { ThinkForgeWriterInvocationTraceV1 } from '../../lib/thinkforge/provenance/generation-trace';
 import {
+  assertEvalProviderCredentialHealthy,
   buildEvalProviderConfig,
   resolveEvalTransientRetryAttempts,
   runEvalPrompt,
   type EvalProvider,
   type EvalProviderConfig,
 } from './thinkforge-eval-provider-adapter';
+import { buildScriptEditorialPlan } from '../../lib/thinkforge/agents/script-editorial-plan';
+import { assessScriptEvidenceSufficiency } from '../../lib/thinkforge/provenance/script-evidence-sufficiency';
 import {
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalBudgetExceededError,
@@ -102,10 +105,25 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
-const configuredWriterTimeoutMs = Number.parseInt(process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS ?? '90000', 10);
-const EVAL_WRITER_TIMEOUT_MS = Number.isFinite(configuredWriterTimeoutMs) && configuredWriterTimeoutMs > 0
-  ? configuredWriterTimeoutMs
-  : 90_000;
+
+// Match the production chat route's five-minute execution envelope. Judge/provider HTTP calls
+// keep their independent request timeout in thinkforge-eval-provider-adapter.
+const DEFAULT_EVAL_WRITER_TIMEOUT_MS = 5 * 60 * 1_000;
+
+export function resolveEvalWriterTimeoutMs(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const configured = environment.THINKFORGE_EVAL_WRITER_TIMEOUT_MS?.trim();
+  if (!configured) return DEFAULT_EVAL_WRITER_TIMEOUT_MS;
+
+  const timeoutMs = Number(configured);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('THINKFORGE_EVAL_WRITER_TIMEOUT_MS must be a positive whole number');
+  }
+  return timeoutMs;
+}
+
+const EVAL_WRITER_TIMEOUT_MS = resolveEvalWriterTimeoutMs();
 
 async function withWriterTimeout<T>(
   operation: (abortSignal: AbortSignal) => Promise<T>,
@@ -204,7 +222,10 @@ if (captureRejectedOutput) {
 
 type EvalPromotionCohort = 'known_regression' | 'blind_heldout';
 type EvalSuite = 'core' | 'regression' | 'heldout';
-type EvalTestCase = TestCase & { promotionCohort?: EvalPromotionCohort };
+type EvalTestCase = TestCase & {
+  promotionCohort?: EvalPromotionCohort;
+  approvedSourceRecord?: readonly { title: string; summary: string }[];
+};
 
 const TEST_CASES: EvalTestCase[] = [
   {
@@ -460,6 +481,20 @@ const TEST_CASES: EvalTestCase[] = [
       'Use an investigative structure with concrete visual evidence, a skeptical middle, and a measured conclusion.',
     ].join(' '),
     systemBrief: 'Brand: HarborGrid. Voice: investigative, precise, visually literate. Never turn a pilot result into a universal claim.',
+    approvedSourceRecord: [
+      {
+        title: 'HarborGrid pilot scope record',
+        summary: 'The approved pilot record covers one bounded six-month operating period at two cargo terminals. During that period, the participating terminal teams replaced 18 diesel yard tractors with electric units. The record describes only those participating vehicles, those terminals, and that measured period. It does not describe every tractor at the port, activity outside the two terminals, or a permanent fleet conversion.',
+      },
+      {
+        title: 'HarborGrid measurement note',
+        summary: 'The approved measurement note reports that idling fuel use for the participating yard-tractor operation fell 31 percent during the measured pilot period. The note treats this as an observed pilot result, not a forecast. It does not establish total port emissions, lifecycle emissions, future savings, operating results at other terminals, or the effect of a larger rollout. Those boundaries must remain visible in the documentary.',
+      },
+      {
+        title: 'HarborGrid documentary evidence inventory',
+        summary: 'The approved production record permits the film to show the two terminals, the participating tractors, charging activity, shift handovers, route maps, operating logs, and interviews about the bounded pilot. The skeptical middle should distinguish what the record directly shows from questions it cannot answer. The conclusion may summarize the measured period and its limits, but it may not add market claims, causal explanations, emissions forecasts, testimonials, or unsupported comparisons.',
+      },
+    ],
     expectedPath: 'script',
     grounding: ['HarborGrid', 'six-month', 'two cargo terminals', '18 diesel yard tractors', '31%', ['not a forecast', 'not a prediction']],
     criteria: { groundingFloor: 0.8 },
@@ -571,12 +606,33 @@ export function getThinkForgeWriterEvalCorpusManifest() {
 
 export function assertThinkForgeBlindHeldoutCorpusReady(): void {
   const manifest = getThinkForgeWriterEvalCorpusManifest();
-  if (manifest.promotionReady) return;
-  throw new Error(
-    'ThinkForge writer promotion is fail-closed: '
-    + `${manifest.blindHeldoutCaseIds.length}/${manifest.requiredBlindHeldoutCases} genuinely blind cases exist; `
-    + `cases ${manifest.knownRegressionCaseIds.join(',')} are regression cases and cannot count toward promotion.`,
-  );
+  if (!manifest.promotionReady) {
+    throw new Error(
+      'ThinkForge writer promotion is fail-closed: '
+      + `${manifest.blindHeldoutCaseIds.length}/${manifest.requiredBlindHeldoutCases} genuinely blind cases exist; `
+      + `cases ${manifest.knownRegressionCaseIds.join(',')} are regression cases and cannot count toward promotion.`,
+    );
+  }
+  const readinessFailures = TEST_CASES
+    .filter((testCase) => testCase.promotionCohort === 'blind_heldout' && testCase.expectedPath === 'script')
+    .map((testCase) => {
+      const input = buildInput(testCase) as ScriptWriterInput;
+      const assessment = assessScriptEvidenceSufficiency({
+        editorialPlan: buildScriptEditorialPlan({
+          productionBrief: input.productionBrief,
+          contentSignalProfile: input.contentSignalProfile,
+          sourceLedger: input.sourceLedger,
+        }),
+        sourceLedger: input.sourceLedger,
+      });
+      return assessment.status === 'requires_additional_evidence'
+        ? `case_${testCase.id}:${assessment.availableSourceWords}/${assessment.requiredSourceWords}`
+        : null;
+    })
+    .filter((failure): failure is string => Boolean(failure));
+  if (readinessFailures.length > 0) {
+    throw new Error(`ThinkForge held-out corpus is not production-runnable: ${readinessFailures.join(', ')}`);
+  }
 }
 
 // Historical evidence only. These predate explicit authoring requests and cannot gate the
@@ -746,13 +802,21 @@ function writerPathForRequest(request: ThinkForgeAuthoringRequest): WriterPath {
   return request.contentContract.outputKind === 'video_script' ? 'script' : 'post';
 }
 
-function buildRetrievedContext(tc: TestCase): RetrievedContext {
-  const projectFacts = [{
-    id: `eval_project_${tc.id}`,
-    title: tc.name,
-    summary: tc.projectSummary,
-    tags: ['eval', tc.expectedPath],
-  }];
+function buildRetrievedContext(tc: EvalTestCase): RetrievedContext {
+  const projectFacts = [
+    {
+      id: `eval_project_${tc.id}`,
+      title: tc.name,
+      summary: tc.projectSummary,
+      tags: ['eval', tc.expectedPath],
+    },
+    ...(tc.approvedSourceRecord ?? []).map((record, index) => ({
+      id: `eval_project_${tc.id}_source_${index + 1}`,
+      title: record.title,
+      summary: record.summary,
+      tags: ['eval', tc.expectedPath, 'approved-source-record'],
+    })),
+  ];
   return {
     brandDNA: tc.systemBrief ? { voiceLock: tc.systemBrief } : {},
     projectFacts,
@@ -763,7 +827,7 @@ function buildRetrievedContext(tc: TestCase): RetrievedContext {
 }
 
 function buildInput(
-  tc: TestCase,
+  tc: EvalTestCase,
   authoringRequest: ThinkForgeAuthoringRequest = buildAuthoringRequest(tc),
 ): PostWriterInput | ScriptWriterInput {
   const fixture = requireRequestFixture(tc);
@@ -1387,6 +1451,18 @@ export async function main() {
     console.log(
       `Promotion source: ${promotionRepositoryBefore.commitSha} (${promotionRepositoryBefore.branch || 'detached HEAD'}).`,
     );
+    const writerModel = requestEnvelope.find((dispatch) => dispatch.role === 'writer')?.model;
+    if (!writerModel) {
+      console.error('Promotion provider preflight failed: writer model is missing from the request envelope.');
+      process.exit(1);
+    }
+    try {
+      await assertEvalProviderCredentialHealthy({ provider: 'gemini', model: writerModel, apiKey });
+      if (judgeConfig) await assertEvalProviderCredentialHealthy(judgeConfig);
+    } catch (error) {
+      console.error(`Promotion provider preflight failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
   }
 
   await runWithThinkForgeEvalProviderBudget(providerBudget, async () => {

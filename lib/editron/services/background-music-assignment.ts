@@ -10,7 +10,7 @@ import {
   resolveAudioPlatformEvidence,
   resolveMusicGenerationPolicy,
 } from '@/lib/pipeline/bgm-conditioning-contract';
-import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
   getAudioRightsContractIssue,
   MUSIC_RIGHTS_ATTESTATION_VERSION as RIGHTS_ATTESTATION_VERSION,
@@ -29,6 +29,7 @@ import {
   resolveRuntimeMusicCoveragePlan,
 } from './music-coverage-runtime';
 import { projectService } from './project-service';
+import { readProjectRevisionV1 } from './project-revision-v1';
 import { getR2PresignedReadUrl } from './r2-service';
 import { uploadMedia } from './upload-service';
 
@@ -146,7 +147,7 @@ export interface BackgroundMusicAssignmentDependencies {
     assetId: string,
     status: 'attached' | 'orphaned',
   ) => Promise<void>;
-  replaceOverlayFamilyAtomic: typeof projectService.replaceOverlayFamilyAtomic;
+  replaceBackgroundMusicAtRevisionV1: typeof projectService.replaceBackgroundMusicAtRevisionV1;
   now: () => Date;
 }
 
@@ -194,8 +195,8 @@ const defaultDependencies: BackgroundMusicAssignmentDependencies = {
       { $set: { assignmentStatus: status, updatedAt: new Date() } },
     );
   },
-  replaceOverlayFamilyAtomic: (userId, projectId, input) => (
-    projectService.replaceOverlayFamilyAtomic(userId, projectId, input)
+  replaceBackgroundMusicAtRevisionV1: (userId, projectId, input) => (
+    projectService.replaceBackgroundMusicAtRevisionV1(userId, projectId, input)
   ),
   now: () => new Date(),
 };
@@ -231,10 +232,10 @@ export async function assignBackgroundMusic(
     return replayAssignment(project, replay);
   }
 
-  const expectedUpdatedAt = normalizeProjectRevision(project.updatedAt);
+  const expectedRevision = readProjectRevisionV1(project);
   const totalFrames = positiveInteger(project.durationInFrames);
   const fps = positiveNumber(project.fps);
-  if (!expectedUpdatedAt || totalFrames === null || fps === null) {
+  if (!expectedRevision || totalFrames === null || fps === null) {
     throw assignmentError(
       'PROJECT_TIMELINE_INVALID',
       'Project must have a valid revision, durationInFrames, and fps before assigning music',
@@ -435,13 +436,12 @@ export async function assignBackgroundMusic(
     if (mixUpdate) bgmOverlay.styles = mixUpdate.nextStyles;
   }
 
-  const beatRealignEnabled = (
+  const beatRealignRequested = (
     process.env.EDITRON_MUSIC_CHANGE_BEAT_REALIGN === 'true'
     || project.featureFlags?.musicChangeBeatRealign === true
   );
-  const snappedCutCount = beatRealignEnabled
-    ? alignCutsToBeats(nextOverlays, beatEvidence.beatGrid.beats, fps)
-    : 0;
+  const beatRealignEnabled = false;
+  const snappedCutCount = 0;
   const assignmentReceipt = {
     version: 'background-music-assignment-v1',
     idempotencyKey: input.idempotencyKey,
@@ -454,6 +454,7 @@ export async function assignBackgroundMusic(
     musicCoveragePlan,
     snappedCutCount,
     beatRealignEnabled,
+    beatRealignDeferred: beatRealignRequested,
     assignedAt: assignedAt.toISOString(),
   };
 
@@ -492,19 +493,19 @@ export async function assignBackgroundMusic(
     );
   }
 
-  let committed: boolean;
   try {
-    committed = await dependencies.replaceOverlayFamilyAtomic(
+    await dependencies.replaceBackgroundMusicAtRevisionV1(
       input.userId,
       input.projectId,
       {
-        expectedUpdatedAt,
-        overlays: nextOverlays,
-        projectUpdates: {
-          musicCoveragePlan,
-          'intelligence.audio.musicUsageMode': usageMode,
-          'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-          'intelligence.audio.lastMusicAssignment': assignmentReceipt,
+        expectedRevision,
+        actorKind: 'USER',
+        candidateOverlays: nextOverlays,
+        musicCoveragePlan,
+        evidence: {
+          kind: 'ASSIGNMENT',
+          usageMode,
+          receipt: assignmentReceipt,
         },
       },
     );
@@ -514,23 +515,19 @@ export async function assignBackgroundMusic(
       derivativeAssetId,
       'orphaned',
     );
+    if (isProjectRevisionConflict(error)) {
+      throw assignmentError(
+        'PROJECT_CONFLICT',
+        'The project changed while background music was being prepared; the existing BGM was kept',
+        409,
+        error,
+      );
+    }
     throw assignmentError(
       'PROJECT_PERSISTENCE_FAILED',
       `Background music could not be committed to the project: ${errorMessage(error)}`,
       500,
       error,
-    );
-  }
-  if (!committed) {
-    await setDerivativeAssignmentStatusBestEffort(
-      dependencies,
-      derivativeAssetId,
-      'orphaned',
-    );
-    throw assignmentError(
-      'PROJECT_CONFLICT',
-      'The project changed while background music was being prepared; the existing BGM was kept',
-      409,
     );
   }
   await setDerivativeAssignmentStatusBestEffort(
@@ -874,11 +871,6 @@ function isBgmOverlay(overlay: any): boolean {
   return overlay?.type === 'sound' && overlay?.row === ROW.BGM;
 }
 
-function normalizeProjectRevision(value: unknown): Date | null {
-  const revision = value instanceof Date ? value : new Date(String(value ?? ''));
-  return Number.isNaN(revision.getTime()) ? null : revision;
-}
-
 function positiveInteger(value: unknown): number | null {
   return Number.isInteger(value) && (value as number) > 0 ? value as number : null;
 }
@@ -964,4 +956,13 @@ function assignmentError(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isProjectRevisionConflict(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'PROJECT_REVISION_CONFLICT',
+  );
 }

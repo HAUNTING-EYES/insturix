@@ -1,9 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { SchemaType, type GenerationConfig } from '@google/generative-ai';
 import { auth } from '@clerk/nextjs/server';
 import { Receiver } from '@upstash/qstash';
-import { projectService } from '@/lib/editron/services/project-service';
-import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import {
+  projectService,
+  type ProjectBatchAutoEditLifecycleEventV1,
+  type ProjectMutationReceiptV1,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   buildMediaUploadBatchSummary,
@@ -29,9 +34,9 @@ import {
 } from '@/lib/editron/storyline/storyline-llm';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
-import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
 import { buildMultiAssetDirectorContext } from '@/lib/editron/services/multi-asset-director-context';
 import { embedScenes, makeEmbeddingScorer } from '@/lib/editron/storyline/scene-embedding';
@@ -56,13 +61,20 @@ import {
 import {
   ASSIST_STATUS_READY,
   buildAssistHydration,
+  cancelUnchargedAssistScan,
   isAssistIntakeEnabled,
   isAssistProject,
   parseEditMode,
   partitionAssistAssets,
+  registerAssistScanCharge,
+  settleAssistScanFailure,
 } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import {
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+} from '@/lib/editron/security/internal-worker-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -173,10 +185,6 @@ function normalizePlatform(value: unknown): Platform | undefined {
   return allowed.includes(v as Platform) ? v as Platform : undefined;
 }
 
-function normalizeDirectorEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  const v = cleanString(value, 128);
-  return v && allowed.includes(v as T) ? v as T : undefined;
-}
 const MULTI_OUTPUT_FIELDS = ['deliverableSpecs', 'requestedOutputs', 'outputs', 'deliverables'] as const;
 
 function hasMultiOutputRequest(source: unknown): boolean {
@@ -206,6 +214,191 @@ class ScriptGroundingError extends Error {
     super(message);
     this.name = 'ScriptGroundingError';
   }
+}
+
+async function commitBatchAutoEditProjectLifecycleV1(input: {
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  transitionId: string;
+  expectedRevision?: ProjectRevisionV1;
+  event: ProjectBatchAutoEditLifecycleEventV1;
+}): Promise<ProjectMutationReceiptV1> {
+  const expectedRevision = input.expectedRevision
+    ?? (await projectService.loadProjectForMutation(input.userId, input.projectId)).revision;
+  const result = await projectService.recordBatchAutoEditLifecycleV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision,
+      uploadBatchId: input.uploadBatchId,
+      transitionId: input.transitionId,
+      event: input.event,
+    },
+  );
+  if (result.disposition !== 'RECORDED') {
+    throw new Error(`Batch project lifecycle ownership was rejected (${result.disposition}).`);
+  }
+  return result.receipt;
+}
+
+type BatchCreditChargeV1 = Readonly<{
+  transactionId: string;
+  chargedCredits: number;
+}>;
+
+type BatchAutoEditRefundSettlementV1 =
+  | 'refunded'
+  | 'refund-pending'
+  | 'refund-record-pending'
+  | 'refund-ownership-rejected';
+
+async function settleBatchAutoEditRefundV1(input: {
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  creditCheck: Pick<CreditCheckResult, 'refund'>;
+  charge: BatchCreditChargeV1;
+  reason: string;
+}): Promise<BatchAutoEditRefundSettlementV1> {
+  const transitionId = randomUUID();
+  let pendingReceipt: ProjectMutationReceiptV1;
+  try {
+    pendingReceipt = await commitBatchAutoEditProjectLifecycleV1({
+      userId: input.userId,
+      projectId: input.projectId,
+      uploadBatchId: input.uploadBatchId,
+      transitionId,
+      event: {
+        kind: 'PRE_DIRECTOR_REFUND_PENDING',
+        creditTransactionId: input.charge.transactionId,
+        chargedCredits: input.charge.chargedCredits,
+        reason: input.reason,
+      },
+    });
+  } catch (error) {
+    console.error('[auto-edit/from-batch] refund ownership was rejected before wallet mutation:', error);
+    return 'refund-ownership-rejected';
+  }
+
+  try {
+    await input.creditCheck.refund(input.reason);
+  } catch (error) {
+    console.error('[auto-edit/from-batch] wallet refund failed after durable pending receipt:', error);
+    return 'refund-pending';
+  }
+
+  try {
+    await commitBatchAutoEditProjectLifecycleV1({
+      userId: input.userId,
+      projectId: input.projectId,
+      uploadBatchId: input.uploadBatchId,
+      transitionId,
+      expectedRevision: pendingReceipt.revision,
+      event: {
+        kind: 'PRE_DIRECTOR_REFUND_RECORDED',
+        creditTransactionId: input.charge.transactionId,
+        chargedCredits: input.charge.chargedCredits,
+        reason: input.reason,
+      },
+    });
+  } catch (error) {
+    console.error('[auto-edit/from-batch] wallet refund succeeded but project finalization is pending:', error);
+    return 'refund-record-pending';
+  }
+  return 'refunded';
+}
+
+type BatchTerminalProjectionResultV1 = Readonly<{
+  transitionId: string;
+  batchProjectionPending: boolean;
+  projectMutationReceipt?: ProjectMutationReceiptV1;
+  assistCancellation?: Awaited<ReturnType<typeof cancelUnchargedAssistScan>>;
+}>;
+
+async function recordAutoProjectThenBatchTerminalV1(input: {
+  db: { collection: (name: string) => any };
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  event: ProjectBatchAutoEditLifecycleEventV1;
+  expectedBatchStatuses: BatchDocument['orchestrationStatus'][];
+  batchStatus: 'failed' | 'needs_input';
+  batchFields: Record<string, unknown>;
+}): Promise<BatchTerminalProjectionResultV1> {
+  const transitionId = randomUUID();
+  const projectMutationReceipt = await commitBatchAutoEditProjectLifecycleV1({
+    userId: input.userId,
+    projectId: input.projectId,
+    uploadBatchId: input.uploadBatchId,
+    transitionId,
+    event: input.event,
+  });
+  const projection = await input.db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+    {
+      uploadBatchId: input.uploadBatchId,
+      userId: input.userId,
+      projectId: input.projectId,
+      orchestrationStatus: { $in: input.expectedBatchStatuses },
+    },
+    {
+      $set: {
+        orchestrationStatus: input.batchStatus,
+        ...input.batchFields,
+        orchestrationLastTransitionId: transitionId,
+        orchestrationProjectMutationReceipt: projectMutationReceipt,
+        updatedAt: new Date(),
+      },
+      $unset: { orchestrationLeaseUntil: '', orchestrationTransitionId: '' },
+    },
+  );
+  return {
+    transitionId,
+    projectMutationReceipt,
+    batchProjectionPending: projection.matchedCount !== 1,
+  };
+}
+
+async function cancelAssistProjectThenBatchTerminalV1(input: {
+  db: { collection: (name: string) => any };
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  reason: string;
+  expectedBatchStatuses: BatchDocument['orchestrationStatus'][];
+}): Promise<BatchTerminalProjectionResultV1> {
+  const transitionId = randomUUID();
+  const assistCancellation = await cancelUnchargedAssistScan(input.db, {
+    projectId: input.projectId,
+    userId: input.userId,
+    reason: input.reason,
+  });
+  if (assistCancellation !== 'cancelled' && assistCancellation !== 'already-cancelled') {
+    return { transitionId, assistCancellation, batchProjectionPending: true };
+  }
+  const projection = await input.db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+    {
+      uploadBatchId: input.uploadBatchId,
+      userId: input.userId,
+      projectId: input.projectId,
+      orchestrationStatus: { $in: input.expectedBatchStatuses },
+    },
+    {
+      $set: {
+        orchestrationStatus: 'failed',
+        orchestrationError: input.reason,
+        orchestrationLastTransitionId: transitionId,
+        orchestrationAssistCancellation: assistCancellation,
+        updatedAt: new Date(),
+      },
+      $unset: { orchestrationLeaseUntil: '', orchestrationTransitionId: '' },
+    },
+  );
+  return {
+    transitionId,
+    assistCancellation,
+    batchProjectionPending: projection.matchedCount !== 1,
+  };
 }
 
 const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
@@ -278,7 +471,11 @@ async function dispatchBatchOrchestration(params: {
   body: FromBatchRequest;
   caller: BatchCaller;
   delaySeconds?: number;
+  deduplicationId?: string;
 }): Promise<string | undefined> {
+  if (!isInternalQStashDispatchConfigured()) {
+    throw new Error('QStash publisher token and signing keys are required for durable batch orchestration');
+  }
   const token = process.env.QSTASH_TOKEN;
   if (!token) throw new Error('QSTASH_TOKEN is required for durable batch orchestration');
   const target = `${params.baseUrl}/api/services/editron/auto-edit/from-batch`;
@@ -290,6 +487,7 @@ async function dispatchBatchOrchestration(params: {
       'Upstash-Retries': '2',
       'Upstash-Timeout': '300s',
       ...(params.delaySeconds ? { 'Upstash-Delay': `${params.delaySeconds}s` } : {}),
+      ...(params.deduplicationId ? { 'Upstash-Deduplication-Id': params.deduplicationId } : {}),
     },
     body: JSON.stringify(orchestrationRequestBody(params.body, params.caller)),
   });
@@ -440,30 +638,6 @@ function directorNarrativeContext(intake: MediaUploadBatchIntake): string | unde
     script ? 'User-provided script or outline:\n' + script : undefined,
   ].filter((part): part is string => Boolean(part));
   return context.length > 0 ? context.join('\n\n') : undefined;
-}
-
-function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
-  const captionStyle = normalizeDirectorEnum<ProjectBrief['captionStyle'] & string>(intake.captionStyle, ['word_by_word', 'sentence', 'key_phrases', 'none']);
-  const transitionPreference = normalizeDirectorEnum<ProjectBrief['transitionPreference'] & string>(intake.transitionPreference, ['minimal', 'subtle', 'dynamic', 'energetic']);
-  const zoomBehavior = normalizeDirectorEnum<ProjectBrief['zoomBehavior'] & string>(intake.zoomBehavior, ['none', 'subtle', 'moderate', 'aggressive']);
-  const motionGraphics = normalizeDirectorEnum<ProjectBrief['motionGraphics'] & string>(intake.motionGraphics, ['none', 'stats_only', 'full']);
-  const pacingFeel = normalizeDirectorEnum<ProjectBrief['pacingFeel'] & string>(intake.pacingFeel, ['calm', 'balanced', 'energetic', 'fast']);
-  const musicPreference = normalizeDirectorEnum<ProjectBrief['musicPreference'] & string>(intake.musicPreference, ['none', 'subtle_bed', 'energetic', 'match_video']);
-  const narrativeContext = directorNarrativeContext(intake);
-  const editorialPreferences = normalizeEditorialPreferences(intake.editorialPreferences);
-
-  return {
-    modifiers: [],
-    ...(cleanString(intake.platform, 64) && { platform: cleanString(intake.platform, 64) }),
-    ...(narrativeContext && { intent: narrativeContext }),
-    ...(captionStyle && { captionStyle }),
-    ...(transitionPreference && { transitionPreference }),
-    ...(zoomBehavior && { zoomBehavior }),
-    ...(motionGraphics && { motionGraphics }),
-    ...(pacingFeel && { pacingFeel }),
-    ...(musicPreference && { musicPreference }),
-    ...(editorialPreferences && { editorialPreferences }),
-  };
 }
 
 function mergeIntake(batchIntake: MediaUploadBatchIntake | undefined, body: FromBatchRequest): MediaUploadBatchIntake {
@@ -926,6 +1100,7 @@ async function dispatchDirector(params: {
   orgId?: string;
   title: string;
   intake: MediaUploadBatchIntake;
+  pipelineDirectorDispatchToken: string;
 }): Promise<{ queued: boolean; messageId?: string }> {
   const qstashToken = process.env.QSTASH_TOKEN;
   const workerUrl = `${params.baseUrl}/api/internal/workers/director`;
@@ -945,11 +1120,18 @@ async function dispatchDirector(params: {
     pacingFeel: params.intake.pacingFeel,
     musicPreference: params.intake.musicPreference,
     editorialPreferences: normalizeEditorialPreferences(params.intake.editorialPreferences),
+    pipelineDirectorDispatchToken: params.pipelineDirectorDispatchToken,
   };
 
-  if (!qstashToken) {
-    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    await executeDirectorPlan(params.projectId, params.userId, 'A-01', buildDirectorBrief(params.intake));
+  if (!isInternalQStashDispatchConfigured()) {
+    if (!isInternalWorkerInlineFallbackAllowed()) {
+      throw new Error('QStash publisher token and signing keys are required to dispatch the Director outside development');
+    }
+    const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+    const completion = await runCanonicalDirectorV1(payload);
+    if (completion.disposition !== 'COMPLETED' && completion.disposition !== 'ALREADY_PROCESSED') {
+      throw new Error(`Inline Director execution did not complete: ${completion.disposition}.`);
+    }
     return { queued: false };
   }
 
@@ -986,6 +1168,11 @@ export async function POST(request: NextRequest) {
   let body: FromBatchRequest | null = null;
   let uploadBatchId: string | null = null;
   let activeProjectId: string | null = null;
+  let batchCharge: BatchCreditChargeV1 | null = null;
+  let assistCharge: BatchCreditChargeV1 | null = null;
+  let assistChargeRegistered = false;
+  let assistReadyCommitted = false;
+  let autoRefundSettlement: BatchAutoEditRefundSettlementV1 | null = null;
   let baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   try {
@@ -998,6 +1185,13 @@ export async function POST(request: NextRequest) {
     baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      return NextResponse.json({
+        success: false,
+        error: 'Durable batch orchestration is unavailable because its publisher token or signing keys are not configured.',
+      }, { status: 503 });
+    }
 
     const db = await getDatabase();
     let batch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId, userId }) as BatchDocument | null;
@@ -1154,16 +1348,39 @@ export async function POST(request: NextRequest) {
     let readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
     let visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
     if (visualAssets.length === 0) {
+      const noVisualReason = 'Upload batch has no usable video or image assets.';
+      let terminalProjection: BatchTerminalProjectionResultV1 | null = null;
       if (batch.projectId) {
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: batch.projectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: 'Upload batch has no usable video or image assets.', updatedAt: new Date() } },
-        );
+        activeProjectId = batch.projectId;
+        const snapshot = await projectService.loadProjectForMutation(userId, batch.projectId);
+        const project = snapshot.project as unknown as Record<string, unknown>;
+        if (isAssistProject(project)) {
+          terminalProjection = await cancelAssistProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: batch.projectId,
+            uploadBatchId,
+            reason: noVisualReason,
+            expectedBatchStatuses: ['requested', 'waiting_analysis', 'retryable_error'],
+          });
+        } else if (project.autoEditStatus === 'analyzing') {
+          terminalProjection = await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: batch.projectId,
+            uploadBatchId,
+            event: { kind: 'NO_USABLE_VISUAL_ASSETS', errorMessage: noVisualReason },
+            expectedBatchStatuses: ['requested', 'waiting_analysis', 'retryable_error'],
+            batchStatus: 'failed',
+            batchFields: { orchestrationError: noVisualReason },
+          });
+        }
       }
       return NextResponse.json({
         success: false,
-        error: 'Upload batch has no usable video or image assets.',
+        error: noVisualReason,
         batch: summary,
+        ...(terminalProjection ? terminalProjection : {}),
       }, { status: 400 });
     }
 
@@ -1173,13 +1390,6 @@ export async function POST(request: NextRequest) {
     };
 
     if (!caller.internal) {
-      if (!process.env.QSTASH_TOKEN) {
-        return NextResponse.json({
-          success: false,
-          error: 'Durable batch orchestration is unavailable. QSTASH_TOKEN is not configured.',
-        }, { status: 503 });
-      }
-
       creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
       if (!creditCheck.allowed) return creditCheck.errorResponse!;
 
@@ -1192,13 +1402,13 @@ export async function POST(request: NextRequest) {
           }, { status: 409 });
         }
 
-        const project = await db.collection(COLLECTIONS.PROJECTS).findOne({
-          projectId: activeProjectId,
-          userId,
-          sourceUploadBatchId: uploadBatchId,
-          autoEditStatus: 'needs_input',
-        }, { projection: { _id: 0, projectId: 1 } });
-        if (!project) {
+        const recoverySnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+        const recoveryProject = recoverySnapshot.project as unknown as Record<string, unknown>;
+        if (
+          recoveryProject.sourceUploadBatchId !== uploadBatchId
+          || recoveryProject.autoEditStatus !== 'needs_input'
+          || isAssistProject(recoveryProject)
+        ) {
           return NextResponse.json({ success: false, error: 'Recoverable auto-edit project not found.' }, { status: 404 });
         }
 
@@ -1218,6 +1428,7 @@ export async function POST(request: NextRequest) {
         }
 
         const claimNow = new Date();
+        const transitionId = randomUUID();
         const intake = mergeIntake(batch.productionBriefIntake, body);
         const claim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
           {
@@ -1230,6 +1441,7 @@ export async function POST(request: NextRequest) {
             $set: {
               orchestrationStatus: 'requested',
               orchestrationRequestedAt: claimNow,
+              orchestrationTransitionId: transitionId,
               orchestrationAttempt: 0,
               productionBriefIntake: intake,
               updatedAt: claimNow,
@@ -1247,32 +1459,69 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'Coverage recovery is already in progress.' }, { status: 409 });
         }
 
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
-          {
-            $set: {
-              autoEditStatus: 'analyzing',
-              autoEditStageDesc: 'Analyzing additional footage',
+        let recoveryReceipt: ProjectMutationReceiptV1;
+        try {
+          recoveryReceipt = await commitBatchAutoEditProjectLifecycleV1({
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            transitionId,
+            expectedRevision: recoverySnapshot.revision,
+            event: {
+              kind: 'COVERAGE_RESUME_STARTED',
               sourceAssetIds: visualAssets.map((asset) => asset.assetId),
-              'storylinePlan.previousScriptCoverage': batch.scriptCoverage ?? null,
-              updatedAt: claimNow,
+              previousScriptCoverage: batch.scriptCoverage ?? null,
             },
-            $unset: {
-              autoEditError: '',
-              autoEditFailedAt: '',
-              'storylinePlan.scriptCoverage': '',
+          });
+        } catch (projectClaimError) {
+          const projectClaimMessage = projectClaimError instanceof Error
+            ? projectClaimError.message
+            : String(projectClaimError);
+          const compensated = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
             },
-          },
-        );
+            {
+              $set: {
+                orchestrationStatus: 'needs_input',
+                orchestrationError: projectClaimMessage,
+                scriptCoverage: batch.scriptCoverage ?? null,
+                orchestrationLastTransitionId: transitionId,
+                updatedAt: new Date(),
+              },
+              $unset: {
+                orchestrationTransitionId: '',
+                orchestrationLeaseUntil: '',
+              },
+            },
+          );
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            error: projectClaimMessage,
+            batchProjectionPending: compensated.matchedCount === 0,
+          }, { status: 409 });
+        }
 
         try {
           const messageId = await dispatchBatchOrchestration({
             baseUrl,
             body,
             caller: { ...caller, pollAttempt: 0, failureCount: 0 },
+            deduplicationId: transitionId,
           });
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+          const dispatchReceipt = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
+            },
             {
               $set: {
                 orchestrationLastDispatchedAt: new Date(),
@@ -1289,32 +1538,55 @@ export async function POST(request: NextRequest) {
             resumedCoverage: true,
             addedVisualAssetIds,
             messageId,
+            batchProjectionPending: dispatchReceipt.matchedCount === 0,
           }, { status: 202 });
         } catch (dispatchError) {
           const dispatchMessage = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+          let projectRestored = true;
+          try {
+            await commitBatchAutoEditProjectLifecycleV1({
+              userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              transitionId,
+              expectedRevision: recoveryReceipt.revision,
+              event: {
+                kind: 'COVERAGE_RESUME_DISPATCH_FAILED',
+                errorMessage: dispatchMessage,
+                scriptCoverage: batch.scriptCoverage ?? null,
+              },
+            });
+          } catch {
+            projectRestored = false;
+          }
+          const batchRestore = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
+            },
             {
               $set: {
-                orchestrationStatus: 'needs_input',
+                orchestrationStatus: projectRestored ? 'needs_input' : 'retryable_error',
                 orchestrationError: dispatchMessage,
                 scriptCoverage: batch.scriptCoverage ?? null,
+                orchestrationLastTransitionId: transitionId,
                 updatedAt: new Date(),
+              },
+              $unset: {
+                orchestrationTransitionId: '',
+                orchestrationLeaseUntil: '',
               },
             },
           );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
-            {
-              $set: {
-                autoEditStatus: 'needs_input',
-                autoEditError: dispatchMessage,
-                'storylinePlan.scriptCoverage': batch.scriptCoverage ?? null,
-                updatedAt: new Date(),
-              },
-            },
-          );
-          return NextResponse.json({ success: false, projectId: activeProjectId, error: dispatchMessage }, { status: 503 });
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            error: dispatchMessage,
+            lifecycleRepairPending: !projectRestored || batchRestore.matchedCount === 0,
+          }, { status: projectRestored ? 503 : 409 });
         }
       }
 
@@ -1352,37 +1624,33 @@ export async function POST(request: NextRequest) {
       const projectName = cleanString(body.title, 160)
         || cleanString(intake.userIntent, 80)
         || `Auto-Edit Batch: ${uploadBatchId}`;
+      const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
+      const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
       const project = await projectService.createProject(userId, projectName, {
         brandId,
         orgId: orgId ?? batch.orgId ?? null,
+        aspectRatio: initialAspectRatio,
       });
       activeProjectId = project.projectId;
-      if (requestedEditMode === 'assist') {
-        // Persisted BEFORE orchestration dispatch — compose consults project.editMode.
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { editMode: 'assist' } },
-        );
-        console.log(`[DirectorMode] Assist intake accepted for project ${activeProjectId} (batch ${uploadBatchId}).`);
-      }
-      const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
-      const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
-
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        {
-          $set: {
-            autoEditMode: 'batch',
-            autoEditStatus: 'analyzing',
-            sourceUploadBatchId: uploadBatchId,
-            sourceAssetIds: visualAssets.map((asset) => asset.assetId),
-            aspectRatio: initialAspectRatio,
-            playerDimensions: initialPlayerDimensions,
-            updatedAt: new Date(),
-            ...(intake.editorialPreferences ? { editorialPreferences: intake.editorialPreferences } : {}),
-          },
+      const initialSnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+      await projectService.saveProjectWithReceipt(userId, activeProjectId, {
+        overlays: initialSnapshot.project.overlays,
+        aspectRatio: initialAspectRatio,
+        playerDimensions: initialPlayerDimensions,
+        fps: initialSnapshot.project.fps || FPS,
+        durationInFrames: initialSnapshot.project.durationInFrames ?? 0,
+      }, {
+        expectedRevision: initialSnapshot.revision,
+        overlayAuthority: 'server',
+        projectUpdates: {
+          editMode: requestedEditMode,
+          autoEditMode: 'batch',
+          autoEditStatus: 'analyzing',
+          sourceUploadBatchId: uploadBatchId,
+          sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+          ...(intake.editorialPreferences ? { editorialPreferences: intake.editorialPreferences } : {}),
         },
-      );
+      });
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         { uploadBatchId, userId, orchestrationStatus: 'initializing' },
         {
@@ -1535,15 +1803,34 @@ export async function POST(request: NextRequest) {
         );
         if (visualAssets.length === 0) {
           const batchReason = `${reason} No usable video or image assets completed successfully.`;
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId },
-            { $set: { orchestrationStatus: 'failed', orchestrationError: batchReason, updatedAt: now } },
-          );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId },
-            { $set: { autoEditStatus: 'failed', autoEditError: batchReason, updatedAt: now } },
-          );
-          return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed', error: batchReason });
+          const snapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+          const project = snapshot.project as unknown as Record<string, unknown>;
+          const terminalProjection = isAssistProject(project)
+            ? await cancelAssistProjectThenBatchTerminalV1({
+                db,
+                userId,
+                projectId: activeProjectId,
+                uploadBatchId,
+                reason: batchReason,
+                expectedBatchStatuses: ['waiting_analysis'],
+              })
+            : await recordAutoProjectThenBatchTerminalV1({
+                db,
+                userId,
+                projectId: activeProjectId,
+                uploadBatchId,
+                event: { kind: 'ANALYSIS_DEADLINE_EXHAUSTED', errorMessage: batchReason },
+                expectedBatchStatuses: ['waiting_analysis'],
+                batchStatus: 'failed',
+                batchFields: { orchestrationError: batchReason },
+              });
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            status: isAssistProject(project) ? 'scan_failed' : 'failed',
+            error: batchReason,
+            ...terminalProjection,
+          });
         }
         console.warn(`[BatchAutoEdit] Fail-forward after analysis deadline: composing ${visualAssets.length} successful assets; excluded ${timedOutAssetIds.length} timed-out assets.`);
       } else {
@@ -1613,20 +1900,97 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'orchestration-lease-held' });
     }
 
+    const laneOwner = await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId: activeProjectId, userId },
+      { projection: { editMode: 1, autoEditStatus: 1 } },
+    );
+    assistLaneActive = isAssistProject(laneOwner);
+    if (assistLaneActive && laneOwner?.autoEditStatus === ASSIST_STATUS_READY) {
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: { $ne: 'failed' } },
+        {
+          $set: { orchestrationStatus: 'assist_ready', updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: ASSIST_STATUS_READY,
+        recoveredBatchProjection: true,
+      });
+    }
+
     creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
     if (!creditCheck.allowed) {
-      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-        { uploadBatchId, userId, projectId: activeProjectId },
-        { $set: { orchestrationStatus: 'failed', orchestrationError: 'Insufficient credits', updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
-      );
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        { $set: { autoEditStatus: 'failed', autoEditError: 'Insufficient credits', updatedAt: new Date() } },
-      );
-      return creditCheck.errorResponse!;
+      const terminalProjection = assistLaneActive
+        ? await cancelAssistProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            reason: 'Insufficient credits',
+            expectedBatchStatuses: ['composing'],
+          })
+        : await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            event: { kind: 'INSUFFICIENT_CREDITS', errorMessage: 'Insufficient credits' },
+            expectedBatchStatuses: ['composing'],
+            batchStatus: 'failed',
+            batchFields: { orchestrationError: 'Insufficient credits' },
+          });
+      const creditResponse = creditCheck.errorResponse!;
+      const creditPayload = await creditResponse.clone().json().catch(() => ({ error: 'Insufficient credits' }));
+      return NextResponse.json({ ...creditPayload, projectId: activeProjectId, ...terminalProjection }, {
+        status: creditResponse.status,
+      });
     }
     const deduction = await creditCheck.deduct();
     creditsDeducted = true;
+    batchCharge = {
+      transactionId: deduction.transactionId,
+      chargedCredits: getCreditCost('editron', 'auto_edit_analysis', creditOptions),
+    };
+
+    if (assistLaneActive) {
+      assistCharge = batchCharge;
+      const registration = await registerAssistScanCharge(db, {
+        projectId: activeProjectId,
+        userId,
+        creditTransactionId: assistCharge.transactionId,
+        chargedCredits: assistCharge.chargedCredits,
+      });
+      if (!('terminal' in registration)) {
+        throw new Error(`Assist charge registration failed closed (${registration.disposition}).`);
+      }
+      assistChargeRegistered = true;
+      if (registration.terminal) {
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: activeProjectId,
+          userId,
+          reason: 'Director Mode scan cancelled during charge registration — full refund',
+          creditTransactionId: assistCharge.transactionId,
+        });
+        creditsDeducted = settlement !== 'refunded';
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          { uploadBatchId, userId, projectId: activeProjectId },
+          {
+            $set: { orchestrationStatus: 'failed', orchestrationError: 'Cancelled by user', updatedAt: new Date() },
+            $unset: { orchestrationLeaseUntil: '' },
+          },
+        );
+        return NextResponse.json({
+          success: true,
+          projectId: activeProjectId,
+          status: 'scan_failed',
+          cancelledDuringChargeRegistration: true,
+          refundPending: settlement !== 'refunded',
+        });
+      }
+    }
 
     const intake = mergeIntake(batch.productionBriefIntake, body);
     const analysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
@@ -1641,23 +2005,7 @@ export async function POST(request: NextRequest) {
     // Director Mode (assist lane): scans are done and credits are deducted — lay the
     // clips down chronologically, hydrate the project-level analysis fields chat
     // grounds in, and hand the pen to the user. NO storyline, NO director, NO edits.
-    const laneOwner = await db.collection(COLLECTIONS.PROJECTS).findOne(
-      { projectId: activeProjectId },
-      { projection: { editMode: 1 } },
-    );
-    if (isAssistProject(laneOwner)) {
-      assistLaneActive = true;
-      // MONEY (battle-lane P0): the deduction happened at compose above, but the
-      // txId used to be persisted only on the ready-write — which a user cancel
-      // mid-compose beats, stranding the charge. Persist the refund handle FIRST,
-      // BEFORE the multi-second lay-down, so cancel can always find and refund it.
-      const { getCreditCost } = await import('@/lib/config/creditCosts');
-      const assistCharged = getCreditCost('editron', 'auto_edit_analysis', creditOptions);
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        { $set: { assistCreditTransactionId: deduction.transactionId, assistChargedCredits: assistCharged } },
-      );
-
+    if (assistLaneActive && assistCharge) {
       const { usableAssets, excludedNoDurationAssetIds } = partitionAssistAssets(visualAssets);
       const timeline = await materializeChronologicalFallback(usableAssets, userId, uploadBatchId, dims);
       if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
@@ -1667,48 +2015,71 @@ export async function POST(request: NextRequest) {
         fps: FPS,
         durationInFrames: timeline.durationInFrames,
       });
-      await projectService.saveProject(userId, activeProjectId, {
-        overlays: timeline.overlays as any,
-        aspectRatio: brief.output.aspectRatio ?? '16:9',
-        playerDimensions: dims,
-        fps: FPS,
-        durationInFrames: timeline.durationInFrames,
-      });
       const degradedAssetIds = Array.from(new Set([
         ...excludedNoDurationAssetIds,
         ...hydration.degradedVideoAssetIds,
       ])).sort();
-      const readyWrite = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-        { projectId: activeProjectId, autoEditStatus: { $ne: 'scan_failed' } },
-        {
-          $set: {
+      const assistProjectId = activeProjectId;
+      const registeredAssistCharge = assistCharge;
+      const settleLaydownCancellation = async () => {
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: assistProjectId,
+          userId,
+          reason: 'Director Mode scan cancelled during lay-down — full refund',
+          creditTransactionId: registeredAssistCharge.transactionId,
+        });
+        console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${assistProjectId}).`);
+        return NextResponse.json({
+          success: true,
+          projectId: assistProjectId,
+          status: 'scan_failed',
+          cancelledDuringLaydown: true,
+          refundPending: settlement !== 'refunded' && settlement !== 'unverifiable-run',
+        });
+      };
+      const readySnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+      const readyProject = readySnapshot.project as unknown as Record<string, unknown>;
+      if (readyProject.autoEditStatus === 'scan_failed') {
+        return settleLaydownCancellation();
+      }
+      if (
+        !isAssistProject(readyProject)
+        || readyProject.assistCreditTransactionId !== assistCharge.transactionId
+        || readyProject.assistChargedCredits !== assistCharge.chargedCredits
+        || readyProject.autoEditStatus === ASSIST_STATUS_READY
+        || readyProject.autoEditStatus === 'complete'
+      ) {
+        throw new Error('Assist ready finalization lost its exact lane or charge ownership.');
+      }
+      try {
+        await projectService.saveProjectWithReceipt(userId, activeProjectId, {
+          overlays: timeline.overlays as any,
+          aspectRatio: brief.output.aspectRatio ?? '16:9',
+          playerDimensions: dims,
+          fps: FPS,
+          durationInFrames: timeline.durationInFrames,
+        }, {
+          expectedRevision: readySnapshot.revision,
+          overlayAuthority: 'server',
+          projectUpdates: {
             ...hydration.set,
             autoEditStatus: ASSIST_STATUS_READY,
             assistDegradedAssetIds: degradedAssetIds,
-            updatedAt: new Date(),
           },
-          ...(Object.keys(hydration.unset).length > 0 ? { $unset: hydration.unset } : {}),
-        },
-      );
-      if (readyWrite.matchedCount === 0) {
-        // Cancelled mid-compose. Cancel already flipped scan_failed; ensure the
-        // deduction is refunded (idempotent at the service via originalTransactionId)
-        // and never mark the batch ready.
-        const { CreditsService } = await import('@/lib/services/creditsService');
-        await CreditsService.refundForWallet(
-          billingWallet, assistCharged, 'Director Mode scan cancelled during lay-down — full refund',
-          { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: deduction.transactionId, projectId: activeProjectId ?? undefined },
-        ).then(() => db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-        )).catch((e) => {
-          console.error('[DirectorMode][REFUND-FAILED][MONEY] mid-compose cancel refund failed — flagging for support:', e instanceof Error ? e.message : e);
-          return db.collection(COLLECTIONS.PROJECTS).updateOne({ projectId: activeProjectId }, { $set: { assistRefundPending: true } });
+          projectUnsets: [
+            ...Object.keys(hydration.unset),
+            'autoEditError',
+            'autoEditFailedAt',
+          ],
         });
-        console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${activeProjectId}).`);
-        return NextResponse.json({ success: true, projectId: activeProjectId, status: 'scan_failed', cancelledDuringLaydown: true });
+      } catch (readyError) {
+        const latest = await projectService.loadProjectForMutation(userId, activeProjectId);
+        if ((latest.project as unknown as Record<string, unknown>).autoEditStatus === 'scan_failed') {
+          return settleLaydownCancellation();
+        }
+        throw readyError;
       }
+      assistReadyCommitted = true;
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         // Never resurrect a cancelled batch (its orchestrationStatus is 'failed').
         { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: { $ne: 'failed' } },
@@ -1717,7 +2088,6 @@ export async function POST(request: NextRequest) {
           $unset: { orchestrationLeaseUntil: '' },
         },
       );
-      console.log(`[DirectorMode] Assist lay-down complete: ${timeline.clipCount} clips, ${hydration.hydratedVideoAssetIds.length} hydrated, ${degradedAssetIds.length} degraded (project ${activeProjectId}).`);
       return NextResponse.json({
         success: true,
         projectId: activeProjectId,
@@ -1794,8 +2164,7 @@ export async function POST(request: NextRequest) {
           durationInFrames: timeline.durationInFrames,
         })
       : null;
-    const directorAnalysisSet: Record<string, unknown> = {};
-    const directorAnalysisUnset: Record<string, ''> = { batchDeliverable: '' };
+    const directorAnalysisSet: Record<string, unknown> = { batchDeliverable: null };
     if (directorContext) {
       Object.assign(directorAnalysisSet, {
         rawFootageAnalysis: directorContext.rawFootageAnalysis,
@@ -1809,29 +2178,27 @@ export async function POST(request: NextRequest) {
         musicAnalysis: directorContext.musicAnalysis,
       };
       for (const [field, value] of Object.entries(optionalAnalyses)) {
-        if (value != null) directorAnalysisSet[field] = value;
-        else directorAnalysisUnset[field] = '';
+        directorAnalysisSet[field] = value ?? null;
       }
     } else {
       for (const field of ['rawFootageAnalysis', 'segmentAnalysis', 'multiAssetDirectorContext', 'vjepaAnalysis', 'wav2vecAnalysis', 'momentWeightMap', 'musicAnalysis']) {
-        directorAnalysisUnset[field] = '';
+        directorAnalysisSet[field] = null;
       }
     }
 
-
-    await projectService.saveProject(userId, activeProjectId, {
+    const compositionSnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+    const compositionReceipt = await projectService.saveProjectWithReceipt(userId, activeProjectId, {
       overlays: timeline.overlays as any,
       aspectRatio: brief.output.aspectRatio ?? '16:9',
       playerDimensions: dims,
       fps: FPS,
       durationInFrames: timeline.durationInFrames,
-    });
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: activeProjectId },
-      {
-        $set: {
+    }, {
+      expectedRevision: compositionSnapshot.revision,
+      overlayAuthority: 'server',
+      projectUpdates: {
           autoEditMode: 'batch',
-          autoEditStatus: 'directing_queued',
+          autoEditStatus: 'analysis_complete',
           // Fresh (re-)deduct happened this compose — clear any refund mark from a
           // prior failed dispatch so a re-charged edit stays rescuable if it fails.
           autoEditRefunded: false,
@@ -1850,11 +2217,27 @@ export async function POST(request: NextRequest) {
             analysisBridge,
             directorContext: directorContext?.provenance ?? null,
           },
-          updatedAt: new Date(),
-        },
-        $unset: directorAnalysisUnset,
       },
-    );
+    });
+    const intent = await projectService.recordPipelineDirectorIntentV1(userId, activeProjectId, {
+      expectedRevision: compositionReceipt.revision,
+      profileId: 'A-01',
+    });
+    const intentRevision = intent.disposition === 'RECORDED'
+      ? intent.receipt.revision
+      : intent.disposition === 'ALREADY_RECORDED'
+        ? intent.currentRevision
+        : null;
+    if (!intentRevision) {
+      throw new Error(`Batch Director intent was rejected: ${intent.disposition}.`);
+    }
+    const prepared = await projectService.preparePipelineDirectorDispatchV1(userId, activeProjectId, {
+      expectedRevision: intentRevision,
+      batchId: uploadBatchId,
+    });
+    if (prepared.disposition !== 'PREPARED' && prepared.disposition !== 'ALREADY_PREPARED') {
+      throw new Error(`Batch Director dispatch preparation was rejected: ${prepared.disposition}.`);
+    }
 
     const projectName = cleanString(body.title, 160)
       || cleanString(intake.userIntent, 80)
@@ -1870,28 +2253,10 @@ export async function POST(request: NextRequest) {
         platform: brief.output.platform,
         aspectRatio: brief.output.aspectRatio,
       },
+      pipelineDirectorDispatchToken: prepared.dispatch.dispatchToken,
     });
     queuedOrRanDirector = true;
     const directorQueuedAt = new Date();
-
-    if (dispatch.messageId) {
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        {
-          projectId: activeProjectId,
-          userId,
-          autoEditStatus: { $in: ['directing_queued', 'directing'] },
-        },
-        {
-          $set: {
-            directorMessageId: dispatch.messageId,
-            directorQueuedAt,
-            updatedAt: directorQueuedAt,
-          },
-          $unset: { autoEditError: '', autoEditFailedAt: '', 'intelligence.directorDeliveryFailure': '' },
-        },
-      );
-    }
-
 
     await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
       { uploadBatchId, userId, projectId: activeProjectId },
@@ -1926,25 +2291,99 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const terminalScriptGrounding = error instanceof ScriptGroundingError && !error.retryable;
-    if (creditCheck && creditsDeducted && !queuedOrRanDirector) {
-      await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
-        console.error('[auto-edit/from-batch] credit refund failed:', refundError);
+    let catchTerminalProjection: BatchTerminalProjectionResultV1 | null = null;
+    let lifecycleRecoveryError: string | null = null;
+    if (assistLaneActive && assistReadyCommitted && activeProjectId) {
+      console.error('[auto-edit/from-batch] Assist project is ready but its batch projection is pending recovery:', message);
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: ASSIST_STATUS_READY,
+        batchProjectionPending: true,
+      }, { status: 202 });
+    }
+    if (
+      assistLaneActive
+      && assistCharge
+      && assistChargeRegistered
+      && !assistReadyCommitted
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      const db = await getDatabase();
+      const settlement = await settleAssistScanFailure(db, {
+        projectId: activeProjectId,
+        userId: caller.userId,
+        reason: message,
+        creditTransactionId: assistCharge.transactionId,
       });
-      // MONEY (battle-lane P0): the timeline + analysis may already be persisted at
-      // this point (saveProject + hydration run before the director dispatch), which
-      // would make this REFUNDED project pass canRescueToDirectorMode → a free
-      // reopen of an edit the user was refunded for. Mark it so the rescue gate
-      // excludes it.
-      if (activeProjectId) {
-        try {
-          const refundDb = await getDatabase();
-          await refundDb.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId },
-            { $set: { autoEditRefunded: true } },
-          );
-        } catch (markError) {
-          console.error('[auto-edit/from-batch] failed to mark project refunded:', markError instanceof Error ? markError.message : markError);
-        }
+      creditsDeducted = settlement !== 'refunded';
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+        {
+          $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      console.error('[auto-edit/from-batch] Assist compose failed:', message);
+      return NextResponse.json({
+        success: false,
+        projectId: activeProjectId,
+        status: 'scan_failed',
+        error: message,
+        refundPending: settlement !== 'refunded',
+      }, { status: 500 });
+    }
+    if (
+      assistLaneActive
+      && assistCharge
+      && !assistChargeRegistered
+      && creditCheck
+      && creditsDeducted
+      && !queuedOrRanDirector
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      await creditCheck.refund('Assist charge registration failed before project binding').catch((refundError) => {
+        console.error('[auto-edit/from-batch] unbound Assist credit refund failed:', refundError);
+      });
+      const db = await getDatabase();
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+        {
+          $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      return NextResponse.json({
+        success: false,
+        projectId: activeProjectId,
+        status: 'scan_failed',
+        error: message,
+      }, { status: 500 });
+    }
+    if (
+      creditCheck
+      && batchCharge
+      && creditsDeducted
+      && !queuedOrRanDirector
+      && !assistLaneActive
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      autoRefundSettlement = await settleBatchAutoEditRefundV1({
+        userId: caller.userId,
+        projectId: activeProjectId,
+        uploadBatchId,
+        creditCheck,
+        charge: batchCharge,
+        reason: 'Multi-upload auto-edit failed before Director dispatch',
+      });
+      if (autoRefundSettlement === 'refunded' || autoRefundSettlement === 'refund-record-pending') {
+        creditsDeducted = false;
       }
     }
 
@@ -1962,30 +2401,20 @@ export async function POST(request: NextRequest) {
           };
           const coverageGap = error.failureKind === 'coverage_gap';
           const terminalStatus = coverageGap ? 'needs_input' : 'failed';
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-            {
-              $set: {
-                orchestrationStatus: terminalStatus,
-                orchestrationError: message,
-                scriptCoverage: coverageAudit,
-                updatedAt: new Date(),
-              },
-              $unset: { orchestrationLeaseUntil: '' },
+          catchTerminalProjection = await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId: caller.userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            event: {
+              kind: coverageGap ? 'SCRIPT_GROUNDING_NEEDS_INPUT' : 'SCRIPT_GROUNDING_FAILED',
+              errorMessage: message,
+              scriptCoverage: coverageAudit,
             },
-          );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId, userId: caller.userId },
-            {
-              $set: {
-                autoEditStatus: terminalStatus,
-                autoEditError: message,
-                autoEditStageDesc: coverageGap ? 'More footage needed' : 'Script grounding failed',
-                'storylinePlan.scriptCoverage': coverageAudit,
-                updatedAt: new Date(),
-              },
-            },
-          );
+            expectedBatchStatuses: ['composing'],
+            batchStatus: terminalStatus,
+            batchFields: { orchestrationError: message, scriptCoverage: coverageAudit },
+          });
           console.warn(`[auto-edit/from-batch] terminal script grounding failure: ${message}`);
           return NextResponse.json({
             success: false,
@@ -1993,6 +2422,8 @@ export async function POST(request: NextRequest) {
             status: terminalStatus,
             error: message,
             scriptCoverage: coverageAudit,
+            ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
+            ...catchTerminalProjection,
           });
         }
         const nextFailureCount = caller.failureCount + 1;
@@ -2019,36 +2450,55 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', retryScheduled: true }, { status: 202 });
         }
 
-        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-          { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-          { $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
-        );
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          // Assist lane surfaces scan_failed (refund already issued above) — never auto's 'failed'.
-          { $set: { autoEditStatus: assistLaneActive ? 'scan_failed' : 'failed', autoEditError: message, updatedAt: new Date() } },
-        );
+        catchTerminalProjection = assistLaneActive
+          ? await cancelAssistProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              reason: message,
+              expectedBatchStatuses: ['composing'],
+            })
+          : await recordAutoProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              event: { kind: 'ORCHESTRATION_FAILED', errorMessage: message },
+              expectedBatchStatuses: ['composing'],
+              batchStatus: 'failed',
+              batchFields: { orchestrationError: message },
+            });
       } catch (recoveryError) {
         console.error('[auto-edit/from-batch] orchestration recovery failed:', recoveryError);
+        lifecycleRecoveryError = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
       }
-    } else if (activeProjectId) {
+    } else if (activeProjectId && caller && uploadBatchId) {
       try {
         const db = await getDatabase();
-        if (caller && uploadBatchId) {
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-            {
-              $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
-              $unset: { orchestrationLeaseUntil: '' },
-            },
-          );
-        }
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: message, updatedAt: new Date() } },
-        );
+        const snapshot = await projectService.loadProjectForMutation(caller.userId, activeProjectId);
+        catchTerminalProjection = isAssistProject(snapshot.project as unknown as Record<string, unknown>)
+          ? await cancelAssistProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              reason: message,
+              expectedBatchStatuses: ['initializing', 'requested', 'waiting_analysis', 'retryable_error', 'composing'],
+            })
+          : await recordAutoProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              event: { kind: 'ORCHESTRATION_FAILED', errorMessage: message },
+              expectedBatchStatuses: ['initializing', 'requested', 'waiting_analysis', 'retryable_error', 'composing'],
+              batchStatus: 'failed',
+              batchFields: { orchestrationError: message },
+            });
       } catch (statusError) {
-        console.error('[auto-edit/from-batch] project failure status update failed:', statusError);
+        console.error('[auto-edit/from-batch] project failure lifecycle recovery failed:', statusError);
+        lifecycleRecoveryError = statusError instanceof Error ? statusError.message : String(statusError);
       }
     }
 
@@ -2056,6 +2506,12 @@ export async function POST(request: NextRequest) {
     const status = message === 'Unauthorized' || message.includes('signature')
       ? 401
       : message.includes('QSTASH_TOKEN') ? 503 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    return NextResponse.json({
+      success: false,
+      error: message,
+      ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
+      ...(catchTerminalProjection ?? {}),
+      ...(lifecycleRecoveryError ? { lifecycleRepairPending: true, lifecycleRecoveryError } : {}),
+    }, { status });
   }
 }

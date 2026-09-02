@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrandEvent } from '@/lib/shared/brand-events';
 import { POST } from '@/app/api/internal/workers/brand-learning/route';
 
@@ -27,6 +27,10 @@ vi.mock('@/lib/shared/brand-events', () => ({
   claimEventForConsumer: mocks.claimEventForConsumer,
   markEventConsumed: mocks.markEventConsumed,
   releaseEventClaim: mocks.releaseEventClaim,
+}));
+
+vi.mock('@upstash/qstash/nextjs', () => ({
+  verifySignatureAppRouter: (handler: unknown) => handler,
 }));
 
 vi.mock('@/lib/shared/brand-registry', () => ({
@@ -75,6 +79,8 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 describe('brand-learning worker', () => {
   beforeEach(() => {
+    vi.stubEnv('QSTASH_CURRENT_SIGNING_KEY', 'current-signing-key');
+    vi.stubEnv('QSTASH_NEXT_SIGNING_KEY', 'next-signing-key');
     mocks.addGraphitiEpisode.mockReset();
     mocks.claimEventForConsumer.mockReset();
     mocks.invalidateCache.mockReset();
@@ -90,6 +96,10 @@ describe('brand-learning worker', () => {
       recordId: 'learning_record_1',
       candidateCount: 1,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('skips a stale QStash replay when Mongo already marks the event consumed', async () => {

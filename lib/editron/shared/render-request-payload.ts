@@ -764,6 +764,19 @@ function buildRightsNotice(
   };
 }
 
+export const CHAPTER_ORCHESTRATION_EXECUTION_KIND =
+  "CHAPTER_ORCHESTRATION" as const;
+
+export type ChapterRenderApiData = {
+  executionKind: typeof CHAPTER_ORCHESTRATION_EXECUTION_KIND;
+  orchestrationId: string;
+  /** Generic UI identity; chapter progress uses orchestrationId instead. */
+  renderId: string;
+  region: string;
+  chapters: number;
+  message: string;
+};
+
 type ChapterRenderApiDataInput = {
   jobId: string;
   region: string;
@@ -774,12 +787,12 @@ export function buildChapterRenderApiData({
   jobId,
   region,
   chapters,
-}: ChapterRenderApiDataInput) {
+}: ChapterRenderApiDataInput): ChapterRenderApiData {
   return {
+    executionKind: CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+    orchestrationId: jobId,
     renderId: jobId,
-    bucketName: "chapter-render",
     region,
-    isChapterRender: true,
     chapters,
     message: `Split into ${chapters} chapters for parallel rendering`,
   };

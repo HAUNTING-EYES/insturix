@@ -221,6 +221,8 @@ describe("durable asset transcription worker", () => {
       ...oldEnv,
       QSTASH_TOKEN: "qstash_token",
       QSTASH_URL: "https://qstash.test",
+      QSTASH_CURRENT_SIGNING_KEY: "current-signing-key",
+      QSTASH_NEXT_SIGNING_KEY: "next-signing-key",
       NEXT_PUBLIC_APP_URL: "https://app.test",
     };
     workerMocks.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1 });

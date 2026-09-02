@@ -135,6 +135,24 @@ identity after quota/route resolution. Falling back to Gemini 3.6 would be a
 different model condition and must be labelled separately; it cannot fill the
 3.7 rows retroactively.
 
+## Current-source reproducibility note - 2026-08-24
+
+This historical execution remains valid for the exact V6-bound identity above.
+It is not dispatchable from the current worktree. CAP-2A V7 now represents the
+current source census, and the V3R4 operator-input builder reconstructs its
+older V2 -> V3 -> V3R2 base through mutable current builders. Current focused
+tests therefore stop with `HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT` before any
+network request.
+
+That fail-closed result does **not** erase this run. Git commit `7064fe381` is
+an ancestor of the active branch; the local raw root still contains eighteen
+row receipts; cohort receipt `47a57bf2...` binds 18 committed provider HTTP
+attempts and `$0.21068595` spend; and this committed interpretation records the
+frozen dispositions. Do not patch or rerun V3R4. If a current-source H03
+comparison is still required, issue a new V7-bound cohort whose historical
+base is committed and immutable, then perform a fresh zero-inference preflight
+and obtain separate spend approval.
+
 ## Promotion boundary and next order
 
 HOLD-03 remains one synthetic 360x640, 30 fps, silent, bounded composition.
@@ -149,10 +167,10 @@ Stage 2.5 therefore remains `MODIFY_AND_PROCEED_RESEARCH`. The next order is:
    versioned supplemental condition if it becomes callable;
 3. close HREF-01 honestly with the one available human reviewer and retain
    independence as unverified rather than fabricating a second person;
-4. execute the seven unseen holdouts and dependency-shape diversity;
+4. execute genuinely new dependency and invalidation holdouts; HOLD-01 through
+   HOLD-08 are no longer described as unseen;
 5. force native, generated and hybrid baselines on held-out targets;
 6. test stale edits, overlap, safe rebase, locked ranges and context resume;
 7. test long-form sequence/range planning under bounded evidence; and
 8. collect blind quality, correction-time, latency and cost receipts before a
    frozen `GO`, `MODIFY` or `NO-GO` decision.
-

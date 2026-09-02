@@ -46,10 +46,17 @@ const mocks = vi.hoisted(() => ({
   synthesizeImageScenes: vi.fn(),
   readProjectAssetAnalyses: vi.fn(),
   refundCredits: vi.fn(),
+  refundForWallet: vi.fn(),
   receiverVerify: vi.fn(),
   resolveAssetUrl: vi.fn(),
   resolveProductionBrief: vi.fn(),
   resolveEffectiveBrandWithProfile: vi.fn(),
+  recordDirectorDeliveryFailureV1: vi.fn(),
+  recordBatchAutoEditLifecycleV1: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
+  recordPipelineDirectorIntentV1: vi.fn(),
+  preparePipelineDirectorDispatchV1: vi.fn(),
   saveProject: vi.fn(),
   updateBatch: vi.fn(),
   updateProject: vi.fn(),
@@ -65,9 +72,18 @@ vi.mock('@upstash/qstash/nextjs', () => ({
   verifySignatureAppRouter: (handler: unknown) => handler,
 }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
+vi.mock('@/lib/services/creditsService', () => ({
+  CreditsService: { refundForWallet: mocks.refundForWallet },
+}));
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
+    recordDirectorDeliveryFailureV1: mocks.recordDirectorDeliveryFailureV1,
+    recordBatchAutoEditLifecycleV1: mocks.recordBatchAutoEditLifecycleV1,
+    loadProjectForMutation: mocks.loadProjectForMutation,
+    saveProjectWithReceipt: mocks.saveProjectWithReceipt,
+    recordPipelineDirectorIntentV1: mocks.recordPipelineDirectorIntentV1,
+    preparePipelineDirectorDispatchV1: mocks.preparePipelineDirectorDispatchV1,
     saveProject: mocks.saveProject,
   },
 }));
@@ -403,6 +419,7 @@ describe('from-batch storyline route handoff', () => {
     mocks.createProject.mockResolvedValue({ projectId: 'proj_batch_1' });
     mocks.deductCredits.mockResolvedValue({ transactionId: 'credit_tx_1' });
     mocks.refundCredits.mockResolvedValue(undefined);
+    mocks.refundForWallet.mockResolvedValue({ success: true });
     mocks.resolveAssetUrl.mockImplementation(async (assetId: string) => `https://cdn.test/${assetId}`);
     mocks.isR2Available.mockReturnValue(false);
     mocks.hydrateStorylineAnalysesForBatch.mockResolvedValue({
@@ -492,7 +509,62 @@ describe('from-batch storyline route handoff', () => {
     });
     mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
     mocks.saveProject.mockResolvedValue(undefined);
-    mocks.updateProject.mockResolvedValue({ acknowledged: true });
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      },
+      revision: { schemaVersion: 1, value: 1, compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z' },
+    });
+    mocks.saveProjectWithReceipt.mockResolvedValue({
+      schemaVersion: 1,
+      projectId: 'proj_batch_1',
+      revision: { schemaVersion: 1, value: 2, compatibilityUpdatedAt: '2026-09-01T00:00:01.000Z' },
+      committedAt: '2026-09-01T00:00:01.000Z',
+    });
+    mocks.recordBatchAutoEditLifecycleV1.mockImplementation(async (
+      _userId: string,
+      projectId: string,
+      input: { expectedRevision: { schemaVersion: 1; value: number; compatibilityUpdatedAt: string } },
+    ) => ({
+      disposition: 'RECORDED',
+      beforeRevision: input.expectedRevision,
+      receipt: {
+        schemaVersion: 1,
+        projectId,
+        revision: {
+          schemaVersion: 1,
+          value: input.expectedRevision.value + 1,
+          compatibilityUpdatedAt: '2026-09-01T00:00:10.000Z',
+        },
+        committedAt: '2026-09-01T00:00:10.000Z',
+      },
+    }));
+    mocks.recordPipelineDirectorIntentV1.mockResolvedValue({
+      disposition: 'RECORDED',
+      receipt: {
+        schemaVersion: 1,
+        projectId: 'proj_batch_1',
+        revision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+        committedAt: '2026-09-01T00:00:02.000Z',
+      },
+    });
+    mocks.preparePipelineDirectorDispatchV1.mockResolvedValue({
+      disposition: 'PREPARED',
+      dispatch: {
+        schemaVersion: 1,
+        batchId: 'batch_1',
+        profileId: 'A-01',
+        dispatchToken: 'pipeline_director_dispatch_batch_1',
+        preparedAt: '2026-09-01T00:00:03.000Z',
+      },
+    });
+    mocks.updateProject.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     mocks.findProject.mockResolvedValue(null);
     mocks.updateBatch.mockResolvedValue({ acknowledged: true, matchedCount: 1 });
   });
@@ -500,6 +572,204 @@ describe('from-batch storyline route handoff', () => {
   afterEach(() => {
     process.env = oldEnv;
     vi.unstubAllGlobals();
+  });
+
+  function useCoverageProjectSnapshot(): void {
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+        editMode: 'auto',
+        autoEditStatus: 'needs_input',
+        sourceUploadBatchId: 'batch_1',
+      },
+      revision: { schemaVersion: 1, value: 5, compatibilityUpdatedAt: '2026-09-01T00:00:05.000Z' },
+    });
+  }
+
+  it('rejects missing production queue configuration before reading a batch or charging credits', async () => {
+    process.env = { ...process.env, NODE_ENV: 'production' };
+    delete process.env.QSTASH_TOKEN;
+    delete process.env.QSTASH_CURRENT_SIGNING_KEY;
+    delete process.env.QSTASH_NEXT_SIGNING_KEY;
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+
+    const response = await POST(request({ uploadBatchId: 'batch_1' }) as never);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'Durable batch orchestration is unavailable because its publisher token or signing keys are not configured.',
+    });
+    expect(mocks.getDatabase).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('records unusable-media failure through ProjectService before projecting the batch', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mediaAssets = [{
+      assetId: 'audio_1',
+      userId: 'user_1',
+      filename: 'audio.wav',
+      type: 'audio',
+      size: 100,
+      analysisStatus: 'complete',
+    }];
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      assetIds: ['audio_1'],
+    };
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        editMode: 'auto',
+        autoEditStatus: 'analyzing',
+        sourceUploadBatchId: 'batch_1',
+      },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:04.000Z' },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual(expect.objectContaining({
+      success: false,
+      batchProjectionPending: false,
+      projectMutationReceipt: expect.objectContaining({ projectId: 'proj_batch_1' }),
+    }));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        uploadBatchId: 'batch_1',
+        event: { kind: 'NO_USABLE_VISUAL_ASSETS', errorMessage: 'Upload batch has no usable video or image assets.' },
+      }),
+    );
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder[0],
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('records analysis-deadline exhaustion before projecting a failed batch', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_DEADLINE_MS = String(5 * 60 * 1000);
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    for (const asset of mediaAssets) {
+      asset.analysisStatus = 'analyzing';
+      if (asset.type === 'video') {
+        asset.deepAnalysisStatus = 'queued';
+        asset.deepAnalysisTargetVersion = ASSET_DEEP_ANALYSIS_VERSION;
+      }
+    }
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(Date.now() - 6 * 60 * 1000),
+    };
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: { editMode: 'auto', autoEditStatus: 'analyzing', sourceUploadBatchId: 'batch_1' },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:04.000Z' },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 30, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual(expect.objectContaining({ status: 'failed', batchProjectionPending: false }));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        event: expect.objectContaining({ kind: 'ANALYSIS_DEADLINE_EXHAUSTED' }),
+      }),
+    );
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { editMode: 'auto' as const, expectedEvent: 'INSUFFICIENT_CREDITS' },
+    { editMode: 'assist' as const, expectedEvent: null },
+  ])('terminates an uncharged $editMode project before projecting insufficient credits', async ({ editMode, expectedEvent }) => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({
+      editMode,
+      autoEditStatus: 'analyzing',
+      projectRevision: 4,
+      updatedAt: new Date('2026-09-01T00:00:04.000Z'),
+    });
+    mocks.checkCredits.mockResolvedValue({
+      allowed: false,
+      errorResponse: new Response(JSON.stringify({
+        error: 'Insufficient credits',
+        required: 15,
+        available: 0,
+        code: 'INSUFFICIENT_CREDITS',
+      }), { status: 402, headers: { 'content-type': 'application/json' } }),
+      deduct: mocks.deductCredits,
+      refund: mocks.refundCredits,
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(payload).toEqual(expect.objectContaining({
+      error: 'Insufficient credits',
+      projectId: 'proj_batch_1',
+      batchProjectionPending: false,
+    }));
+    if (expectedEvent) {
+      expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+        'user_1',
+        'proj_batch_1',
+        expect.objectContaining({ event: { kind: expectedEvent, errorMessage: 'Insufficient credits' } }),
+      );
+      expect(mocks.updateProject).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.recordBatchAutoEditLifecycleV1).not.toHaveBeenCalled();
+      expect(mocks.updateProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'proj_batch_1',
+          userId: 'user_1',
+          editMode: 'assist',
+        }),
+        expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      );
+    }
+    const projectOrder = expectedEvent
+      ? mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]
+      : mocks.updateProject.mock.invocationCallOrder[0];
+    expect(projectOrder).toBeLessThan(mocks.updateBatch.mock.invocationCallOrder.at(-1)!);
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
   });
 
   it('derives video readiness from semantic capability evidence instead of aggregate completion', () => {
@@ -664,16 +934,13 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.fetch.mock.calls.filter(
       ([url]) => String(url).includes('/api/internal/workers/asset-deep-analysis'),
     )).toHaveLength(DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT);
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toEqual([
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toEqual([
       expect.objectContaining({ type: 'image', assetId: 'image_1' }),
     ]);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
+    }));
   });
 
   it('assist lane: chronological lay-down + evidence hydration, storyline and director never run', async () => {
@@ -684,7 +951,27 @@ describe('from-batch storyline route handoff', () => {
       orchestrationStatus: 'waiting_analysis',
       orchestrationRequestedAt: new Date(),
     };
-    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
+    mocks.findProject.mockResolvedValue({
+      editMode: 'assist',
+      projectRevision: 2,
+      updatedAt: new Date('2026-09-01T00:00:01.000Z'),
+    });
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 15,
+      },
+      revision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+    });
 
     const response = await POST(request({
       uploadBatchId: 'batch_1',
@@ -702,8 +989,9 @@ describe('from-batch storyline route handoff', () => {
     }));
 
     // Zero-edit invariant: both assets laid down in uploadedAt order, video untrimmed at full 8s.
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    const overlays = mocks.saveProject.mock.calls[0][2].overlays as Array<Record<string, unknown>>;
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    const overlays = mocks.saveProjectWithReceipt.mock.calls[0][2].overlays as Array<Record<string, unknown>>;
     expect(overlays.map((o) => o.assetId)).toEqual(['video_1', 'image_1']);
     expect(overlays[0]).toMatchObject({ type: 'video', sourceStartFrame: 0, videoStartTime: 0, durationInFrames: 240 });
 
@@ -713,21 +1001,23 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.synthesizeImageScenes).not.toHaveBeenCalled();
     expect(mocks.embedScenes).not.toHaveBeenCalled();
 
-    // Hydration wrote the project-level evidence fields chat grounds in + the lane status.
-    // Filter carries the cancel-wins guard: a cancelled project is never resurrected.
+    // Hydration, timeline and ready status share one revision-bound ProjectService write.
     expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledOnce();
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1', autoEditStatus: { $ne: 'scan_failed' } },
-      expect.objectContaining({
-        $set: expect.objectContaining({
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      expectedRevision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+      overlayAuthority: 'server',
+      projectUpdates: expect.objectContaining({
           autoEditStatus: 'ready_for_chat',
           assistDegradedAssetIds: [],
           rawFootageAnalysis: expect.anything(),
           segmentAnalysis: expect.anything(),
           multiAssetDirectorContext: expect.anything(),
-        }),
       }),
-    );
+      projectUnsets: expect.arrayContaining(['autoEditError', 'autoEditFailedAt']),
+    }));
+    expect(mocks.updateProject.mock.calls.some(([, update]) => (
+      update?.$set?.autoEditStatus === 'ready_for_chat'
+    ))).toBe(false);
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       expect.objectContaining({ uploadBatchId: 'batch_1' }),
       expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'assist_ready' }) }),
@@ -745,8 +1035,44 @@ describe('from-batch storyline route handoff', () => {
       orchestrationStatus: 'waiting_analysis',
       orchestrationRequestedAt: new Date(),
     };
-    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
-    mocks.saveProject.mockRejectedValue(new Error('storage write exploded'));
+    mocks.findProject
+      .mockResolvedValueOnce({
+        editMode: 'assist',
+        projectRevision: 2,
+        updatedAt: new Date('2026-09-01T00:00:01.000Z'),
+      })
+      .mockResolvedValueOnce({
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        projectRevision: 3,
+        updatedAt: new Date('2026-09-01T00:00:02.000Z'),
+      })
+      .mockResolvedValue({
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 15,
+        userId: 'user_1',
+        projectRevision: 4,
+        updatedAt: new Date('2026-09-01T00:00:03.000Z'),
+      });
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 15,
+      },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:03.000Z' },
+    });
+    mocks.saveProjectWithReceipt.mockRejectedValueOnce(new Error('storage write exploded'));
 
     await POST(request({
       uploadBatchId: 'batch_1',
@@ -754,13 +1080,46 @@ describe('from-batch storyline route handoff', () => {
     }, true) as never);
 
     // The deduction preceded the failure and no director was dispatched → full refund.
-    expect(mocks.refundCredits).toHaveBeenCalledOnce();
+    expect(mocks.refundForWallet).toHaveBeenCalledOnce();
     // The user-facing truth is the lane's failure state, not auto's.
     expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      expect.objectContaining({
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        assistCreditTransactionId: 'credit_tx_1',
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed', assistRefundPending: true }) }),
     );
     expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('repairs an already-ready Assist batch projection without charging or composing again', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'composing',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({ editMode: 'assist', autoEditStatus: 'ready_for_chat' });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 2, failureCount: 0 },
+    }, true) as never);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      status: 'ready_for_chat',
+      recoveredBatchProjection: true,
+    });
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'assist_ready' }) }),
+    );
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
   });
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
@@ -787,6 +1146,24 @@ describe('from-batch storyline route handoff', () => {
       messageId: 'msg_1',
     }));
     expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+      }),
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 1 }),
+        projectUpdates: expect.objectContaining({
+          editMode: 'auto',
+          autoEditMode: 'batch',
+          autoEditStatus: 'analyzing',
+          sourceUploadBatchId: 'batch_1',
+        }),
+      }),
+    );
     expect(mocks.deductCredits).not.toHaveBeenCalled();
 
     batchDocument = {
@@ -833,8 +1210,8 @@ describe('from-batch storyline route handoff', () => {
     );
     expect(mocks.resolveProductionBrief).toHaveBeenCalledWith(expect.objectContaining({ brandId: 'brand_1' }));
 
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    const savedState = mocks.saveProject.mock.calls[0][2];
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledTimes(2);
+    const savedState = mocks.saveProjectWithReceipt.mock.calls[1][2];
     expect(savedState.durationInFrames).toBe(180);
     expect(savedState.playerDimensions).toEqual({ width: 1920, height: 1080 });
     expect(savedState.overlays).toHaveLength(2);
@@ -937,12 +1314,16 @@ describe('from-batch storyline route handoff', () => {
       { taskType: 'RETRIEVAL_QUERY' },
     );
 
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      {
-        $set: expect.objectContaining({
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.any(Object),
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 1 }),
+        overlayAuthority: 'server',
+        projectUpdates: expect.objectContaining({
           autoEditMode: 'batch',
-          autoEditStatus: 'directing_queued',
+          autoEditStatus: 'analysis_complete',
           sourceUploadBatchId: 'batch_1',
           sourceAssetIds: ['video_1', 'image_1'],
           rawFootageAnalysis: expect.objectContaining({ timelineCoordinateSpace: 'canonical-edited-v1' }),
@@ -960,9 +1341,16 @@ describe('from-batch storyline route handoff', () => {
             composerClipCount: 2,
           }),
         }),
-        $unset: { batchDeliverable: '' },
-      },
+      }),
     );
+    expect(mocks.recordPipelineDirectorIntentV1).toHaveBeenCalledWith('user_1', 'proj_batch_1', {
+      expectedRevision: expect.objectContaining({ value: 2 }),
+      profileId: 'A-01',
+    });
+    expect(mocks.preparePipelineDirectorDispatchV1).toHaveBeenCalledWith('user_1', 'proj_batch_1', {
+      expectedRevision: expect.objectContaining({ value: 3 }),
+      batchId: 'batch_1',
+    });
     expect(mocks.fetch).toHaveBeenCalledWith(
       'https://qstash.test/v2/publish/http://app.test/api/internal/workers/director',
       expect.objectContaining({ method: 'POST' }),
@@ -991,17 +1379,10 @@ describe('from-batch storyline route handoff', () => {
       pacing: { mode: 'prefer', intensity: 0.35 },
       notes: 'Keep the proof sequence clear.',
     });
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      {
-        projectId: 'proj_batch_1',
-        userId: 'user_1',
-        autoEditStatus: { $in: ['directing_queued', 'directing'] },
-      },
-      expect.objectContaining({
-        $set: expect.objectContaining({ directorMessageId: 'msg_1' }),
-        $unset: expect.objectContaining({ 'intelligence.directorDeliveryFailure': '' }),
-      }),
-    );
+    expect(directorPayload.pipelineDirectorDispatchToken).toBe('pipeline_director_dispatch_batch_1');
+    expect(mocks.updateProject.mock.calls.some(([, update]) => (
+      (update as { $set?: { directorMessageId?: unknown } })?.$set?.directorMessageId !== undefined
+    ))).toBe(false);
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
       expect.objectContaining({
@@ -1063,8 +1444,27 @@ describe('from-batch storyline route handoff', () => {
       }));
       expect(mocks.saveProject).not.toHaveBeenCalled();
       expect(mocks.refundCredits).toHaveBeenCalledOnce();
+      expect(mocks.recordBatchAutoEditLifecycleV1.mock.calls.map((call) => call[2].event.kind)).toEqual([
+        'PRE_DIRECTOR_REFUND_PENDING',
+        'PRE_DIRECTOR_REFUND_RECORDED',
+        failureKind === 'coverage_gap' ? 'SCRIPT_GROUNDING_NEEDS_INPUT' : 'SCRIPT_GROUNDING_FAILED',
+      ]);
+      expect(mocks.recordBatchAutoEditLifecycleV1.mock.calls[1][2]).toEqual(expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 2 }),
+        transitionId: mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2].transitionId,
+        event: expect.objectContaining({
+          kind: 'PRE_DIRECTOR_REFUND_RECORDED',
+          creditTransactionId: 'credit_tx_1',
+          chargedCredits: 15,
+        }),
+      }));
       expect(mocks.updateBatch).toHaveBeenCalledWith(
-        { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+        expect.objectContaining({
+          uploadBatchId: 'batch_1',
+          userId: 'user_1',
+          projectId: 'proj_batch_1',
+          orchestrationStatus: { $in: ['composing'] },
+        }),
         expect.objectContaining({
           $set: expect.objectContaining({
             orchestrationStatus: expectedStatus,
@@ -1073,6 +1473,10 @@ describe('from-batch storyline route handoff', () => {
           }),
         }),
       );
+      expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+        mocks.updateBatch.mock.invocationCallOrder.at(-1)!,
+      );
+      expect(mocks.updateProject).not.toHaveBeenCalled();
       expect(mocks.fetch).not.toHaveBeenCalled();
     },
   );
@@ -1162,7 +1566,7 @@ describe('from-batch storyline route handoff', () => {
       deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
       deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
     });
-    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+    useCoverageProjectSnapshot();
 
     const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
     const payload = await response.json();
@@ -1173,21 +1577,37 @@ describe('from-batch storyline route handoff', () => {
       projectId: 'proj_batch_1',
       resumedCoverage: true,
       addedVisualAssetIds: ['video_2'],
+      batchProjectionPending: false,
     }));
     expect(mocks.createProject).not.toHaveBeenCalled();
-    expect(mocks.findProject).toHaveBeenCalledWith(expect.objectContaining({
-      projectId: 'proj_batch_1',
-      userId: 'user_1',
-      sourceUploadBatchId: 'batch_1',
-      autoEditStatus: 'needs_input',
-    }), expect.any(Object));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledOnce();
+    const lifecycleCommand = mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2];
+    expect(lifecycleCommand).toEqual(expect.objectContaining({
+      expectedRevision: { schemaVersion: 1, value: 5, compatibilityUpdatedAt: '2026-09-01T00:00:05.000Z' },
+      uploadBatchId: 'batch_1',
+      transitionId: expect.any(String),
+      event: expect.objectContaining({
+        kind: 'COVERAGE_RESUME_STARTED',
+        sourceAssetIds: ['video_1', 'image_1', 'video_2'],
+      }),
+    }));
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'proj_batch_1', orchestrationStatus: 'needs_input' }),
-      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'requested' }) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationStatus: 'requested',
+          orchestrationTransitionId: lifecycleCommand.transitionId,
+        }),
+      }),
     );
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj_batch_1', userId: 'user_1' }),
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'analyzing' }) }),
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Upstash-Deduplication-Id': lifecycleCommand.transitionId,
+        }),
+      }),
     );
   });
 
@@ -1199,7 +1619,7 @@ describe('from-batch storyline route handoff', () => {
       orchestrationStatus: 'needs_input',
       scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
     };
-    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+    useCoverageProjectSnapshot();
 
     const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
 
@@ -1210,7 +1630,98 @@ describe('from-batch storyline route handoff', () => {
     }));
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(mocks.updateBatch).not.toHaveBeenCalled();
+    expect(mocks.recordBatchAutoEditLifecycleV1).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('compensates the exact batch claim when project coverage ownership is stale', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      assetIds: ['video_1', 'image_1', 'video_2'],
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mediaAssets.push({
+      assetId: 'video_2',
+      userId: 'user_1',
+      filename: 'stale-owner.mp4',
+      type: 'video',
+      size: 800,
+      duration: 4,
+      cachedUrl: 'stale-owner.mp4',
+      uploadedAt: new Date('2026-07-10T00:00:02.000Z'),
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
+    });
+    useCoverageProjectSnapshot();
+    mocks.recordBatchAutoEditLifecycleV1.mockResolvedValueOnce({
+      disposition: 'PROJECT_STATE_CHANGED',
+      currentRevision: { schemaVersion: 1, value: 6, compatibilityUpdatedAt: '2026-09-01T00:00:06.000Z' },
+    });
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toEqual(expect.objectContaining({ success: false, batchProjectionPending: false }));
+    const transitionId = mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2].transitionId;
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orchestrationStatus: 'requested',
+        orchestrationTransitionId: transitionId,
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ orchestrationStatus: 'needs_input' }),
+        $unset: expect.objectContaining({ orchestrationTransitionId: '' }),
+      }),
+    );
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('preserves provider acceptance when the exact coverage publication receipt is lost', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      assetIds: ['video_1', 'image_1', 'video_2'],
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mediaAssets.push({
+      assetId: 'video_2',
+      userId: 'user_1',
+      filename: 'receipt-race.mp4',
+      type: 'video',
+      size: 800,
+      duration: 4,
+      cachedUrl: 'receipt-race.mp4',
+      uploadedAt: new Date('2026-07-10T00:00:02.000Z'),
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
+    });
+    useCoverageProjectSnapshot();
+    mocks.updateBatch
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 0 });
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(expect.objectContaining({
+      success: true,
+      resumedCoverage: true,
+      batchProjectionPending: true,
+    }));
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledOnce();
   });
 
   it('restores needs-input state when durable recovery dispatch fails', async () => {
@@ -1236,14 +1747,33 @@ describe('from-batch storyline route handoff', () => {
       deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
       deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
     });
-    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+    useCoverageProjectSnapshot();
     mocks.fetch.mockRejectedValueOnce(new Error('QStash unavailable'));
 
     const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
 
     expect(response.status).toBe(503);
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledTimes(2);
+    const resumeCommand = mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2];
+    const rollbackCommand = mocks.recordBatchAutoEditLifecycleV1.mock.calls[1][2];
+    expect(rollbackCommand).toEqual(expect.objectContaining({
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 6,
+        compatibilityUpdatedAt: '2026-09-01T00:00:10.000Z',
+      },
+      transitionId: resumeCommand.transitionId,
+      event: expect.objectContaining({
+        kind: 'COVERAGE_RESUME_DISPATCH_FAILED',
+        errorMessage: 'QStash unavailable',
+      }),
+    }));
     expect(mocks.updateBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj_batch_1', orchestrationStatus: 'requested' }),
+      expect.objectContaining({
+        projectId: 'proj_batch_1',
+        orchestrationStatus: 'requested',
+        orchestrationTransitionId: resumeCommand.transitionId,
+      }),
       expect.objectContaining({
         $set: expect.objectContaining({
           orchestrationStatus: 'needs_input',
@@ -1252,10 +1782,66 @@ describe('from-batch storyline route handoff', () => {
         }),
       }),
     );
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj_batch_1', userId: 'user_1' }),
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'needs_input' }) }),
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit repair state when dispatch fails after project rollback ownership is lost', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      assetIds: ['video_1', 'image_1', 'video_2'],
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mediaAssets.push({
+      assetId: 'video_2',
+      userId: 'user_1',
+      filename: 'rollback-race.mp4',
+      type: 'video',
+      size: 800,
+      duration: 4,
+      cachedUrl: 'rollback-race.mp4',
+      uploadedAt: new Date('2026-07-10T00:00:02.000Z'),
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
+    });
+    useCoverageProjectSnapshot();
+    mocks.recordBatchAutoEditLifecycleV1
+      .mockResolvedValueOnce({
+        disposition: 'RECORDED',
+        beforeRevision: { schemaVersion: 1, value: 5, compatibilityUpdatedAt: '2026-09-01T00:00:05.000Z' },
+        receipt: {
+          schemaVersion: 1,
+          projectId: 'proj_batch_1',
+          revision: { schemaVersion: 1, value: 6, compatibilityUpdatedAt: '2026-09-01T00:00:10.000Z' },
+          committedAt: '2026-09-01T00:00:10.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        disposition: 'PROJECT_STATE_CHANGED',
+        currentRevision: { schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-09-01T00:00:11.000Z' },
+      });
+    mocks.fetch.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toEqual(expect.objectContaining({ success: false, lifecycleRepairPending: true }));
+    const transitionId = mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2].transitionId;
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orchestrationStatus: 'requested',
+        orchestrationTransitionId: transitionId,
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ orchestrationStatus: 'retryable_error' }),
+      }),
     );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
   });
 
   it('retries transient script-grounding provider failures without dispatching Director', async () => {
@@ -1301,6 +1887,93 @@ describe('from-batch storyline route handoff', () => {
       expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'retryable_error' }) }),
     );
     expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/api/internal/workers/director'))).toBe(false);
+  });
+
+  it('records exhausted orchestration failure after its refund and before batch projection', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.orderStorylineWithLLM.mockResolvedValueOnce({
+      planApplied: false,
+      fallbackReason: 'script_plan_failed',
+      scriptPlan: {
+        status: 'failed',
+        failureKind: 'provider_error',
+        units: [],
+        beats: [],
+        assignments: [],
+        selectedSceneIds: [],
+        errors: ['visual coverage verification failed: provider unavailable'],
+        attempts: 3,
+      },
+      storyline: {
+        clips: [],
+        renderTarget: { aspectRatio: '16:9', fps: 30, width: 1920, height: 1080, container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' },
+        totalDurationSec: 0,
+        condensationRatio: 0,
+        targetDurationSec: null,
+      },
+    });
+    mocks.updateBatch
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 0 });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 99 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload).toEqual(expect.objectContaining({
+      success: false,
+      refundSettlement: 'refunded',
+      batchProjectionPending: true,
+      projectMutationReceipt: expect.objectContaining({ projectId: 'proj_batch_1' }),
+    }));
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.calls.map((call) => call[2].event.kind)).toEqual([
+      'PRE_DIRECTOR_REFUND_PENDING',
+      'PRE_DIRECTOR_REFUND_RECORDED',
+      'ORCHESTRATION_FAILED',
+    ]);
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('records initial dispatch failure through ProjectService before the failed batch projection', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mocks.fetch.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    const response = await POST(request({ uploadBatchId: 'batch_1' }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload).toEqual(expect.objectContaining({
+      success: false,
+      error: 'QStash unavailable',
+      batchProjectionPending: false,
+      projectMutationReceipt: expect.objectContaining({ projectId: 'proj_batch_1' }),
+    }));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        uploadBatchId: 'batch_1',
+        event: { kind: 'ORCHESTRATION_FAILED', errorMessage: 'QStash unavailable' },
+      }),
+    );
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
   });
 
   it('does not compose or charge when another callback owns the orchestration lease', async () => {
@@ -1364,16 +2037,23 @@ describe('from-batch storyline route handoff', () => {
     const response = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '9:16' }) as never);
 
     expect(response.status).toBe(202);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      {
-        $set: expect.objectContaining({
+    expect(mocks.createProject).toHaveBeenCalledWith('user_1', expect.any(String), expect.objectContaining({
+      aspectRatio: '9:16',
+    }));
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        aspectRatio: '9:16',
+        playerDimensions: { width: 1080, height: 1920 },
+      }),
+      expect.objectContaining({
+        projectUpdates: expect.objectContaining({
           autoEditStatus: 'analyzing',
-          aspectRatio: '9:16',
-          playerDimensions: { width: 1080, height: 1920 },
         }),
-      },
+      }),
     );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
   });
 
   it('re-dispatches a stale existing batch exactly once without creating or charging again', async () => {
@@ -1451,14 +2131,11 @@ describe('from-batch storyline route handoff', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.bulkWriteAssets).not.toHaveBeenCalled();
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['video_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['video_1'] }),
+    }));
   });
 
   it('marks only wedged assets terminal at max-wait and composes from successful survivors', async () => {
@@ -1492,8 +2169,8 @@ describe('from-batch storyline route handoff', () => {
         }),
       }),
     ], { ordered: false });
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(1);
     expect(mocks.checkCredits).toHaveBeenLastCalledWith(
       'user_1',
       'editron',
@@ -1535,13 +2212,10 @@ describe('from-batch storyline route handoff', () => {
     }, true) as never);
 
     expect(response.status).toBe(200);
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(2);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['video_1', 'image_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(2);
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['video_1', 'image_1'] }),
+    }));
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
       expect.objectContaining({
@@ -1589,6 +2263,7 @@ describe('from-batch storyline route handoff', () => {
       sourceBody: Buffer.from(JSON.stringify({
         projectId: 'proj_batch_1',
         userId: 'user_1',
+        pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       })).toString('base64'),
       body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
     });
@@ -1597,6 +2272,7 @@ describe('from-batch storyline route handoff', () => {
       projectId: 'proj_batch_1',
       userId: 'user_1',
       sourceMessageId: 'msg_director_1',
+      pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       status: 504,
       retried: 0,
       maxRetries: 0,
@@ -1609,6 +2285,7 @@ describe('from-batch storyline route handoff', () => {
     )).toEqual(expect.objectContaining({
       source: 'qstash-failure-callback',
       sourceMessageId: 'msg_director_1',
+      pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       status: 504,
       failedAt: new Date('2026-07-13T00:00:00.000Z'),
     }));
@@ -1616,12 +2293,27 @@ describe('from-batch storyline route handoff', () => {
 
   it('persists a signed Director delivery failure without overwriting another run', async () => {
     const { POST } = await import('@/app/api/internal/workers/director/failure/route');
-    mocks.findProject.mockResolvedValue({
-      autoEditStatus: 'directing',
-      directorMessageId: 'msg_director_1',
+    const beforeProjectRevision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-07-13T00:00:00.000Z',
+    };
+    const mutationReceipt = {
+      schemaVersion: 1 as const,
+      projectId: 'proj_batch_1',
+      revision: {
+        schemaVersion: 1 as const,
+        value: 8,
+        compatibilityUpdatedAt: '2026-07-13T00:00:01.000Z',
+      },
+      committedAt: '2026-07-13T00:00:01.000Z',
+    };
+    mocks.recordDirectorDeliveryFailureV1.mockResolvedValue({
+      disposition: 'RECORDED',
       sourceUploadBatchId: 'batch_1',
+      beforeRevision: beforeProjectRevision,
+      receipt: mutationReceipt,
     });
-    mocks.updateProject.mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
 
     const response = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
       method: 'POST',
@@ -1633,28 +2325,35 @@ describe('from-batch storyline route handoff', () => {
         sourceBody: Buffer.from(JSON.stringify({
           projectId: 'proj_batch_1',
           userId: 'user_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
         })).toString('base64'),
         body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
       }),
     }) as never);
 
     expect(response.status).toBe(200);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
+    expect(await response.json()).toEqual({
+      success: true,
+      projectId: 'proj_batch_1',
+      beforeProjectRevision,
+      mutationReceipt,
+    });
+    expect(mocks.recordDirectorDeliveryFailureV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
       expect.objectContaining({
-        projectId: 'proj_batch_1',
-        userId: 'user_1',
-        directorMessageId: 'msg_director_1',
-      }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          autoEditStatus: 'failed',
-          autoEditStageDesc: 'Director delivery failed',
-          'intelligence.directorDeliveryFailure': expect.objectContaining({
-            sourceMessageId: 'msg_director_1',
-          }),
+        sourceMessageId: 'msg_director_1',
+        pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
+        errorMessage: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
+        audit: expect.objectContaining({
+          source: 'qstash-failure-callback',
+          sourceMessageId: 'msg_director_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
+          error: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
         }),
       }),
     );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         uploadBatchId: 'batch_1',
@@ -1666,12 +2365,11 @@ describe('from-batch storyline route handoff', () => {
       }),
     );
 
-    mocks.updateProject.mockClear();
+    mocks.recordDirectorDeliveryFailureV1.mockClear();
     mocks.updateBatch.mockClear();
-    mocks.findProject.mockResolvedValue({
-      autoEditStatus: 'directing',
-      directorMessageId: 'msg_newer',
-      sourceUploadBatchId: 'batch_1',
+    mocks.recordDirectorDeliveryFailureV1.mockResolvedValue({
+      disposition: 'STALE_SOURCE_MESSAGE',
+      sourceUploadBatchId: null,
     });
     const staleResponse = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
       method: 'POST',
@@ -1681,11 +2379,13 @@ describe('from-batch storyline route handoff', () => {
         sourceBody: Buffer.from(JSON.stringify({
           projectId: 'proj_batch_1',
           userId: 'user_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
         })).toString('base64'),
       }),
     }) as never);
 
     expect(await staleResponse.json()).toEqual({ success: true, skipped: 'stale_message' });
+    expect(mocks.recordDirectorDeliveryFailureV1).toHaveBeenCalledOnce();
     expect(mocks.updateProject).not.toHaveBeenCalled();
     expect(mocks.updateBatch).not.toHaveBeenCalled();
   });

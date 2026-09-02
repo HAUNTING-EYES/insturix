@@ -3,8 +3,6 @@ import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  beginChatAiEditTransaction,
-  completeChatAiEditTransaction,
   formatChatAiEditRestoreTargetForPrompt,
   resolveChatAiEditRestoreTarget,
   isSuccessfulToolResult,
@@ -26,107 +24,6 @@ describe('chat AI edit transactions', () => {
     expect(isSuccessfulToolResult(JSON.stringify({ status: 'error', error: { message: 'bad' } }))).toBe(false);
     expect(isSuccessfulToolResult('Error: failed')).toBe(false);
     expect(isSuccessfulToolResult('plain legacy success')).toBe(true);
-  });
-
-  it('does not create checkpoints for read-only or failed tool results', async () => {
-    const calls: unknown[] = [];
-    const transaction = beginChatAiEditTransaction({
-      sessionId: 'sess_1',
-      projectId: 'proj_1',
-      userId: 'user_1',
-      overlays: [{ id: 1, type: 'text', from: 0, durationInFrames: 30 } as any],
-    });
-
-    const summary = await completeChatAiEditTransaction({
-      transaction,
-      toolResults: [
-        { toolName: 'get_timeline_view', result: JSON.stringify({ status: 'success', data: {} }) },
-        { toolName: 'cut_section', result: JSON.stringify({ status: 'error', error: { message: 'bad range' } }) },
-      ],
-      checkpointStore: {
-        createCheckpoint: async (input: any) => {
-          calls.push(input);
-          return { ...input, checkpointId: `ckpt_${calls.length}`, timestamp: new Date(), createdAt: new Date() };
-        },
-      },
-      loadProject: async () => ({ overlays: [] } as any),
-    });
-
-    expect(summary).toEqual({
-      status: 'not-needed',
-      mutatingToolNames: [],
-      checkpointIds: [],
-    });
-    expect(calls).toEqual([]);
-  });
-
-  it('creates before and after checkpoints around successful mutating tool batches', async () => {
-    const calls: any[] = [];
-    const beforeOverlay = { id: 1, type: 'text', from: 0, durationInFrames: 30, content: 'before' } as any;
-    const afterOverlay = { ...beforeOverlay, content: 'after' };
-    const transaction = beginChatAiEditTransaction({
-      sessionId: 'sess_1',
-      projectId: 'proj_1',
-      userId: 'user_1',
-      overlays: [beforeOverlay],
-    });
-    beforeOverlay.content = 'mutated after snapshot';
-
-    const summary = await completeChatAiEditTransaction({
-      transaction,
-      toolResults: [
-        { toolName: 'add_overlay', result: JSON.stringify({ status: 'success', data: { id: 2 } }) },
-        { toolName: 'update_overlay', result: JSON.stringify({ status: 'success', data: { id: 1 } }) },
-      ],
-      checkpointStore: {
-        createCheckpoint: async (input: any) => {
-          calls.push(input);
-          return { ...input, checkpointId: `ckpt_${input.type}`, timestamp: new Date(), createdAt: new Date() };
-        },
-      },
-      loadProject: async () => ({ overlays: [afterOverlay] } as any),
-    });
-
-    expect(summary).toMatchObject({
-      status: 'created',
-      mutatingToolNames: ['add_overlay', 'update_overlay'],
-      checkpointIds: ['ckpt_before-llm', 'ckpt_after-llm'],
-      beforeCheckpointId: 'ckpt_before-llm',
-      afterCheckpointId: 'ckpt_after-llm',
-    });
-    expect(calls.map((call) => call.type)).toEqual(['before-llm', 'after-llm']);
-    expect(calls[0].overlays).toEqual([{ ...beforeOverlay, content: 'before' }]);
-    expect(calls[1].overlays).toEqual([afterOverlay]);
-  });
-
-  it('keeps checkpoint ID slots typed when one checkpoint is skipped', async () => {
-    const transaction = beginChatAiEditTransaction({
-      sessionId: 'sess_1',
-      projectId: 'proj_1',
-      userId: 'user_1',
-      overlays: [{ id: 1, type: 'text', from: 0, durationInFrames: 30 } as any],
-    });
-
-    const summary = await completeChatAiEditTransaction({
-      transaction,
-      toolResults: [
-        { toolName: 'add_overlay', result: JSON.stringify({ status: 'success', data: { id: 2 } }) },
-      ],
-      checkpointStore: {
-        createCheckpoint: async (input: any) => {
-          if (input.type === 'before-llm') return null;
-          return { ...input, checkpointId: `ckpt_${input.type}`, timestamp: new Date(), createdAt: new Date() };
-        },
-      },
-      loadProject: async () => ({ overlays: [{ id: 2, type: 'text', from: 30, durationInFrames: 30 }] } as any),
-    });
-
-    expect(summary).toMatchObject({
-      status: 'created',
-      checkpointIds: ['', 'ckpt_after-llm'],
-      afterCheckpointId: 'ckpt_after-llm',
-    });
-    expect(summary.beforeCheckpointId).toBeUndefined();
   });
 
   it('resolves undo from the latest AI edit checkpoint and refuses redo without a replay receipt chain', () => {

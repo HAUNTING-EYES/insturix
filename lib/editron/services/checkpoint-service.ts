@@ -10,11 +10,19 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import {
+  assertProjectWholeStateMediaPrerequisiteLinkV1,
+  loadProjectWholeStateMediaPrerequisiteByLinkV1,
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1,
+  projectWholeStateMediaPrerequisiteLinkV1,
+  type ProjectWholeStateMediaPrerequisiteLinkV1,
+} from './project-whole-state-media-prerequisite-runtime-v1';
+import {
   ProjectMutationConflictError,
   ProjectNotFoundOrForbiddenError,
   projectService,
   type ProjectMutationReceiptV1,
   type ProjectRevisionV1,
+  type ProjectTimelineMutationActorKindV1,
 } from './project-service';
 
 export type CheckpointType = 'initial' | 'before-llm' | 'after-llm' | 'user-edit';
@@ -66,9 +74,8 @@ export interface RestorableProjectState {
 }
 
 /**
- * The revision bound to one named rollback attempt. A supplied writer-issued
- * post-write receipt is used directly; the temporary observed-revision path
- * remains only for callers that D3 has not migrated yet.
+ * The writer-issued post-write revision bound to one named rollback attempt.
+ * Replays must supply a receipt for the same project revision.
  */
 export interface CheckpointRollbackReceiptV1 {
   schemaVersion: 1;
@@ -87,6 +94,7 @@ export interface Checkpoint {
   stateHash?: string;
   stateHashVersion?: 2;
   capturedProjectRevision?: ProjectRevisionV1;
+  wholeStateMediaPrerequisite?: ProjectWholeStateMediaPrerequisiteLinkV1;
   rollbackReceipts?: CheckpointRollbackReceiptV1[];
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
@@ -100,7 +108,7 @@ export interface Checkpoint {
   updatedAt?: Date;
 }
 
-export interface CheckpointInput {
+interface CheckpointInputBase {
   sessionId: string;
   projectId: string;
   userId: string;
@@ -111,13 +119,22 @@ export interface CheckpointInput {
   checkpointId?: string;
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
-  /**
-   * The exact ProjectService receipt for the state supplied to this checkpoint.
-   * When present, checkpoint capture must not re-observe a newer project revision.
-   */
-  capturedWriterReceipt?: ProjectMutationReceiptV1;
   force?: boolean;
 }
+
+export type CheckpointInput =
+  | (CheckpointInputBase & {
+      type: 'after-llm';
+      /** The writer receipt that produced this post-mutation project state. */
+      capturedWriterReceipt: ProjectMutationReceiptV1;
+      capturedProjectRevision?: never;
+    })
+  | (CheckpointInputBase & {
+      type: Exclude<CheckpointType, 'after-llm'>;
+      /** The exact revision paired with this pre/current-state observation. */
+      capturedProjectRevision: ProjectRevisionV1;
+      capturedWriterReceipt?: never;
+    });
 
 export interface ChatEditOperationUpdate {
   operationStatus: ChatEditOperationStatus;
@@ -138,8 +155,9 @@ export interface RestoreProjectCheckpointResult {
 }
 
 export interface RestoreProjectCheckpointOptions {
-  projectId?: string;
-  expectedRevision?: ProjectRevisionV1;
+  projectId: string;
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
 }
 
 const CURRENT_STATE_HASH_VERSION = 2 as const;
@@ -177,13 +195,42 @@ export function projectStateFingerprint(state: RestorableProjectState): string {
 
 export class CheckpointService {
   async createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null> {
-    const capturedProjectRevision = input.capturedWriterReceipt
+    if (input.type === 'after-llm') {
+      if (!input.capturedWriterReceipt || input.capturedProjectRevision !== undefined) {
+        throw new Error('Post-mutation checkpoint capture requires exactly one writer-issued receipt.');
+      }
+    } else if (!input.capturedProjectRevision || input.capturedWriterReceipt !== undefined) {
+      throw new Error('Pre/current-state checkpoint capture requires exactly one observed project revision.');
+    }
+    const expectedProjectRevision = input.type === 'after-llm'
       ? revisionFromWriterReceipt(input.capturedWriterReceipt, input.projectId)
-      : await projectService.getProjectRevision(input.userId, input.projectId);
+      : input.capturedProjectRevision;
+    if (!isProjectRevisionV1(expectedProjectRevision)) {
+      throw new Error('Checkpoint capture revision is invalid.');
+    }
+    const snapshot = await projectService.loadProjectForMutation(
+      input.userId,
+      input.projectId,
+    );
+    if (!sameProjectRevision(
+      snapshot.revision,
+      expectedProjectRevision,
+    )) {
+      throw new ProjectMutationConflictError(
+        snapshot.revision,
+        'Checkpoint capture no longer matches the project revision that produced its state.',
+      );
+    }
     const db = await getDatabase();
     const cleanState = this.cleanProjectState(
-      input.projectState ?? captureRestorableProjectState({ overlays: input.overlays }),
+      captureRestorableProjectState(snapshot.project as unknown as Record<string, unknown>),
     );
+    if (input.projectState) {
+      const proposedState = this.cleanProjectState(input.projectState);
+      if (projectStateFingerprint(proposedState) !== projectStateFingerprint(cleanState)) {
+        throw new Error('Checkpoint state does not match its authoritative project snapshot.');
+      }
+    }
     const stateHash = projectStateFingerprint(cleanState);
 
     if (!input.force) {
@@ -205,6 +252,20 @@ export class CheckpointService {
 
     const checkpointId = input.checkpointId ?? `ckpt_${nanoid(12)}`;
     const now = new Date();
+    const wholeStateMediaPrerequisite = await materializeProjectWholeStateMediaPrerequisiteInMongoV1(
+      {
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: snapshot.project.orgId ?? snapshot.project.userId,
+        userId: input.userId,
+        projectOwnerId: snapshot.project.userId,
+        orgId: snapshot.project.orgId ?? null,
+        projectId: input.projectId,
+        projectRevision: snapshot.revision,
+        overlays: (cleanState.fields.overlays ?? []) as Overlay[],
+      },
+      db,
+      COLLECTIONS.MEDIA_ASSETS,
+    );
     const checkpoint: Checkpoint = {
       _id: checkpointId,
       checkpointId,
@@ -215,7 +276,9 @@ export class CheckpointService {
       projectState: cleanState,
       stateHash,
       stateHashVersion: CURRENT_STATE_HASH_VERSION,
-      capturedProjectRevision,
+      capturedProjectRevision: snapshot.revision,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: now,
@@ -307,24 +370,27 @@ export class CheckpointService {
     userId: string,
     projectId: string,
     receiptId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
     assertRollbackReceiptId(receiptId);
+    if (!writerIssuedReceipt) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} requires a writer-issued rollback receipt.`);
+    }
+    const expectedRevision = revisionFromWriterReceipt(writerIssuedReceipt, projectId);
+    const receipt: CheckpointRollbackReceiptV1 = {
+      schemaVersion: 1,
+      receiptId,
+      expectedRevision,
+    };
     const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
     if (!checkpoint) {
       throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be bound to a rollback revision.`);
     }
     const existing = rollbackReceiptFor(checkpoint, receiptId);
-    if (existing) return existing;
-    if (!writerIssuedReceipt) {
-      throw new Error(`Chat edit operation checkpoint ${checkpointId} requires a writer-issued rollback receipt.`);
+    if (existing) {
+      assertCompatibleRollbackReceipt(existing, receipt, checkpointId);
+      return existing;
     }
-
-    const receipt: CheckpointRollbackReceiptV1 = {
-      schemaVersion: 1,
-      receiptId,
-      expectedRevision: revisionFromWriterReceipt(writerIssuedReceipt, projectId),
-    };
     const db = await getDatabase();
     const persisted = await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).findOneAndUpdate(
       {
@@ -340,7 +406,10 @@ export class CheckpointService {
       { returnDocument: 'after', includeResultMetadata: false },
     ) as unknown as Checkpoint | null;
     const persistedReceipt = persisted && rollbackReceiptFor(persisted, receiptId);
-    if (persistedReceipt) return persistedReceipt;
+    if (persistedReceipt) {
+      assertCompatibleRollbackReceipt(persistedReceipt, receipt, checkpointId);
+      return persistedReceipt;
+    }
 
     const concurrentReceipt = await this.getRollbackReceipt(
       checkpointId,
@@ -348,7 +417,10 @@ export class CheckpointService {
       projectId,
       receiptId,
     );
-    if (concurrentReceipt) return concurrentReceipt;
+    if (concurrentReceipt) {
+      assertCompatibleRollbackReceipt(concurrentReceipt, receipt, checkpointId);
+      return concurrentReceipt;
+    }
     throw new Error(`Chat edit operation checkpoint ${checkpointId} could not persist a rollback revision.`);
   }
 
@@ -397,7 +469,7 @@ export class CheckpointService {
   async restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: RestoreProjectCheckpointOptions = {},
+    options: RestoreProjectCheckpointOptions,
   ): Promise<RestoreProjectCheckpointResult> {
     const checkpoint = await this.getCheckpoint(checkpointId, userId, options.projectId);
     if (!checkpoint) {
@@ -441,12 +513,20 @@ export class CheckpointService {
         reason: 'checkpoint-state-hash-mismatch',
       };
     }
-    if (!options.expectedRevision) {
+    if (!checkpoint.wholeStateMediaPrerequisite) {
+      const recaptured = await this.recaptureLegacyCheckpointCurrentStateV1({
+        checkpoint,
+        projectState,
+        expectedStateHash,
+        userId,
+        expectedRevision: options.expectedRevision,
+      });
+      if (recaptured) return recaptured;
       return {
         restored: false,
         checkpointId,
         expectedStateHash,
-        reason: 'expected-revision-required',
+        reason: 'legacy-checkpoint-missing-media-prerequisite',
       };
     }
     const setFields: Record<string, unknown> = {};
@@ -466,7 +546,10 @@ export class CheckpointService {
         userId,
         checkpoint.projectId,
         {
+          checkpointId,
+          actorKind: options.actorKind,
           expectedRevision: options.expectedRevision,
+          capturedWholeStateMediaPrerequisite: checkpoint.wholeStateMediaPrerequisite,
           setFields,
           unsetFields,
         },
@@ -516,6 +599,171 @@ export class CheckpointService {
       actualStateHash,
       beforeRevision: options.expectedRevision,
       restoredRevision: restoreReceipt.receipt.revision,
+    };
+  }
+
+  private async recaptureLegacyCheckpointCurrentStateV1(input: {
+    checkpoint: Checkpoint;
+    projectState: RestorableProjectState;
+    expectedStateHash: string;
+    userId: string;
+    expectedRevision: ProjectRevisionV1;
+  }): Promise<RestoreProjectCheckpointResult | null> {
+    if (input.checkpoint.stateHashVersion !== CURRENT_STATE_HASH_VERSION
+      || input.checkpoint.stateHash !== input.expectedStateHash) {
+      return null;
+    }
+
+    let snapshot;
+    try {
+      snapshot = await projectService.loadProjectForMutation(
+        input.userId,
+        input.checkpoint.projectId,
+      );
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return {
+          restored: false,
+          checkpointId: input.checkpoint.checkpointId,
+          expectedStateHash: input.expectedStateHash,
+          reason: 'project-not-found-or-not-owned',
+          beforeRevision: input.expectedRevision,
+        };
+      }
+      throw error;
+    }
+    if (!sameProjectRevision(snapshot.revision, input.expectedRevision)) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        reason: 'project-revision-conflict',
+        beforeRevision: input.expectedRevision,
+        currentRevision: snapshot.revision,
+      };
+    }
+
+    const currentState = this.cleanProjectState(captureRestorableProjectState(
+      snapshot.project as unknown as Record<string, unknown>,
+    ));
+    const currentStateHash = projectStateFingerprint(currentState);
+    if (currentStateHash !== input.expectedStateHash) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        actualStateHash: currentStateHash,
+        reason: 'legacy-checkpoint-historical-state-unverifiable',
+        beforeRevision: input.expectedRevision,
+        currentRevision: snapshot.revision,
+      };
+    }
+
+    const db = await getDatabase();
+    const receipt = await materializeProjectWholeStateMediaPrerequisiteInMongoV1(
+      {
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: snapshot.project.orgId ?? snapshot.project.userId,
+        userId: input.userId,
+        projectOwnerId: snapshot.project.userId,
+        orgId: snapshot.project.orgId ?? null,
+        projectId: input.checkpoint.projectId,
+        projectRevision: snapshot.revision,
+        overlays: (input.projectState.fields.overlays ?? []) as Overlay[],
+      },
+      db,
+      COLLECTIONS.MEDIA_ASSETS,
+    );
+    const proposedLink = projectWholeStateMediaPrerequisiteLinkV1(receipt);
+    const checkpoints = db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS);
+    const update = await checkpoints.updateOne(
+      {
+        checkpointId: input.checkpoint.checkpointId,
+        projectId: input.checkpoint.projectId,
+        userId: input.userId,
+        stateHashVersion: CURRENT_STATE_HASH_VERSION,
+        stateHash: input.expectedStateHash,
+        wholeStateMediaPrerequisite: { $exists: false },
+      },
+      {
+        $set: {
+          capturedProjectRevision: snapshot.revision,
+          wholeStateMediaPrerequisite: proposedLink,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    if (!update.acknowledged) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture was not acknowledged.');
+    }
+
+    const stored = await checkpoints.findOne({
+      checkpointId: input.checkpoint.checkpointId,
+      projectId: input.checkpoint.projectId,
+      userId: input.userId,
+      stateHashVersion: CURRENT_STATE_HASH_VERSION,
+      stateHash: input.expectedStateHash,
+    });
+    if (!stored?.wholeStateMediaPrerequisite
+      || !stored.capturedProjectRevision
+      || !sameProjectRevision(stored.capturedProjectRevision, snapshot.revision)) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture could not be verified.');
+    }
+    const storedLink = assertProjectWholeStateMediaPrerequisiteLinkV1(
+      stored.wholeStateMediaPrerequisite,
+    );
+    const storedReceipt = await loadProjectWholeStateMediaPrerequisiteByLinkV1(storedLink, db);
+    if (storedReceipt.operation !== 'CAPTURE_CHECKPOINT_STATE'
+      || storedReceipt.projectId !== input.checkpoint.projectId
+      || storedReceipt.userId !== input.userId
+      || !sameProjectRevision(storedReceipt.projectRevision, snapshot.revision)) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture receipt is invalid.');
+    }
+
+    let finalSnapshot;
+    try {
+      finalSnapshot = await projectService.loadProjectForMutation(
+        input.userId,
+        input.checkpoint.projectId,
+      );
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return {
+          restored: false,
+          checkpointId: input.checkpoint.checkpointId,
+          expectedStateHash: input.expectedStateHash,
+          reason: 'project-not-found-or-not-owned',
+          beforeRevision: input.expectedRevision,
+        };
+      }
+      throw error;
+    }
+    const finalStateHash = projectStateFingerprint(this.cleanProjectState(
+      captureRestorableProjectState(
+        finalSnapshot.project as unknown as Record<string, unknown>,
+      ),
+    ));
+    if (!sameProjectRevision(finalSnapshot.revision, snapshot.revision)
+      || finalStateHash !== input.expectedStateHash) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        actualStateHash: finalStateHash,
+        reason: 'project-revision-conflict',
+        beforeRevision: input.expectedRevision,
+        currentRevision: finalSnapshot.revision,
+      };
+    }
+
+    return {
+      restored: true,
+      checkpointId: input.checkpoint.checkpointId,
+      expectedStateHash: input.expectedStateHash,
+      actualStateHash: currentStateHash,
+      reason: 'legacy-checkpoint-recaptured-current-state',
+      beforeRevision: input.expectedRevision,
+      restoredRevision: snapshot.revision,
     };
   }
 
@@ -623,6 +871,30 @@ function revisionFromWriterReceipt(
     throw new Error('Rollback writer receipt is invalid or belongs to another project.');
   }
   return cloneValue(receipt.revision);
+}
+
+function sameProjectRevision(
+  left: ProjectRevisionV1,
+  right: ProjectRevisionV1,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+function assertCompatibleRollbackReceipt(
+  existing: CheckpointRollbackReceiptV1,
+  proposed: CheckpointRollbackReceiptV1,
+  checkpointId: string,
+): void {
+  if (
+    existing.receiptId !== proposed.receiptId
+    || !sameProjectRevision(existing.expectedRevision, proposed.expectedRevision)
+  ) {
+    throw new Error(
+      `Chat edit operation checkpoint ${checkpointId} has a conflicting rollback receipt.`,
+    );
+  }
 }
 
 function cloneValue<T>(value: T): T {

@@ -2,15 +2,15 @@ import { tool } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { projectService } from "../services/project-service";
+import {
+  projectService,
+  ProjectMutationConflictError,
+} from "../services/project-service";
+import { readProjectRevisionV1 } from "../services/project-revision-v1";
 import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
-  Overlay,
-  OverlayType as EditorOverlayType,
   HtmlGenerationMetadata,
-  CaptionOverlay,
-  ClipOverlay,
 } from "@/components/editron/editor/version-7.0.0/types";
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
@@ -25,9 +25,7 @@ import {
   findBestRow,
   resolveCoordinates,
   getDefaultSize,
-  hasCollisionOnRow,
   OverlayType,
-  ExistingOverlay,
 } from "../core/physics";
 import {
   sanitizeHtml,
@@ -36,14 +34,12 @@ import {
   classifyWordTimings,
   buildFancyCaptionPrompt,
   injectFancyCaptionTiming,
-  type WordTiming,
 } from "../utils/html-generator-utils";
 
 import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
-import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
+import { formatSecondsToHHMMSS, framesToSeconds } from "../utils/analysis";
 import { extractEditDNA, loadProfile } from "../services/style-transfer-service";
-import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
 import {
@@ -64,13 +60,18 @@ import {
   selectAnalysisOverlay,
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
-import { cutTimelineRange } from '../services/timeline-range-cut';
 import { buildKeyframeMutationPatch } from '../services/keyframe-mutation';
+import { createPipelineVideoEnqueueInternalHeadersV1 } from '../security/pipeline-video-enqueue-internal-auth';
 import {
   constrainChatOverlayPlacement,
-  EDITRON_TITLE_SAFE_MARGIN,
   protectChatTextLegibility,
 } from './chat-overlay-safe-placement';
+import {
+  buildChatAddOverlayForm,
+  chatAddOverlaySchema,
+  getCanvasDimensions,
+  toExistingOverlays,
+} from './chat-add-overlay-form';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -303,8 +304,7 @@ export const createTools = (userId: string, projectId: string) => {
         }
 
         return successEnvelope(parsed, "continue");
-      } catch (err: unknown) {
-        console.warn('[Tools] JSON parse fallback:', err instanceof Error ? err.message : err);
+      } catch {
         return successEnvelope({ text: trimmed }, "continue");
       }
     }
@@ -382,14 +382,77 @@ export const createTools = (userId: string, projectId: string) => {
     return project;
   };
 
+  const addOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlay: any,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before adding the overlay.");
+    }
+    const result = await projectService.addOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlay,
+    });
+    project.overlays.push(overlay);
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
+  };
+
+  const updateOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlayId: number | string,
+    updates: Record<string, unknown>,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before updating the overlay.");
+    }
+    const result = await projectService.updateOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlayId,
+      updates,
+    });
+    const overlayIndex = project.overlays.findIndex((candidate: any) => candidate.id === overlayId);
+    if (overlayIndex < 0) {
+      throw new Error(`Overlay ${overlayId} disappeared from the loaded project snapshot.`);
+    }
+    project.overlays[overlayIndex] = {
+      ...project.overlays[overlayIndex],
+      ...structuredClone(updates),
+    } as any;
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
+  };
+
+  const deleteOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlayId: number | string,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before deleting the overlay.");
+    }
+    const result = await projectService.deleteOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlayId,
+    });
+    project.overlays = project.overlays.filter((candidate: any) => candidate.id !== overlayId);
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
+  };
+
   // Helper to recalculate project duration after edits
   async function recalculateProjectDuration() {
-    const project = await loadProject();
-    if (!project || !project.overlays?.length) return;
-    const maxFrame = Math.max(...project.overlays.map((o: any) => (o.from || 0) + (o.durationInFrames || 0)));
-    if (maxFrame > 0 && maxFrame !== project.durationInFrames) {
-      await projectService.updateProject(userId, projectId, { durationInFrames: maxFrame });
-    }
+    return projectService.reconcileProjectDurationFromOverlaysV1(userId, projectId, {
+      actorKind: "AGENT",
+    });
   }
 
   type ChatMutationFrameRange = { startFrame: number; endFrame: number };
@@ -430,31 +493,6 @@ export const createTools = (userId: string, projectId: string) => {
     });
     return normalizeChatMutationFrameRanges([previous, next]);
   }
-
-  // Helper to get canvas dimensions from project
-  // IMPORTANT: Always use composition dimensions for overlay positioning.
-  // playerDimensions is the preview container size and will cause positioning
-  // issues during Lambda render if used directly.
-  const getCanvasDimensions = (project: any) => {
-    // Use composition dimensions based on aspect ratio
-    if (project.aspectRatio === "9:16") return { width: 1080, height: 1920 };
-    if (project.aspectRatio === "4:5") return { width: 1080, height: 1350 };
-    if (project.aspectRatio === "1:1") return { width: 1080, height: 1080 };
-    if (project.aspectRatio === "16:9") return { width: 1280, height: 720 };
-    return { width: 1920, height: 1080 }; // Default fallback
-  };
-
-
-  // Helper to convert overlays to ExistingOverlay format for Physics Engine
-  const toExistingOverlays = (overlays: any[]): ExistingOverlay[] => {
-    return overlays.map(o => ({
-      id: o.id,
-      row: o.row,
-      from: o.from,
-      durationInFrames: o.durationInFrames,
-      type: o.type as OverlayType
-    }));
-  };
 
   type SignalValueMap = Record<string, unknown>;
   type ProjectSignalInputs = Partial<ContentSignals>;
@@ -838,344 +876,24 @@ Call with no arguments to get full timeline.`,
   // --- UNIFIED ADD OVERLAY TOOL ---
   // This replaces the 4 separate add_*_overlay tools with one powerful tool
 
-  // Valid sticker template ids — MUST mirror config.id in
-  // components/editron/editor/version-7.0.0/templates/sticker-templates/* (source of truth). The renderer
-  // (sticker-layer-content.tsx) looks up templateMap[overlay.content]; an id NOT in this map renders NOTHING.
-  // Hardcoded (not imported) because templateMap lives in a client component tree; kept in sync by review.
-  const STICKER_TEMPLATE_IDS = [
-    'emoji-grin', 'emoji-joy', 'emoji-heart-eyes', 'emoji-cool', 'emoji-love', 'emoji-fire',
-    'emoji-hundred', 'emoji-sparkles', 'emoji-star', 'emoji-gift', 'emoji-balloon', 'emoji-party',
-    'audio-visualiser', 'bar-chart', 'boom-effect', 'card-flip', 'circular-progress', 'discount-circle',
-    'matrix-rain', 'pulsing-circle', 'spinning-square', 'bouncing-triangle', 'expanding-hexagon',
-    'morphing-star', 'rotating-octagon', 'zigzag-diamond', 'flashing-pentagon',
-  ];
-  const DEFAULT_STICKER_ID = 'emoji-fire'; // stable, always present — a sensible "add a sticker" default
-
-  const addOverlaySchema = z.object({
-    type: z.enum(['text', 'image', 'video', 'sound', 'shape', 'sticker']).describe("Type of overlay to add"),
-
-    // Timing (required)
-    start: z.coerce.number().describe("Start frame (0-based)"),
-    duration: z.coerce.number().describe("Duration in frames"),
-
-    // Content (type-specific)
-    text: z.string().optional().describe("Text content (required for type='text')"),
-    assetId: z.string().optional().describe("Asset ID (required for image/video/sound)"),
-    stickerId: z.string().optional().describe("Sticker template id (for type='sticker'). Emojis: emoji-fire, emoji-love, emoji-star, emoji-party, emoji-hundred, emoji-sparkles, emoji-grin, emoji-joy, emoji-heart-eyes, emoji-cool, emoji-gift, emoji-balloon. Effects: boom-effect, card-flip, circular-progress, bar-chart, audio-visualiser, matrix-rain, discount-circle, morphing-star, pulsing-circle, spinning-square, bouncing-triangle, expanding-hexagon, rotating-octagon, zigzag-diamond, flashing-pentagon. Defaults to emoji-fire. For a fully custom/bespoke sticker, use generate_html_sticker instead."),
-
-    // Position - accepts numbers (pixels) or strings (percentages like '50%' or 'center')
-    x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
-    y: z.union([z.coerce.number(), z.string()]).optional().describe("Y position: number for pixels, string for '50%' or 'center'. Default: center"),
-    width: z.union([z.coerce.number(), z.string()]).optional().describe("Width: number for pixels, string for '50%'. Default: type-specific"),
-    height: z.union([z.coerce.number(), z.string()]).optional().describe("Height: number for pixels, string for '50%'. Default: type-specific"),
-    rotation: z.coerce.number().optional().default(0),
-
-    // Row override (Smart Placement by default)
-    row: z.coerce.number().optional().describe("Force specific row. If omitted, Physics Engine auto-places: Videos at bottom, Text on top."),
-
-    // Styles (all optional, type-specific fields ignored if not applicable)
-    styles: z.object({
-        // Text styles
-      fontSize: z.coerce.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
-      fontFamily: z.enum([
-        'font-sans',      // Inter (modern sans-serif)
-        'font-serif',     // Merriweather (elegant serif)
-        'font-mono',      // Roboto Mono (code/technical)
-        'font-retro',     // VT323 (retro pixel style)
-        'font-league-spartan', // League Spartan (bold display)
-        'font-bungee-inline'   // Bungee Inline (fun/playful)
-      ]).optional().describe("Font family (for text). Default: font-sans"),
-      fontWeight: z.coerce.number().optional().describe("Font weight 400-900 (for text). Default: 700"),
-      color: z.string().optional().describe("Text color hex (for text). Default: #ffffff"),
-      textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment. Default: center"),
-      backgroundColor: z.string().optional().describe("Background color (for text). Default: transparent"),
-
-        // Animation (for text - recommended to use fade by default)
-      animation: z.object({
-        enter: z.enum([
-          'fade',       // Simple fade in (default, recommended)
-          'slideUp',    // Slide from bottom
-          'slideRight', // Slide from left
-          'scale',      // Scale up
-          'bounce',     // Elastic bounce
-          'floatIn',    // Smooth floating
-          'flipX',      // 3D flip
-          'zoomBlur',   // Zoom with blur
-          'snapRotate', // Quick rotate
-          'glitch',     // Digital glitch
-          'swipeReveal' // Swipe reveal
-        ]).optional().describe("Entry animation. Default: fade"),
-        exit: z.enum([
-          'fade',       // Simple fade out (default, recommended)
-          'slideUp',
-          'slideRight',
-          'scale',
-          'bounce',
-          'floatIn',
-          'flipX',
-          'zoomBlur',
-          'snapRotate',
-          'glitch',
-          'swipeReveal'
-        ]).optional().describe("Exit animation. Default: fade"),
-      }).optional().describe("Animation config. Recommended: use fade for smooth transitions"),
-
-        // Media styles
-      objectFit: z.enum(['cover', 'contain', 'fill']).optional().describe("Object fit (for image/video)"),
-      volume: z.coerce.number().optional().describe("Volume 0-1 (for video/sound)"),
-
-        // Shape styles
-        fill: z.string().optional().describe("Fill color (for shape)"),
-        stroke: z.string().optional().describe("Stroke color (for shape)"),
-      strokeWidth: z.coerce.number().optional().describe("Stroke width (for shape)"),
-
-        // Common styles
-        opacity: z.coerce.number().optional().describe("Opacity 0-1"),
-      borderRadius: z.string().optional().describe("Border radius (e.g. '8px')"),
-    }).optional(),
-
-    // Video-specific
-    videoStartTime: z.coerce.number().optional().describe("Start time within source video in seconds (for video)"),
-    startFromSound: z.coerce.number().optional().describe("Start time within source audio in seconds (for sound)"),
-  });
-
   const addOverlay = tool(
-    async (input: z.infer<typeof addOverlaySchema>) => {
+    async (input: z.infer<typeof chatAddOverlaySchema>) => {
       try {
         const project = await loadProject();
-        const canvas = getCanvasDimensions(project);
-        const existingOverlays = toExistingOverlays(project.overlays || []);
-
-        // Validate type-specific required fields
-        if (input.type === 'text' && !input.text) {
-          return JSON.stringify({ status: 'error', message: "'text' field is required for type='text'" });
-        }
-        if (['image', 'video', 'sound'].includes(input.type) && !input.assetId) {
-          return JSON.stringify({ status: 'error', message: `'assetId' field is required for type='${input.type}'` });
-        }
-
-        // Generate unique ID
         const id = Date.now() + Math.floor(Math.random() * 10000);
-
-        // Smart row placement via Physics Engine
-        const physicsType = input.type === 'sound' ? OverlayType.SOUND : 
-                           input.type === 'video' ? OverlayType.VIDEO :
-                           input.type === 'image' ? OverlayType.IMAGE :
-                           input.type === 'text' ? OverlayType.TEXT :
-                           input.type === 'shape' ? OverlayType.SHAPE :
-                           OverlayType.STICKER;
-
-        const row = findBestRow(
-          physicsType,
-          { from: input.start, duration: input.duration },
-          existingOverlays,
-          input.row // forceRow override
-        );
-
-        // Resolve coordinates using Physics Engine
-        const defaultSize = getDefaultSize(physicsType);
-        const requestedCoords = resolveCoordinates(
-          { x: input.x, y: input.y, width: input.width, height: input.height },
-          canvas,
-          defaultSize
-        );
-        const coords = constrainChatOverlayPlacement({
-          overlayType: input.type,
-          bounds: requestedCoords,
-          canvas,
+        const { overlay, row, position } = buildChatAddOverlayForm({
+          request: input,
+          project,
+          overlayId: id,
         });
-
-        // Build base overlay
-        const baseOverlay = {
-          id,
-          type: input.type,
-          from: input.start,
-          durationInFrames: input.duration,
-          row,
-          left: coords.left,
-          top: coords.top,
-          width: coords.width,
-          height: coords.height,
-          rotation: input.rotation ?? 0,
-          isDragging: false,
-          metadata: {
-            chatPlacement: {
-              requested: coords.requested,
-              resolved: {
-                left: coords.left,
-                top: coords.top,
-                width: coords.width,
-                height: coords.height,
-              },
-              safeMargin: coords.margin,
-              adjusted: coords.adjusted,
-            },
-          },
-        };
-
-        // Build type-specific overlay
-        let newOverlay: any;
-
-        switch (input.type) {
-          case 'text': {
-            const fontSize = input.styles?.fontSize ?? 32;
-            const textContent = input.text || '';
-            const explicitLines = textContent.split('\n');
-            const maxLineChars = Math.max(...explicitLines.map(l => l.length), 1);
-
-            const maxAllowedWidth = canvas.width * (1 - (2 * EDITRON_TITLE_SAFE_MARGIN));
-
-            // Calculate width: auto-fit to content but cap to canvas
-            const rawAutoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
-            const autoWidth = Math.min(rawAutoWidth, maxAllowedWidth);
-
-            // If text needs to wrap, calculate wrapped height
-            const charsPerLine = Math.max(1, Math.floor(autoWidth / (fontSize * 0.6)));
-            let totalVisualLines = 0;
-            for (const line of explicitLines) {
-              totalVisualLines += line.length === 0 ? 1 : Math.ceil(line.length / charsPerLine);
-            }
-            const autoHeight = totalVisualLines * fontSize * 1.4;
-
-            // Use auto-calculated if not specified, otherwise use resolved coords (also capped)
-            const textWidth = input.width === undefined ? autoWidth : Math.min(coords.width, maxAllowedWidth);
-            const textHeight = input.height === undefined ? autoHeight : coords.height;
-            const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : requestedCoords.left;
-            const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : requestedCoords.top;
-            const textPlacement = constrainChatOverlayPlacement({
-              overlayType: input.type,
-              bounds: { left: textLeft, top: textTop, width: textWidth, height: textHeight },
-              canvas,
-            });
-
-            newOverlay = {
-              ...baseOverlay,
-              left: textPlacement.left,
-              top: textPlacement.top,
-              width: textPlacement.width,
-              height: textPlacement.height,
-              metadata: {
-                chatPlacement: {
-                  requested: textPlacement.requested,
-                  resolved: {
-                    left: textPlacement.left,
-                    top: textPlacement.top,
-                    width: textPlacement.width,
-                    height: textPlacement.height,
-                  },
-                  safeMargin: textPlacement.margin,
-                  adjusted: textPlacement.adjusted,
-                },
-              },
-              content: textContent,
-              styles: protectChatTextLegibility({
-                overlayType: 'text',
-                currentStyles: {
-                  fontSize: `${fontSize}`,
-                  fontFamily: input.styles?.fontFamily ?? "font-sans",
-                  fontWeight: `${input.styles?.fontWeight ?? 700}`,
-                  textAlign: input.styles?.textAlign ?? "center",
-                  color: input.styles?.color ?? "#ffffff",
-                  backgroundColor: input.styles?.backgroundColor ?? "transparent",
-                  fontStyle: "normal",
-                  textDecoration: "none",
-                  opacity: input.styles?.opacity ?? 1,
-                  animation: {
-                    enter: input.styles?.animation?.enter ?? "fade",
-                    exit: input.styles?.animation?.exit ?? "fade",
-                    duration: 15,
-                  },
-                },
-              }),
-            };
-            break;
-          }
-
-          case 'image':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              styles: {
-                objectFit: input.styles?.objectFit ?? "cover",
-                opacity: input.styles?.opacity ?? 1,
-                borderRadius: input.styles?.borderRadius,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-
-          case 'video':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              videoStartTime: input.videoStartTime ?? 0,
-              styles: {
-                volume: input.styles?.volume ?? 1,
-                objectFit: input.styles?.objectFit ?? "cover",
-                opacity: input.styles?.opacity ?? 1,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-
-          case 'sound':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              startFromSound: input.startFromSound ?? 0,
-              // Sound has no visual position
-              left: 0, top: 0, width: 0, height: 0,
-              styles: {
-                volume: input.styles?.volume ?? 1,
-              }
-            };
-            break;
-
-          case 'shape':
-            newOverlay = {
-              ...baseOverlay,
-              content: 'rectangle', // Default shape
-              styles: {
-                fill: input.styles?.fill ?? "#3b82f6",
-                stroke: input.styles?.stroke,
-                strokeWidth: input.styles?.strokeWidth,
-                opacity: input.styles?.opacity ?? 1,
-                borderRadius: input.styles?.borderRadius,
-              }
-            };
-            break;
-
-          case 'sticker': {
-            // Was hardcoded content:'emoji' — NOT a valid templateMap id, so the sticker rendered nothing (F-1).
-            const requested = (input.stickerId ?? '').trim();
-            const stickerId = STICKER_TEMPLATE_IDS.includes(requested) ? requested : DEFAULT_STICKER_ID;
-            newOverlay = {
-              ...baseOverlay,
-              content: stickerId,
-              category: 'Default',
-              styles: {
-                opacity: input.styles?.opacity ?? 1,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-          }
-        }
-
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, overlay as any);
         return JSON.stringify({
-          status: 'success', 
+          status: 'success',
           id,
           row,
-          position: {
-            left: newOverlay.left,
-            top: newOverlay.top,
-            width: newOverlay.width,
-            height: newOverlay.height,
-          },
-          message: `${input.type} overlay added with ID ${id} on row ${row}` 
+          position,
+          message: `${input.type} overlay added with ID ${id} on row ${row}`,
         });
-        
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -1195,7 +913,7 @@ TYPE-SPECIFIC FIELDS:
 - image/video/sound: requires 'assetId' field
 - video: optional 'videoStartTime' (seconds)
 - sound: optional 'startFromSound' (seconds)`,
-      schema: addOverlaySchema
+      schema: chatAddOverlaySchema,
     }
   );
 
@@ -1295,7 +1013,7 @@ TYPE-SPECIFIC FIELDS:
         }
         const affectedFrameRanges = overlayUpdateMutationFrameRanges(overlay, updates);
         
-        await projectService.updateOverlay(userId, projectId, input.id, updates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, updates);
         return JSON.stringify({
           status: 'success',
           message: `Overlay ${input.id} updated`,
@@ -1405,7 +1123,7 @@ TYPE-SPECIFIC FIELDS:
             continue;
           }
           
-          await projectService.updateOverlay(userId, projectId, update.id, updates);
+          await updateOverlayAtLoadedProjectRevisionV1(project, update.id, updates);
           mutationRanges.push(...overlayUpdateMutationFrameRanges(overlay, updates));
           results.push({ id: update.id, status: 'success' });
         }
@@ -1465,7 +1183,7 @@ TYPE-SPECIFIC FIELDS:
         const secondDuration = overlayEnd - input.atFrame;
         
         // Update original overlay (first part)
-        await projectService.updateOverlay(userId, projectId, input.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, {
           durationInFrames: firstDuration
         });
         
@@ -1491,7 +1209,10 @@ TYPE-SPECIFIC FIELDS:
           }),
         };
         
-        await projectService.addOverlay(userId, projectId, secondOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(
+          project,
+          secondOverlay as any,
+        );
 
         await recalculateProjectDuration();
 
@@ -1588,7 +1309,7 @@ TYPE-SPECIFIC FIELDS:
         updates.from = newFrom;
         updates.durationInFrames = newDuration;
         
-        await projectService.updateOverlay(userId, projectId, input.id, updates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, updates);
 
         await recalculateProjectDuration();
 
@@ -1645,15 +1366,12 @@ TYPE-SPECIFIC FIELDS:
               ))
           );
           deletedOverlays.push(...linkedOverlays);
-          // PERF FIX: Delete linked overlays in parallel (Priyank's optimization)
-          await Promise.all(
-            linkedOverlays.map((linked: any) =>
-              projectService.deleteOverlay(userId, projectId, linked.id)
-            )
-          );
+          for (const linked of linkedOverlays) {
+            await deleteOverlayAtLoadedProjectRevisionV1(project, linked.id);
+          }
         }
 
-        await projectService.deleteOverlay(userId, projectId, resolvedOverlayId);
+        await deleteOverlayAtLoadedProjectRevisionV1(project, resolvedOverlayId);
 
         await recalculateProjectDuration();
 
@@ -1725,7 +1443,7 @@ TYPE-SPECIFIC FIELDS:
             results.push({ id: targetId, status: 'no-op', message: 'Requested styles already match' });
             continue;
           }
-          await projectService.updateOverlay(userId, projectId, targetId, { styles: nextStyles });
+          await updateOverlayAtLoadedProjectRevisionV1(project, targetId, { styles: nextStyles });
           mutationRanges.push(overlayMutationFrameRange(target));
           
           results.push({ id: targetId, status: 'success' });
@@ -1958,7 +1676,7 @@ CAPABILITIES:
           }
         };
 
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
         
         // Return a SANITIZED message to the main agent so it doesn't see (and repeat) the code.
         return JSON.stringify({ 
@@ -1969,7 +1687,6 @@ CAPABILITIES:
         });
 
       } catch (e: any) {
-         console.error("HTML Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -2066,7 +1783,7 @@ CAPABILITIES:
           ? overlay.prompt.trim()
           : 'Existing generated HTML scene';
 
-        await projectService.updateOverlay(userId, projectId, input.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, {
           content: wrappedHtml,
           prompt: `${previousPrompt}\nRevision: ${input.instructions}`.slice(0, 6000),
           metadata,
@@ -2091,7 +1808,6 @@ CAPABILITIES:
           message: `Revised HTML scene ${input.id} in place.`,
         });
       } catch (error: any) {
-        console.error('HTML Scene Revision Error:', error);
         return errorEnvelope(error?.message || 'HTML scene revision failed.', 'HTML_SCENE_REVISION_FAILED');
       }
     },
@@ -2248,9 +1964,6 @@ FORBIDDEN:
           autoFit: true,
         });
 
-        console.log('[HTML-STICKER] Generated HTML length:', cleanHtml.length);
-
-        
         // Extract metadata for style consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
         const metadata: HtmlGenerationMetadata = {
@@ -2291,12 +2004,7 @@ FORBIDDEN:
           }
         };
 
-        console.log('[HTML-STICKER] Creating overlay:', JSON.stringify(newOverlay, null, 2));
-        
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
-        
-        console.log('[HTML-STICKER] Overlay added successfully, ID:', id);
-        
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
         return JSON.stringify({ 
           status: 'success', 
           id,
@@ -2308,7 +2016,6 @@ FORBIDDEN:
         });
 
       } catch (e: any) {
-        console.error("HTML Sticker Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -2352,7 +2059,7 @@ EXAMPLE PROMPTS:
         const project = await loadProject();
         const fps = project.fps || 30;
         
-        const { getTranscription, getWordsInRange } = await import('../services/media');
+        const { getTranscription } = await import('../services/media');
         
         if (input.mode === 'timeline') {
           // Get all video overlays sorted by timeline position
@@ -2627,10 +2334,8 @@ Use this to understand what exists. Then decide what to do based on user intent.
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -2641,21 +2346,22 @@ Use this to understand what exists. Then decide what to do based on user intent.
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          {
-            expectedUpdatedAt: revision,
-            overlays: plan.overlays,
-          },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption generation once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption generation once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
@@ -2716,10 +2422,8 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -2730,18 +2434,22 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          { expectedUpdatedAt: revision, overlays: plan.overlays },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption refresh once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption refresh once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
@@ -2773,9 +2481,8 @@ Optionally apply a new style while refreshing.`,
   });
 
   const closeGaps = tool(
-    async (rawInput: z.infer<typeof closeGapsSchema>) => {
+    async () => {
       try {
-        const input = coerceInput(rawInput);
         const project = await loadProject();
         
         // Get all video clips sorted by timeline position
@@ -2850,7 +2557,7 @@ Optionally apply a new style while refreshing.`,
               newFrom,
               durationInFrames: Math.max(0, Math.round(Number(overlay.durationInFrames) || 0)),
             });
-            await projectService.updateOverlay(userId, projectId, overlay.id, { from: newFrom });
+            await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, { from: newFrom });
             alreadyMoved.add(overlay.id);
           }
         }
@@ -3005,27 +2712,6 @@ Linked captions are automatically moved with their videos.`,
           });
         }
         
-        // ===== DEBUG LOGGING START =====
-        // PERF FIX: Guarded behind DEBUG_FANCY_CAPTIONS env flag.
-        // Previously these console.log calls (including a per-word forEach loop) fired
-        // unconditionally on EVERY add_fancy_captions invocation, adding synchronous
-        // I/O overhead and cluttering production logs.
-        // Set DEBUG_FANCY_CAPTIONS=true in .env.local to re-enable during development.
-        const DEBUG_FANCY = process.env.DEBUG_FANCY_CAPTIONS === 'true';
-        if (DEBUG_FANCY) {
-          console.log('\n========== [FANCY-CAPTIONS DEBUG] ==========');
-          console.log('Segment range (frames):', segmentStartFrame, '->', segmentEndFrame);
-          console.log('Segment range (ms):', segmentStartMs.toFixed(0), '->', segmentEndMs.toFixed(0));
-          console.log('Video overlay from:', overlay.from, 'videoStartTime:', overlay.videoStartTime || 0);
-          console.log('Total transcription words:', transcription.words.length);
-          console.log('Words in range count:', wordsInRange.length);
-          console.log('\n--- Word Timings (0-based, relative to segment start) ---');
-          wordsInRange.forEach((w: any, i: number) => {
-            console.log(`  [${i}] "${w.word}" | start: ${w.startMs}ms | end: ${w.endMs}ms | duration: ${w.endMs - w.startMs}ms`);
-          });
-        }
-        // ===== DEBUG LOGGING END =====
-        
         // Classify word importance
         const classifiedWords = classifyWordTimings(wordsInRange);
         
@@ -3093,27 +2779,6 @@ Linked captions are automatically moved with their videos.`,
           typographyProfile,
         });
         
-        // ===== DEBUG: Log the prompt being sent to LLM =====
-        // PERF FIX: Guarded — same DEBUG_FANCY_CAPTIONS flag as above.
-        if (DEBUG_FANCY) {
-          console.log('\n--- Classified Words with Importance ---');
-          classifiedWords.forEach((w, i) => {
-            const delaySeconds = (w.startMs / 1000).toFixed(2);
-            console.log(`  [${i}] "${w.word}" | delay: ${delaySeconds}s | importance: ${w.importance}`);
-          });
-          console.log('\n--- Prompt Word Table Section ---');
-          const wordTableLog = classifiedWords.map((w, i) => {
-            const delaySeconds = (w.startMs / 1000).toFixed(2);
-            return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
-          }).join('\n');
-          console.log(wordTableLog);
-          console.log('\nTotal duration:', totalDurationMs, 'ms');
-          console.log('Exit animation delay:', ((Math.max(...classifiedWords.map(w => w.endMs)) - 300) / 1000).toFixed(2), 's');
-          console.log('========== [END FANCY-CAPTIONS DEBUG] ==========\n');
-        }
-        
-        console.log('[FANCY-CAPTIONS] Generating for', classifiedWords.length, 'words, duration:', totalDurationMs, 'ms');
-        
         // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
         // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
         const model = getLLMModel(0.8);
@@ -3124,29 +2789,6 @@ Linked captions are automatically moved with their videos.`,
         ]);
         
         const generatedHtml = result.content as string;
-        
-        // ===== DEBUG: Log generated HTML =====
-        // PERF FIX: Guarded — runs regex scans over potentially large HTML strings.
-        // These regex operations (match animation-delay, match animation properties)
-        // were running on every production invocation with no benefit.
-        if (DEBUG_FANCY) {
-          console.log('\n========== [FANCY-CAPTIONS GENERATED HTML] ==========');
-          console.log('Raw HTML length:', generatedHtml.length);
-          
-          // Extract animation-delay values from the generated HTML to verify timing
-          const delayMatches = generatedHtml.match(/animation-delay\s*:\s*[\d.]+s/gi) || [];
-          console.log('\n--- Animation delays found in generated HTML ---');
-          delayMatches.forEach((d, i) => console.log(`  [${i}] ${d}`));
-          
-          // Also check for inline animation properties
-          const animationMatches = generatedHtml.match(/animation\s*:\s*[^;"}]+/gi) || [];
-          console.log('\n--- Animation properties found ---');
-          animationMatches.slice(0, 20).forEach((a, i) => console.log(`  [${i}] ${a.substring(0, 100)}`));
-          
-          console.log('\n--- First 2000 chars of generated HTML ---');
-          console.log(generatedHtml.substring(0, 2000));
-          console.log('========== [END GENERATED HTML] ==========\n');
-        }
         
         // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
         let cleanHtml = generatedHtml
@@ -3166,7 +2808,6 @@ Linked captions are automatically moved with their videos.`,
         // ===== INJECT TIMING CSS PROGRAMMATICALLY =====
         // This handles the reliable timing work so LLM only does creative layout
         cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
-        console.log('[FANCY-CAPTIONS] Injected programmatic timing CSS for', classifiedWords.length, 'words');
         
         // Wrap in sandbox using the video's box dimensions
         const wrappedHtml = createSandboxedWrapper({
@@ -3225,15 +2866,7 @@ Linked captions are automatically moved with their videos.`,
           },
         };
 
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
-
-        console.log('[FANCY-CAPTIONS] Created overlay:', {
-          id,
-          wordCount: classifiedWords.length,
-          style: input.style,
-          fonts: metadata.fonts,
-          colors: metadata.colors,
-        });
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
 
         return JSON.stringify({
           status: 'success',
@@ -3256,7 +2889,6 @@ Linked captions are automatically moved with their videos.`,
         });
         
       } catch (e: any) {
-        console.error('[FANCY-CAPTIONS] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -3452,7 +3084,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
         };
 
         // Re-sync caption position to match the video overlay's current box
-        await projectService.updateOverlay(userId, projectId, fancyOverlay.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, fancyOverlay.id, {
           from: segmentStartFrame,
           durationInFrames: segmentEndFrame - segmentStartFrame,
           content: wrappedHtml as any,
@@ -3485,7 +3117,6 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           message: `Refreshed fancy captions with ${classifiedWords.length} words and re-synced to linked video timing`,
         });
       } catch (e: any) {
-        console.error('[FANCY-CAPTIONS][REFRESH] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -3546,15 +3177,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
       rawInput: z.infer<typeof analyzeClipAudioSchema> & { prompt?: string },
     ) => {
       try {
-        console.log("[AUDIO-TOOL] ========== START ==========");
-        
         const input = rawInput;
         const project = await loadProject();
         const projectFps = input.fps || project?.fps || 30;
 
         // Combine target and prompt for search
         const prompt = (input.prompt || input.target || "").trim();
-        console.log("[AUDIO-TOOL] Search prompt:", prompt);
 
         // Tool requests and receipts use edited-timeline frames. Asset samplers use
         // source-media frames; resolve both spaces only after choosing the clip.
@@ -3567,7 +3195,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           fps: projectFps,
           maxDurationSeconds: 120,
         });
-        console.log("[AUDIO-TOOL] Requested timeline range:", requestedTimelineRange);
 
         // 2) Pick audio-capable overlays
         const overlays = (project.overlays || []).filter(
@@ -3576,16 +3203,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             (o.assetId || o.src),
         );
 
-        console.log("[AUDIO-TOOL] Total overlays found:", overlays.length);
-        console.log("[AUDIO-TOOL] Overlays:", overlays.map((o: any) => ({
-          id: o.id,
-          name: o.name,
-          assetId: o.assetId,
-          type: o.type,
-          from: o.from,
-          duration: o.durationInFrames
-        })));
-        
         if (overlays.length === 0) {
           return JSON.stringify({
             status: "error",
@@ -3638,12 +3255,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           requestedTimelineRange,
           selectedOverlayId: (project as any).selectedOverlayId,
         });
-        console.log("[AUDIO-TOOL] Chosen overlay:", {
-          id: chosen?.id,
-          name: chosen?.name,
-          assetId: chosen?.assetId,
-          type: chosen?.type
-        });
         
         if (!chosen?.assetId) {
           return JSON.stringify({
@@ -3660,17 +3271,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           preferredWindowFrames,
           maxWindowFrames: maxFrames,
         });
-        
-        console.log("[AUDIO-TOOL] Final analysis range:", { 
-          timeline: window.timeline,
-          source: window.source,
-          durationSec: (window.timeline.endFrame - window.timeline.startFrame) / projectFps,
-        });
 
         // 5) Call audio analysis service
         const { analyzeClipAudioService } = await import("../services/media");
-
-        console.log("[AUDIO-TOOL] Calling analyzeClipAudioService...");
         const result = await analyzeClipAudioService({
           projectId,
           userId,
@@ -3680,12 +3283,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           endFrame: window.source.endFrame,
           timelineStartFrame: window.timeline.startFrame,
           fps: projectFps,
-        });
-
-        console.log("[AUDIO-TOOL] Analysis complete:", {
-          silences: result.silenceGapsFrames.length,
-          fillers: result.fillers.length,
-          problematic: result.problematicFrames.length,
         });
 
         // 6) Build response
@@ -3714,13 +3311,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           problematicFrames: result.problematicFrames,
           message: `Detected ${result.problematicFrames.length} removable audio segments`,
         };
-        
-        console.log("[AUDIO-TOOL] ========== SUCCESS ==========");
         return JSON.stringify(response);
       } catch (err: any) {
-        console.error("[AUDIO-TOOL] ========== ERROR ==========");
-        console.error("[AUDIO-TOOL] Error:", err);
-        console.error("[AUDIO-TOOL] Stack:", err.stack);
         return JSON.stringify({
           status: "error",
           message: err.message || String(err),
@@ -3972,7 +3564,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           vision,
         });
       } catch (err: any) {
-        console.error("[analyze_clip_video] error", err);
         return JSON.stringify({
           status: "error",
           message: err.message || String(err),
@@ -4000,7 +3591,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         const input = coerceInput(rawInput);
         const project = await loadProject();
         const fps = project.fps || 30;
-        const canvas = getCanvasDimensions(project);
 
         // Find video overlays and their corresponding text/narration
         const videoOverlays = project.overlays
@@ -4010,12 +3600,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         if (videoOverlays.length === 0) {
           return JSON.stringify({ status: 'error', message: 'No video clips found to add motion graphics to' });
         }
-
-        // Find voiceover/caption overlays for narration context
-        const voOverlays = project.overlays.filter((o: any) =>
-          o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')),
-        );
-        const captionOverlays = project.overlays.filter((o: any) => o.type === 'caption');
 
         // Look up storyboard for scene narration text
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
@@ -4077,8 +3661,7 @@ ${sceneContext}
         let placements: any[];
         try {
           placements = JSON.parse(jsonStr);
-        } catch (err: unknown) {
-          console.warn('[Tools] failed to parse Gemini motion graphic suggestions:', err instanceof Error ? err.message : err);
+        } catch {
           return JSON.stringify({ status: 'error', message: 'Failed to parse Gemini motion graphic suggestions' });
         }
 
@@ -4233,14 +3816,14 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               o.type === 'transition' && o.clipAId === outgoing.id && o.clipBId === incoming.id
             );
             if (existingTrans) {
-              await projectService.deleteOverlay(userId, projectId, existingTrans.id);
+              await deleteOverlayAtLoadedProjectRevisionV1(project, existingTrans.id);
             }
 
             // Merge keyframe tracks: new tracks replace existing tracks for same property
             const existingOutTracks = (outgoing.keyframeTracks || []).filter(
               (t: any) => !result.outgoingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
             );
-            await projectService.updateOverlay(userId, projectId, outgoing.id, {
+            await updateOverlayAtLoadedProjectRevisionV1(project, outgoing.id, {
               durationInFrames: result.outgoingOverlayUpdate.durationInFrames,
               keyframeTracks: [...existingOutTracks, ...result.outgoingOverlayUpdate.keyframeTracks],
             });
@@ -4248,7 +3831,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
             const existingInTracks = (incoming.keyframeTracks || []).filter(
               (t: any) => !result.incomingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
             );
-            await projectService.updateOverlay(userId, projectId, incoming.id, {
+            await updateOverlayAtLoadedProjectRevisionV1(project, incoming.id, {
               from: result.incomingOverlayUpdate.from,
               durationInFrames: result.incomingOverlayUpdate.durationInFrames,
               keyframeTracks: [...existingInTracks, ...result.incomingOverlayUpdate.keyframeTracks],
@@ -4272,7 +3855,10 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               styles: { opacity: 1 },
               metadata: { isTransition: true, source: 'tool', transitionType: transId },
             };
-            await projectService.addOverlay(userId, projectId, transOverlay as any);
+            await addOverlayAtLoadedProjectRevisionV1(
+              project,
+              transOverlay as any,
+            );
 
             applied++;
           }
@@ -4441,14 +4027,17 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Regenerate video clip
         if (input.target === 'video' || input.target === 'all') {
-          console.log(`[regenerate_scene] Video regen: storyboardId=${storyboardId}, sceneIndex=${input.sceneIndex}, userId=${userId?.substring(0, 15)}..., url=${baseApiUrl.substring(0, 50)}`);
+          const videoRequestBody = JSON.stringify({
+            sceneIndices: [input.sceneIndex],
+            userId,
+          });
           const vidRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sceneIndices: [input.sceneIndex],
-              userId, // Passed for internal auth fallback
-            }),
+            headers: {
+              'Content-Type': 'application/json',
+              ...createPipelineVideoEnqueueInternalHeadersV1(videoRequestBody),
+            },
+            body: videoRequestBody,
           });
           const data = await readRegenerationResponse(vidRes);
           if (vidRes.ok) {
@@ -4584,18 +4173,16 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return JSON.stringify({ status: 'error', message: 'endFrame must be greater than startFrame' });
         }
 
-        const project = await loadProject();
-        const fps = project.fps || 30;
-        const cut = cutTimelineRange({
-          overlays: project.overlays || [],
+        const {
+          cut,
+          mutationReceipt,
+          timelineChangeReceipt,
+        } = await projectService.cutTimelineRangeV1(userId, projectId, {
+          actorKind: 'AGENT',
           startFrame,
           endFrame,
-          fps,
-          durationInFrames: project.durationInFrames,
         });
-        project.overlays = cut.overlays as Overlay[];
-        project.durationInFrames = cut.newDurationInFrames;
-        await projectService.saveProject(userId, projectId, project);
+        const fps = timelineChangeReceipt.fps;
 
         const summary: string[] = [];
 
@@ -4615,14 +4202,29 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           created: cut.created,
           framesCut: cut.framesCut,
           secondsCut,
-          affectedFrameRange: {
-            startFrame,
-            endFrame: Math.min(cut.newDurationInFrames, startFrame + 1),
-          },
+          mutationReceipt,
+          timelineChangeReceipt,
+          affectedFrameRangesBefore: timelineChangeReceipt.writeFrameRangesBefore,
+          affectedFrameRanges: timelineChangeReceipt.affectedFrameRangesAfter,
           message: summary.join(', '),
         });
-      } catch (e: any) {
-        return JSON.stringify({ status: 'error', message: e.message });
+      } catch (e: unknown) {
+        if (e instanceof ProjectMutationConflictError) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: e.code,
+              message: e.message,
+              details: { currentRevision: e.currentRevision },
+            },
+            nextAction: 'stop',
+          } satisfies ToolEnvelope);
+        }
+        return JSON.stringify({
+          status: 'error',
+          message: e instanceof Error ? e.message : 'Timeline cut failed.',
+        });
       }
     },
     {
@@ -4714,7 +4316,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
       try {
         const input = coerceInput(rawInput);
 
-        let { assetId, videoOverlayId, videoUrl, sourceName } = input;
+        const { assetId, videoUrl, sourceName } = input;
+        let { videoOverlayId } = input;
         if (!assetId && !videoOverlayId && !videoUrl) {
           const project = await loadProject();
           const projectVideos = project.overlays.filter((overlay: any) => overlay.type === 'video');
@@ -4986,11 +4589,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
                   }
                 : brandInputsFromUnifiedBrandAtomic(resolution.brand);
               graphicBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
-              if (graphicBrandInputs.accentColor) {
-                console.log(
-                  `[Tools:addMotionGraphic] Brand accent ${graphicBrandInputs.accentColor} applied from ${resolution.source} for project ${project.projectId}`,
-                );
-              }
             }
           } catch (err: unknown) {
             console.warn(
@@ -5041,11 +4639,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             },
           };
 
-          await projectService.addOverlay(userId, projectId, newOverlay as any);
-          console.log(
-            `[MOTION-GRAPHIC] Composition engine: '${graphicType}' at frame ${input.start}, ` +
-            `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
-          );
+          await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
           return successEnvelope({
             id,
             templateUsed: 'composition-engine',
@@ -5055,7 +4649,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
       } catch (e: any) {
-        console.error('[MOTION-GRAPHIC] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -5140,7 +4733,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           keyframes: input.keyframes,
           focalPoint: input.focalPoint,
         });
-        await projectService.updateOverlay(userId, projectId, overlay.id, resolvedMutation.patch as any);
+        await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, resolvedMutation.patch as any);
 
         return successEnvelope({
           overlayId: input.overlayId,
@@ -5208,8 +4801,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return errorEnvelope('The project has no renderable duration, so its music cannot be replaced safely.', 'BGM_INVALID_PROJECT_DURATION', { totalFrames }, 'stop');
         }
         const totalDurationSec = Math.max(1, Math.ceil(totalFrames / fps));
-        const expectedProjectRevision = projectPolicyRecord.updatedAt;
-        if (!(expectedProjectRevision instanceof Date) || Number.isNaN(expectedProjectRevision.getTime())) {
+        const expectedProjectRevision = readProjectRevisionV1(projectPolicyRecord);
+        if (!expectedProjectRevision) {
           return errorEnvelope(
             'The project revision is missing, so background music cannot be replaced without risking a concurrent edit.',
             'BGM_PROJECT_REVISION_MISSING',
@@ -5376,13 +4969,14 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           ...conditioning,
         };
 
-        const beatRealignEnabled = (
+        const beatRealignRequested = (
           process.env.EDITRON_MUSIC_CHANGE_BEAT_REALIGN === 'true'
           || projectPolicyRecord.featureFlags?.musicChangeBeatRealign === true
         );
+        const beatRealignEnabled = false;
         let beatAnalysis: any = null;
         let beatGrid: any = null;
-        if (beatRealignEnabled) {
+        if (beatRealignRequested) {
           const { analyzeConditionedMusicBeatGrid } = await import(
             '@/lib/editron/services/music-beat-grid'
           );
@@ -5464,11 +5058,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         });
         if (replacementIndex < 0) nextOverlays.push(...replacementCandidates);
 
-        let snappedCutCount = 0;
-        if (beatGrid) {
-          const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
-          snappedCutCount = alignCutsToBeats(nextOverlays, beatGrid.beats, fps);
-        }
+        const snappedCutCount = 0;
 
         const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -5503,24 +5093,28 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         );
 
         const replacedInPlace = bgmOverlays.length > 0;
-        const committed = await projectService.replaceOverlayFamilyAtomic(userId, projectId, {
-          expectedUpdatedAt: expectedProjectRevision,
-          overlays: nextOverlays,
-          projectUpdates: {
+        try {
+          await projectService.replaceBackgroundMusicAtRevisionV1(userId, projectId, {
+            expectedRevision: expectedProjectRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: nextOverlays,
             musicCoveragePlan,
-            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-            'intelligence.audio.lastMusicChange': {
-              version: 'chat-music-change-v1',
-              assetId: bgm.audioAssetId,
-              replacementOverlayIds: replacementIds,
-              beatRealignEnabled,
-              snappedCutCount,
-              beatCount: beatGrid?.beats.length ?? 0,
-              generatedAt,
+            evidence: {
+              kind: 'CHAT_CHANGE',
+              receipt: {
+                version: 'chat-music-change-v1',
+                assetId: bgm.audioAssetId,
+                replacementOverlayIds: replacementIds,
+                beatRealignEnabled,
+                beatRealignDeferred: beatRealignRequested,
+                snappedCutCount,
+                beatCount: beatGrid?.beats.length ?? 0,
+                generatedAt,
+              },
             },
-          },
-        });
-        if (!committed) {
+          });
+        } catch (error) {
+          if (!(error instanceof ProjectMutationConflictError)) throw error;
           return errorEnvelope(
             'The project changed while new music was being prepared. Existing timeline music was kept; retry from the latest edit.',
             'BGM_PROJECT_CONFLICT',
@@ -5568,6 +5162,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           musicCoveragePlan,
           beatRealignment: {
             enabled: beatRealignEnabled,
+            requested: beatRealignRequested,
+            deferred: beatRealignRequested,
             snappedCutCount,
             beatCount: beatGrid?.beats.length ?? 0,
           },
@@ -5685,7 +5281,7 @@ Examples:
         if (!newSfx) throw new Error('SFX providers returned no usable asset');
 
         // Replace the complete asset identity so hydration cannot restore the old source.
-        await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, sfxOverlay.id, {
           assetId: newSfx.audioAssetId,
           content: newSfx.audioUrl,
           src: newSfx.audioUrl,
@@ -5812,7 +5408,6 @@ Examples:
               sfxTitle = librarySfx.originalTitle || input.query;
               sfxDuration = librarySfx.durationMs / 1000;
               sfxSource = librarySfx.source;
-              console.log(`[add_sfx] Library success: ${assetId} - "${sfxTitle}"`);
             }
           } catch (libraryErr: any) {
             console.warn(`[add_sfx] Rights-cleared library search failed for "${input.query}": ${libraryErr.message}`);
@@ -5831,7 +5426,6 @@ Examples:
             let mireloOutputProduced = false;
             let mireloOutputCount = 0;
             try {
-              console.log(`[add_sfx] P1: mirelo video-to-audio for scene ${input.sceneIndex}, prompt="${input.query}" (${mireloDuration}s)`);
               const mireloResult: any = await fal.subscribe(mireloModel, {
                 input: {
                   video_url: videoSrc,
@@ -5898,7 +5492,6 @@ Examples:
                 bytesOut: buffer.length,
                 functionMs: Date.now() - mireloStartedAt,
               });
-              console.log(`[add_sfx] mirelo success: ${assetId}`);
             } catch (mireloErr: any) {
               await recordChatSfxProviderCost({
                 status: 'failed',
@@ -5932,7 +5525,6 @@ Examples:
             );
             cassetteDuration = cassetteRequest.input.duration;
             cassetteModel = cassetteRequest.model;
-            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassetteDuration}s)`);
             const cassResult: any = await fal.subscribe(cassetteRequest.model, {
               input: cassetteRequest.input,
               logs: true,
@@ -5987,7 +5579,6 @@ Examples:
               bytesOut: buffer.length,
               functionMs: Date.now() - cassetteStartedAt,
             });
-            console.log(`[add_sfx] CassetteAI success: ${assetId}`);
           } catch (cassErr: any) {
             await recordChatSfxProviderCost({
               status: 'failed',
@@ -6037,7 +5628,7 @@ Examples:
 
         const { nanoid: nid } = await import('nanoid');
         const overlayId = Date.now() + parseInt(nid(4), 36);
-        await projectService.addOverlay(userId, projectId, {
+        await addOverlayAtLoadedProjectRevisionV1(project, {
           id: overlayId,
           type: 'sound',
           from: startFrame,
@@ -6142,10 +5733,8 @@ Examples:
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -6156,18 +5745,22 @@ Examples:
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          { expectedUpdatedAt: revision, overlays: plan.overlays },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption styling once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption styling once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
@@ -6258,7 +5851,6 @@ Examples:
           });
         }
       } catch (e: any) {
-        console.error('[search_stock_footage] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -6358,7 +5950,7 @@ All Pixabay content is free for commercial use.`,
             swapSource: 'user_footage',
           },
         };
-        await projectService.updateOverlay(userId, projectId, overlay.id, replacementUpdates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, replacementUpdates);
 
         return JSON.stringify({
           status: 'success',
@@ -6433,7 +6025,11 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
         const verification = await checkpointService.restoreProjectCheckpoint(
           checkpoint.checkpointId,
           userId,
-          { projectId, expectedRevision: rollbackReceipt.expectedRevision },
+          {
+            projectId,
+            expectedRevision: rollbackReceipt.expectedRevision,
+            actorKind: 'AGENT',
+          },
         );
         if (!verification.restored) {
           return errorEnvelope(

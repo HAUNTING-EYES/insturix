@@ -3,6 +3,7 @@ import { hashEditronCanonicalJsonV1 }
   from '@/lib/editron/services/canonical-json-v1';
 import {
   createOrGetEditorialPlanDurableJobV1,
+  EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1,
   type EditorialPlanDurableJobRequestV1,
 } from '@/lib/editron/services/editorial-plan-durable-job-binding-v1';
 import {
@@ -57,9 +58,107 @@ describe('editorial plan durable job binding', () => {
     expect(first.job.dependencies.map(({ dependencyId }) => dependencyId)).toEqual([
       'accepted-plan-node', 'accepted-plan-revision', 'base-project-revision',
       'direction-revision', 'eligible-operation-set', 'execution-definition',
-      'planner-envelope-schema', 'privacy-policy', 'proof-policy',
+      'execution-dependency-readiness-policy', 'planner-envelope-schema',
+      'privacy-policy', 'proof-policy',
     ]);
+    expect(first.job.dependencies).toContainEqual({
+      dependencyId: 'execution-dependency-readiness-policy',
+      dependencyVersion: EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.version,
+      bindingSha256: hashEditronCanonicalJsonV1(
+        EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1,
+      ),
+    });
+    expect(first.job.operationId).not.toBe(`epn_${first.job.input.bindingSha256}`);
     expect(setup.jobs.snapshot()).toHaveLength(1);
+  });
+
+  it('rejects a READY node with an unresolved direct execution dependency', async () => {
+    const setup = await prepared({
+      dependencyNodes: [dependencyNode('dependency-direct')],
+      targetDependsOnNodeIds: ['dependency-direct'],
+    });
+    await expect(bind(setup)).rejects.toThrow('PLAN_JOB_DEPENDENCY_NOT_VERIFIED');
+    expect(setup.jobs.snapshot()).toHaveLength(0);
+  });
+
+  it('rejects a verified direct dependency with an unresolved transitive dependency', async () => {
+    const setup = await prepared({
+      dependencyNodes: [
+        dependencyNode('dependency-direct', {
+          status: 'VERIFIED', dependsOnNodeIds: ['dependency-transitive'],
+        }),
+        dependencyNode('dependency-transitive'),
+      ],
+      targetDependsOnNodeIds: ['dependency-direct'],
+    });
+    await expect(bind(setup)).rejects.toThrow('PLAN_JOB_DEPENDENCY_NOT_VERIFIED');
+    expect(setup.jobs.snapshot()).toHaveLength(0);
+  });
+
+  it.each([
+    ['FAILED', 'FAIL'],
+    ['UNVERIFIABLE', 'UNVERIFIABLE'],
+  ] as const)('rejects a %s execution dependency', async (status, finalDisposition) => {
+    const setup = await prepared({
+      dependencyNodes: [dependencyNode('dependency-terminal', { status })],
+      targetDependsOnNodeIds: ['dependency-terminal'],
+    });
+    expect(setup.active.nodes.find(({ nodeId }) => nodeId === 'dependency-terminal'))
+      .toMatchObject({ status, finalDisposition });
+    await expect(bind(setup)).rejects.toThrow('PLAN_JOB_DEPENDENCY_NOT_VERIFIED');
+    expect(setup.jobs.snapshot()).toHaveLength(0);
+  });
+
+  it('accepts a fully verified transitive chain and binds policy, versions, and hashes', async () => {
+    const setup = await prepared({
+      dependencyNodes: [
+        dependencyNode('dependency-z', {
+          status: 'VERIFIED', dependsOnNodeIds: ['dependency-a'],
+        }),
+        dependencyNode('dependency-a', { status: 'VERIFIED' }),
+      ],
+      targetDependsOnNodeIds: ['dependency-z'],
+    });
+    const result = await bind(setup);
+    const dependencyA = planNode(setup.active, 'dependency-a');
+    const dependencyZ = planNode(setup.active, 'dependency-z');
+    expect(verifiedDependencyReceipts(result.job.dependencies)).toEqual([
+      expectedDependencyReceipt(1, dependencyA),
+      expectedDependencyReceipt(2, dependencyZ),
+    ]);
+    expect(result.job.dependencies).toContainEqual({
+      dependencyId: 'execution-dependency-readiness-policy',
+      dependencyVersion: EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.version,
+      bindingSha256: hashEditronCanonicalJsonV1(
+        EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1,
+      ),
+    });
+  });
+
+  it('normalizes verified dependency receipts across dependency-order permutations', async () => {
+    const dependencyA = dependencyNode('dependency-a', { status: 'VERIFIED' });
+    const dependencyZ = dependencyNode('dependency-z', { status: 'VERIFIED' });
+    const reversed = await prepared({
+      dependencyNodes: [dependencyZ, dependencyA],
+      targetDependsOnNodeIds: ['dependency-z', 'dependency-a'],
+    });
+    const ordered = await prepared({
+      dependencyNodes: [dependencyA, dependencyZ],
+      targetDependsOnNodeIds: ['dependency-a', 'dependency-z'],
+    });
+    const reversedJob = (await bind(reversed)).job;
+    const orderedJob = (await bind(ordered)).job;
+    expect(verifiedDependencyReceipts(reversedJob.dependencies))
+      .toEqual(verifiedDependencyReceipts(orderedJob.dependencies));
+  });
+
+  it('does not treat an unresolved structural parent as an execution dependency', async () => {
+    const setup = await prepared({
+      dependencyNodes: [dependencyNode('structural-parent')],
+      targetParentNodeId: 'structural-parent',
+    });
+    const result = await bind(setup);
+    expect(verifiedDependencyReceipts(result.job.dependencies)).toEqual([]);
   });
 
   it('rejects an accepted revision after the plan head advances', async () => {
@@ -115,7 +214,11 @@ describe('editorial plan durable job binding', () => {
   });
 });
 
-async function prepared() {
+async function prepared(options: Readonly<{
+  dependencyNodes?: readonly Readonly<EditorialPlanNodeV1>[];
+  targetDependsOnNodeIds?: readonly string[];
+  targetParentNodeId?: string | null;
+}> = {}) {
   const plans = new StatefulMongoCollection<EditorialPlanRevisionRecordV1>();
   const definitions = new StatefulMongoCollection<EditorialPlanExecutionDefinitionRecordV1>();
   const jobs = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
@@ -123,9 +226,16 @@ async function prepared() {
     plans: plans.asCollection(), definitions: definitions.asCollection(),
   }));
   const jobStore = new DurableWorkflowJobStoreV1(async () => jobs.asCollection());
-  const source = createEditorialPlanRevisionV1(planInput());
+  const targetNode = {
+    ...node(),
+    parentNodeId: options.targetParentNodeId ?? null,
+    dependsOnNodeIds: [...(options.targetDependsOnNodeIds ?? [])],
+  };
+  const source = createEditorialPlanRevisionV1(planInput({
+    nodes: [targetNode, ...(options.dependencyNodes ?? [])],
+  }));
   await planStore.createInitial(source, NOW);
-  const sourceNode = source.nodes[0];
+  const sourceNode = planNode(source, 'root');
   const definition = createEditorialPlanExecutionDefinitionV1({
     version: 'EDITRON_PLAN_EXECUTION_DEFINITION_V1_1',
     tenantId: source.tenantId, userId: source.userId, projectId: source.projectId,
@@ -162,7 +272,10 @@ async function append(
   const next = createEditorialPlanRevisionV1(planInput({
     planRevision: previous.planRevision + 1,
     previousRevisionSha256: previous.revisionSha256,
-    nodes: [nextNode], changeReason: `append revision ${previous.planRevision + 1}`,
+    nodes: previous.nodes.map((node) => (
+      node.nodeId === nextNode.nodeId ? nextNode : node
+    )),
+    changeReason: `append revision ${previous.planRevision + 1}`,
   }));
   await setup.planStore.appendSuccessor({
     plan: next, expectedCurrentRevisionSha256: previous.revisionSha256, now: NOW,
@@ -174,6 +287,7 @@ function bind(
   setup: Awaited<ReturnType<typeof prepared>>,
   overrides: Partial<EditorialPlanDurableJobRequestV1> = {},
 ) {
+  const target = planNode(setup.active, 'root');
   return createOrGetEditorialPlanDurableJobV1({
     planStore: setup.planStore, jobStore: setup.jobStore, now: NOW,
     request: {
@@ -181,8 +295,8 @@ function bind(
       projectId: setup.active.projectId, planId: setup.active.planId,
       planRevision: setup.active.planRevision,
       planRevisionSha256: setup.active.revisionSha256,
-      nodeId: setup.active.nodes[0].nodeId,
-      nodeVersion: setup.active.nodes[0].nodeVersion,
+      nodeId: target.nodeId,
+      nodeVersion: target.nodeVersion,
       parentCommandId: 'command-a', parentReceiptId: 'receipt-a',
       maxAttempts: 3, ...overrides,
     },
@@ -229,6 +343,65 @@ function node(): EditorialPlanNodeV1 {
     budgetReservationRefs: [ref('BUDGET_SERVICE', 'budget-v1')],
     whatHasNotBeenChecked: ['preview'], previewRefs: [], proofRefs: [], receiptRefs: [],
     finalDisposition: null,
+  };
+}
+
+function dependencyNode(
+  nodeId: string,
+  options: Readonly<{
+    status?: EditorialPlanNodeV1['status'];
+    dependsOnNodeIds?: readonly string[];
+  }> = {},
+): EditorialPlanNodeV1 {
+  const status = options.status ?? 'READY';
+  const finalDisposition: EditorialPlanNodeV1['finalDisposition'] =
+    status === 'VERIFIED' ? 'PASS'
+      : status === 'FAILED' ? 'FAIL'
+        : status === 'UNVERIFIABLE' ? 'UNVERIFIABLE' : null;
+  const verified = status === 'VERIFIED';
+  return {
+    ...node(),
+    nodeId,
+    objective: {
+      ...node().objective,
+      targetClaims: [`Complete prerequisite ${nodeId}`],
+    },
+    dependsOnNodeIds: [...(options.dependsOnNodeIds ?? [])],
+    status,
+    whatHasNotBeenChecked: verified ? [] : ['preview'],
+    proofRefs: verified ? [ref('PROOF_SERVICE', `${nodeId}-proof`)] : [],
+    receiptRefs: verified ? [ref('PLAN_SERVICE', `${nodeId}-receipt`)] : [],
+    finalDisposition,
+  };
+}
+
+function planNode(
+  plan: Readonly<EditorialPlanRevisionV1>,
+  nodeId: string,
+): Readonly<EditorialPlanNodeV1> {
+  return plan.nodes.find((node) => node.nodeId === nodeId)
+    ?? (() => { throw new Error(`TEST_PLAN_NODE_MISSING:${nodeId}`); })();
+}
+
+function verifiedDependencyReceipts(
+  dependencies: readonly Readonly<{
+    dependencyId: string; dependencyVersion: string; bindingSha256: string;
+  }>[],
+) {
+  return dependencies.filter(({ dependencyId }) => (
+    dependencyId.startsWith('verified-plan-dependency-')
+  ));
+}
+
+function expectedDependencyReceipt(
+  ordinal: number,
+  dependency: Readonly<EditorialPlanNodeV1>,
+) {
+  return {
+    dependencyId: `verified-plan-dependency-${String(ordinal).padStart(3, '0')}-${
+      hashEditronCanonicalJsonV1(dependency.nodeId).slice(0, 16)}`,
+    dependencyVersion: String(dependency.nodeVersion),
+    bindingSha256: hashEditronCanonicalJsonV1(dependency),
   };
 }
 

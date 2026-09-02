@@ -55,12 +55,12 @@ interface ChatEditCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1>;
   restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+    options: { projectId: string; expectedRevision: ProjectRevisionV1; actorKind: "SYSTEM" },
   ): Promise<RestoreProjectCheckpointResult>;
 }
 
@@ -113,6 +113,7 @@ export async function prepareChatAiEditTransaction(
     projectId: string;
     userId: string;
     project: Record<string, unknown>;
+    projectRevision: ProjectRevisionV1;
   },
   dependencies: RuntimeDependencies = {},
 ): Promise<PrepareChatAiEditTransactionResult> {
@@ -129,6 +130,7 @@ export async function prepareChatAiEditTransaction(
     userId: input.userId,
     overlays: Array.isArray(input.project.overlays) ? input.project.overlays as any[] : [],
     projectState,
+    capturedProjectRevision: input.projectRevision,
     description: `Before AI chat edit ${input.operationId}`,
     type: 'before-llm',
     force: true,
@@ -311,6 +313,7 @@ export async function rollbackChatAiEditTransaction(
     {
       projectId: input.transaction.projectId,
       expectedRevision: rollbackReceipt.expectedRevision,
+      actorKind: "SYSTEM",
     },
   );
   const mutatingToolNames = input.mutatingToolNames ?? [];

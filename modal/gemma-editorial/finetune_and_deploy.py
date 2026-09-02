@@ -24,11 +24,14 @@ Usage:
 Endpoint: POST /classify
   Body: {"segments": [{"index": 0, "text": "..."}, ...]}
   Returns: {"decisions": [{"index": 0, "decision": "KEEP"}, ...]}
+
+The deployed endpoint requires Modal proxy authentication with `Modal-Key` and
+`Modal-Secret`. It is a standalone research classifier, not an Editron worker
+or a ProjectService mutation path.
 """
 
 from __future__ import annotations
 import modal
-import json
 
 # ─── Modal App ──────────────────────────────────────────────────────
 
@@ -228,12 +231,10 @@ class EditorialClassifier:
         try:
             import json as _json
             parsed = _json.loads(response_text)
-            keep_set = set(parsed.get("keep", []))
             cut_set = set(parsed.get("cut", []))
         except Exception:
             # If JSON parse fails, default to KEEP all (safe)
-            print(f"[Editorial] JSON parse failed, keeping all segments")
-            keep_set = set(s.get("index", i) for i, s in enumerate(segments))
+            print("[Editorial] JSON parse failed, keeping all segments")
             cut_set = set()
 
         decisions = []
@@ -244,7 +245,7 @@ class EditorialClassifier:
 
         return decisions
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def classify(self, payload: dict) -> dict:
         """HTTP endpoint for classification."""
         segments = payload.get("segments", [])

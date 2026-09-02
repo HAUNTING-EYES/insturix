@@ -17,6 +17,7 @@ const TARGET = {
   fps: 30,
   timeline: { startFrame: 90, endFrame: 390 },
   source: { startFrame: 30, endFrame: 330 },
+  sourceSelection: { kind: 'DIRECT_ASSET_SOURCE_UNVERSIONED' as const },
 };
 
 function toolNamed(

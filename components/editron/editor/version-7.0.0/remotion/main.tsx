@@ -13,6 +13,8 @@ import {
   PreviewMediaWarmup,
   selectPreviewWarmSources,
 } from "./preview-media-warmup";
+import type { NativeMediaTimestampPreviewHydrationV1 } from "./native-media-timestamp-preview-hydration-v1";
+import type { NativeMediaTimestampPreviewWindowV2 } from "./native-media-timestamp-preview-window-v2";
 
 export type MainProps = {
   readonly overlays: Overlay[];
@@ -31,6 +33,9 @@ export type MainProps = {
   readonly baseUrl?: string;
   readonly isRendering?: boolean;
   readonly renderMediaMode?: RenderMediaMode;
+  readonly timestampPreviewHydrations?: readonly NativeMediaTimestampPreviewHydrationV1[];
+  readonly timestampPreviewWindows?: readonly NativeMediaTimestampPreviewWindowV2[];
+  readonly timestampPreviewNow?: () => number;
 };
 
 const outer: React.CSSProperties = {
@@ -50,8 +55,15 @@ export const Main: React.FC<MainProps> = ({
   baseUrl,
   isRendering,
   renderMediaMode = "full",
+  timestampPreviewHydrations = [],
+  timestampPreviewWindows = [],
+  timestampPreviewNow,
   fps,
 }) => {
+  if (isRendering
+    && (timestampPreviewHydrations.length > 0 || timestampPreviewWindows.length > 0)) {
+    throw new Error("Timestamp preview inputs are not a final-render media source");
+  }
   const currentFrame = useCurrentFrame();
   const renderedOverlays = useMemo(
     () => overlays.filter(
@@ -88,6 +100,9 @@ export const Main: React.FC<MainProps> = ({
       isRendering={isRendering ?? false}
       mediaMode={renderMediaMode}
       overlays={overlays}
+      timestampPreviewHydrations={timestampPreviewHydrations}
+      timestampPreviewWindows={timestampPreviewWindows}
+      timestampPreviewNow={timestampPreviewNow}
     >
       <AbsoluteFill style={outer} onPointerDown={onPointerDown}>
         <PreviewMediaWarmup sources={previewWarmSources} />

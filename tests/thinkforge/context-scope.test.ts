@@ -226,6 +226,38 @@ describe('fetchContextSources scoped DataBank reads', () => {
     expect(brief).not.toContain(unreviewedPayload);
   });
 
+  it('preserves addressable project-source identity for downstream acquisition planning', async () => {
+    mocks.getAuthorizedProjectScopedEntries.mockResolvedValue([
+      entry({
+        _id: 'entry_workflow_reference',
+        sessionId: 'session_1',
+        projectId: 'session_1',
+        type: 'reference',
+        scope: 'project',
+        title: 'Approved workflow recording',
+        content: { summary: 'Rights-cleared product workflow footage.' },
+        sourceUrl: 'https://assets.example.com/workflow.mp4',
+        sourceEntryId: 'asset_workflow_1',
+      }),
+    ]);
+
+    const ctx = await fetchContextSources({
+      userId: 'user_1',
+      sessionId: 'session_1',
+      currentPrompt: 'show the approved product workflow',
+    });
+
+    expect(ctx.projectFacts).toEqual([{
+      id: 'entry_workflow_reference',
+      title: 'Approved workflow recording',
+      summary: 'Rights-cleared product workflow footage.',
+      tags: [],
+      source: 'https://assets.example.com/workflow.mp4',
+      dataBankType: 'reference',
+      sourceEntryId: 'asset_workflow_1',
+    }]);
+  });
+
   it('keyword fallback reads only global entries and filters other-brand facts', async () => {
     mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({

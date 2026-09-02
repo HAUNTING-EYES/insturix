@@ -1,7 +1,9 @@
 import { Overlay } from "./types";
 import { getUserId } from "./utils/user-id";
+import { readProjectRevisionV1 } from "@/lib/editron/services/project-revision-v1";
 
 export type CheckpointType = "initial" | "before-llm" | "after-llm" | "user-edit";
+type UserCheckpointType = Extract<CheckpointType, "initial" | "user-edit">;
 
 export interface Checkpoint {
   id: string;
@@ -38,21 +40,21 @@ export const createCheckpoint = async (
   sessionId: string,
   projectIdOrOverlays: string | Overlay[],
   overlaysOrDescription: Overlay[] | string,
-  descriptionOrType: string | CheckpointType,
-  typeOrUndefined?: CheckpointType
+  descriptionOrType: string | UserCheckpointType,
+  typeOrUndefined?: UserCheckpointType
 ): Promise<Checkpoint | null> => {
   // Handle both old and new signatures for backward compatibility
   let projectId: string;
   let overlays: Overlay[];
   let description: string;
-  let type: CheckpointType;
+  let type: UserCheckpointType;
 
   if (Array.isArray(projectIdOrOverlays)) {
     // Old signature: createCheckpoint(sessionId, overlays, description, type)
     projectId = sessionId; // Use sessionId as projectId fallback
     overlays = projectIdOrOverlays;
     description = overlaysOrDescription as string;
-    type = descriptionOrType as CheckpointType;
+    type = descriptionOrType as UserCheckpointType;
   } else {
     // New signature: createCheckpoint(sessionId, projectId, overlays, description, type)
     projectId = projectIdOrOverlays;
@@ -74,6 +76,8 @@ export const createCheckpoint = async (
     if (typeof window === 'undefined') {
       // Server-side: Use checkpoint service directly
       const { checkpointService } = await import('@/lib/editron/services/checkpoint-service');
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
       
       const checkpoint = await checkpointService.createCheckpoint({
         sessionId,
@@ -82,14 +86,12 @@ export const createCheckpoint = async (
         overlays,
         description,
         type,
+        capturedProjectRevision: snapshot.revision,
       });
 
       if (!checkpoint) {
-        console.log(`[CHECKPOINT] Skipped "${description}" - no changes detected`);
         return null;
       }
-
-      console.log(`[CHECKPOINT] ✅ Created "${description}" (${type})`);
       
       // Convert to frontend format
       return {
@@ -103,7 +105,25 @@ export const createCheckpoint = async (
       };
     }
     
-    // Client-side: Use fetch API
+    // Client-side: bind the checkpoint to the exact project revision observed
+    // by this user action. A concurrent writer makes the capture fail closed.
+    const projectResponse = await fetch(
+      `/api/services/editron/projects/${encodeURIComponent(projectId)}`,
+      { cache: 'no-store' },
+    );
+    if (!projectResponse.ok) {
+      console.error('Failed to load checkpoint project revision:', await projectResponse.text());
+      return null;
+    }
+    const projectPayload = await projectResponse.json() as {
+      success: boolean;
+      project?: RestoredCheckpoint['project'] & { projectRevision?: unknown; updatedAt?: unknown };
+    };
+    const expectedRevision = projectPayload.project
+      ? readProjectRevisionV1(projectPayload.project)
+      : null;
+    if (!projectPayload.success || !expectedRevision) return null;
+
     const response = await fetch('/api/services/editron/checkpoints/create', {
       method: 'POST',
       headers: {
@@ -116,6 +136,7 @@ export const createCheckpoint = async (
         overlays,
         description,
         type,
+        expectedRevision,
       }),
     });
 
@@ -127,11 +148,8 @@ export const createCheckpoint = async (
     const data = await response.json();
     
     if (!data.created) {
-      console.log(`[CHECKPOINT] Skipped "${description}" - no changes detected`);
       return null;
     }
-
-    console.log(`[CHECKPOINT] ✅ Created "${description}" (${type})`);
     
     // Convert to frontend format
     const checkpoint: Checkpoint = {
@@ -202,16 +220,6 @@ export const getCheckpoints = async (sessionId: string): Promise<Checkpoint[]> =
 };
 
 /**
- * Get a specific checkpoint by ID
- */
-export const getCheckpoint = async (checkpointId: string): Promise<Checkpoint | null> => {
-  // This would require a new API endpoint, for now we'll use getCheckpoints
-  // and filter on the client side
-  console.warn('getCheckpoint: Not implemented, use getCheckpoints instead');
-  return null;
-};
-
-/**
  * Restore a verified checkpoint and reload the complete canonical project.
  */
 export const restoreCheckpoint = async (
@@ -228,7 +236,12 @@ export const restoreCheckpoint = async (
 
       const checkpoint = await checkpointService.getCheckpoint(checkpointId, userId);
       if (!checkpoint || checkpoint.projectId !== projectId) return null;
-      const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId);
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId, {
+        projectId,
+        expectedRevision: snapshot.revision,
+        actorKind: 'USER',
+      });
       if (!verification.restored) return null;
       const project = await projectService.loadProject(userId, projectId);
       if (!project) return null;
@@ -244,13 +257,31 @@ export const restoreCheckpoint = async (
       };
     }
 
-    // Client-side: restore first, then reload the canonical project separately.
+    // Client-side: bind the restore to the exact canonical revision observed by
+    // this user action, then reload the newly committed canonical project.
+    const currentProjectResponse = await fetch(
+      `/api/services/editron/projects/${encodeURIComponent(projectId)}`,
+      { cache: 'no-store' },
+    );
+    if (!currentProjectResponse.ok) {
+      console.error('Failed to load current project revision:', await currentProjectResponse.text());
+      return null;
+    }
+    const currentProjectPayload = await currentProjectResponse.json() as {
+      success: boolean;
+      project?: RestoredCheckpoint['project'] & { projectRevision?: unknown; updatedAt?: unknown };
+    };
+    const expectedRevision = currentProjectPayload.project
+      ? readProjectRevisionV1(currentProjectPayload.project)
+      : null;
+    if (!currentProjectPayload.success || !expectedRevision) return null;
+
     const response = await fetch('/api/services/editron/checkpoints/restore', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ checkpointId, projectId }),
+      body: JSON.stringify({ checkpointId, projectId, expectedRevision }),
     });
 
     if (!response.ok) {
@@ -289,14 +320,6 @@ export const restoreCheckpoint = async (
     console.error('Error restoring checkpoint:', error);
     return null;
   }
-};
-
-/**
- * Clear all checkpoints for a session
- * Note: This is now handled server-side via TTL and pruning
- */
-export const clearCheckpoints = (sessionId: string): void => {
-  console.warn('clearCheckpoints: Client-side clearing not needed with cloud storage');
 };
 
 /**

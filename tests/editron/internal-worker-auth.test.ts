@@ -63,4 +63,32 @@ describe('internal QStash worker authorization', () => {
     });
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it('does not invoke the handler when the signature verifier returns a rejection response', async () => {
+    const handler = vi.fn(async () => new Response('should not run'));
+    mocks.verifySignatureAppRouter.mockImplementation(() => async () =>
+      new Response('invalid signature', { status: 403 }));
+
+    const wrapped = withInternalQStashWorkerAuth(handler, 'clickatron-variation');
+    const response = await wrapped(
+      new Request('http://localhost/api/internal/workers/clickatron/variation') as never,
+    );
+
+    expect(response.status).toBe(403);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke the handler when the signature verifier throws', async () => {
+    const handler = vi.fn(async () => new Response('should not run'));
+    mocks.verifySignatureAppRouter.mockImplementation(() => async () => {
+      throw new Error('signature rejected');
+    });
+
+    const wrapped = withInternalQStashWorkerAuth(handler, 'clickatron-variation');
+
+    await expect(wrapped(
+      new Request('http://localhost/api/internal/workers/clickatron/variation') as never,
+    )).rejects.toThrow('signature rejected');
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

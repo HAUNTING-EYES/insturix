@@ -344,6 +344,6 @@ describe('video generation fal fallback policy', () => {
     expect(schemaSource).toContain('generatedVideoReceipt?: GeneratedVideoReceipt');
     expect(workerSource).toContain('nativeAudioRights: result.nativeAudioRights');
     expect(workerSource).toContain('generatedVideoReceipt: result.generatedVideoReceipt');
-    expect(workerSource).toContain("'overlays.$.audioRights': result.nativeAudioRights");
+    expect(workerSource).toContain('audioRights: result.nativeAudioRights || null');
   });
 });

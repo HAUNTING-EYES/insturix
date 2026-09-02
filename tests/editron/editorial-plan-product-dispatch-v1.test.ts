@@ -17,6 +17,9 @@ const ENV: EditorialPlanProductDispatchEnvironmentV1 = {
   QSTASH_NEXT_SIGNING_KEY: 'next-signing-key',
   VERCEL_URL: 'editron-preview.example.test',
 };
+const DELIVERY_POLICY = Object.freeze({
+  retries: 2, retryDelayMs: 30_000, timeoutSeconds: 300,
+});
 
 describe('editorial plan product dispatch', () => {
   it('fails closed before binding work when durable transport is incomplete', async () => {
@@ -29,6 +32,7 @@ describe('editorial plan product dispatch', () => {
         getExecutionDefinitionAuthorized: vi.fn(),
       },
       jobStore: { createOrGet, recordDispatch: vi.fn() },
+      deliveryPolicy: DELIVERY_POLICY,
       env: { ...ENV, QSTASH_NEXT_SIGNING_KEY: undefined },
       publisher: publisher('message-unused'),
     })).rejects.toThrow(
@@ -51,9 +55,10 @@ describe('editorial plan product dispatch', () => {
         version: 'EDITRON_EDITORIAL_PLAN_PRODUCT_WORKER_MESSAGE_V1_1',
         jobId: setup.jobId,
       },
-      retries: 3,
+      retries: 2,
+      retryDelay: '30000',
+      timeout: 300,
       deduplicationId: setup.jobId,
-      headers: { 'Upstash-Timeout': '300s' },
     });
     await expect(currentJob(setup)).resolves.toMatchObject({
       dispatchTransport: 'qstash', dispatchMessageId: 'message-1', dispatchCount: 1,
@@ -135,17 +140,14 @@ describe('editorial plan product dispatch', () => {
     expect(publishJSON).not.toHaveBeenCalled();
   });
 
-  it('rejects insecure origins and accepts an explicit HTTPS app origin', () => {
+  it('rejects insecure or path-bearing app origins', () => {
     expect(resolveEditorialPlanProductDispatchConfigurationV1({
       ...ENV, VERCEL_URL: undefined, NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     })).toMatchObject({ configured: false, reason: 'INVALID_PUBLIC_ORIGIN' });
     expect(resolveEditorialPlanProductDispatchConfigurationV1({
       ...ENV, VERCEL_URL: undefined,
       NEXT_PUBLIC_APP_URL: 'https://app.insturix.example/path',
-    })).toEqual({
-      configured: true, reason: null,
-      workerUrl: 'https://app.insturix.example/api/internal/workers/editorial-plan',
-    });
+    })).toMatchObject({ configured: false, reason: 'INVALID_PUBLIC_ORIGIN' });
   });
 });
 
@@ -164,6 +166,7 @@ function dispatch(
 
 function dispatchInput(setup: Awaited<ReturnType<typeof prepared>>) {
   return {
+    deliveryPolicy: DELIVERY_POLICY,
     actor: { tenantId: setup.active.tenantId, userId: setup.active.userId },
     request: request({
       projectId: setup.active.projectId,

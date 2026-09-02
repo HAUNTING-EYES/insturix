@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+import {
+  CANONICAL_MEDIA_TIME_MAX_INTEGER_DIGITS_V1,
+  classifyRationalRateComponentsV1,
+  compareIntegerTextV1,
+  rationalRateComponentsSchemaV1,
+} from './canonical-media-time-v1';
+
 /**
  * A vocabulary and validation boundary for the future canonical media graph.
  *
@@ -13,8 +20,12 @@ export const EDITORIAL_MEDIA_IDENTITY_CONTRACT_VERSION_V1 =
 
 const identifier = z.string().trim().min(1).max(256);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const positiveIntegerText = z.string().regex(/^[1-9]\d*$/);
-const nonNegativeIntegerText = z.string().regex(/^(0|[1-9]\d*)$/);
+const positiveIntegerText = z.string()
+  .max(CANONICAL_MEDIA_TIME_MAX_INTEGER_DIGITS_V1)
+  .regex(/^[1-9]\d*$/);
+const nonNegativeIntegerText = z.string()
+  .max(CANONICAL_MEDIA_TIME_MAX_INTEGER_DIGITS_V1)
+  .regex(/^(0|[1-9]\d*)$/);
 
 const artifactReference = z.object({
   artifactId: identifier,
@@ -25,10 +36,7 @@ const artifactReference = z.object({
   }).strict(),
 }).strict();
 
-const rationalRate = z.object({
-  numerator: positiveIntegerText,
-  denominator: positiveIntegerText,
-}).strict();
+const rationalRate = rationalRateComponentsSchemaV1;
 
 const tickRange = z.object({
   startTick: nonNegativeIntegerText,
@@ -230,37 +238,16 @@ function hasSourcePtsMapping(value: Extract<EditorialMediaIdentityContractV1, {
 
 function validateStrictlyIncreasingRange(
   range: { startTick: string; endExclusiveTick: string },
-): 'SOURCE_RANGE_INVALID' | 'SOURCE_RANGE_UNSAFE_INTEGER' | null {
-  const start = parseNonNegativeSafeInteger(range.startTick);
-  const end = parseNonNegativeSafeInteger(range.endExclusiveTick);
-  if (start === null || end === null) return 'SOURCE_RANGE_UNSAFE_INTEGER';
-  return start < end ? null : 'SOURCE_RANGE_INVALID';
+): 'SOURCE_RANGE_INVALID' | null {
+  return compareIntegerTextV1(range.startTick, range.endExclusiveTick) < 0
+    ? null
+    : 'SOURCE_RANGE_INVALID';
 }
 
 function validateReducedRate(
   rate: { numerator: string; denominator: string },
-): 'NOT_REDUCED' | 'UNSAFE_INTEGER' | null {
-  const numerator = parsePositiveSafeInteger(rate.numerator);
-  const denominator = parsePositiveSafeInteger(rate.denominator);
-  if (numerator === null || denominator === null) return 'UNSAFE_INTEGER';
-  return greatestCommonDivisor(numerator, denominator) === 1 ? null : 'NOT_REDUCED';
-}
-
-function parseNonNegativeSafeInteger(value: string): number | null {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function parsePositiveSafeInteger(value: string): number | null {
-  const parsed = parseNonNegativeSafeInteger(value);
-  return parsed !== null && parsed > 0 ? parsed : null;
-}
-
-function greatestCommonDivisor(left: number, right: number): number {
-  let a = left;
-  let b = right;
-  while (b !== 0) {
-    [a, b] = [b, a % b];
-  }
-  return a;
+): 'NOT_REDUCED' | null {
+  return classifyRationalRateComponentsV1(rate) === 'VALID_REDUCED'
+    ? null
+    : 'NOT_REDUCED';
 }

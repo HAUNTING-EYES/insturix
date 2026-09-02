@@ -177,6 +177,10 @@ export async function POST(request: NextRequest) {
       brandId: normalizedBrandId,
       sourceSessionId: normalizedSourceSessionId,
     });
+    const targetProjectRevision = await projectService.getProjectRevision(
+      userId,
+      project.projectId,
+    );
 
     const importedAt = new Date().toISOString();
     const projectUpdates: Record<string, unknown> = {
@@ -212,7 +216,7 @@ export async function POST(request: NextRequest) {
         fps,
         durationInFrames: totalFrames,
       },
-      { projectUpdates },
+      { expectedRevision: targetProjectRevision, projectUpdates },
     );
 
     if (normalizedSourceSessionId) {

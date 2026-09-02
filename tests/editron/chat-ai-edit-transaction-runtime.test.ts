@@ -1,15 +1,18 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const infrastructureMocks = vi.hoisted(() => ({
   auth: vi.fn(async () => ({ userId: 'user_1' })),
   findOne: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  loadWholeStateMediaPrerequisite: vi.fn(),
+  outboxFindOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
 }));
 
 function emulateMongoRoundTrip<T>(value: T): T {
@@ -48,6 +51,21 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
   },
 }));
 
+vi.mock('@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1', () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    infrastructureMocks.wholeStateMediaPrerequisite,
+  loadProjectWholeStateMediaPrerequisiteByLinkV1:
+    infrastructureMocks.loadWholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: 'MATERIALIZED',
+    collection: 'editron_project_whole_state_media_prerequisites_v1',
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
+}));
+
 import { POST as restoreCheckpointRoute } from '@/app/api/services/editron/checkpoints/restore/route';
 import { GET as listCheckpointsRoute } from '@/app/api/services/editron/checkpoints/list/route';
 import { createTools } from '@/lib/editron/agent/tools';
@@ -83,6 +101,15 @@ import {
   type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
 
+const WHOLE_STATE_MEDIA_PREREQUISITE_LINK = Object.freeze({
+  status: 'MATERIALIZED' as const,
+  collection: 'editron_project_whole_state_media_prerequisites_v1' as const,
+  receiptSha256: 'd'.repeat(64),
+  candidateMediaSetSha256: 'c'.repeat(64),
+  candidateMediaContentSha256: 'e'.repeat(64),
+  mediaEntryCount: 0,
+});
+
 class MemoryCheckpointStore {
   readonly checkpoints = new Map<string, Checkpoint>();
   readonly events: string[] = [];
@@ -93,13 +120,14 @@ class MemoryCheckpointStore {
     userId: string;
     projectId: string;
     operationId: string;
-    writerIssuedReceipt?: ProjectMutationReceiptV1;
+    writerIssuedReceipt: ProjectMutationReceiptV1;
   }> = [];
   readonly restoreRequests: Array<{
     checkpointId: string;
     userId: string;
     projectId: string;
     expectedRevision: ProjectRevisionV1;
+    actorKind: 'SYSTEM';
   }> = [];
   project: Record<string, unknown>;
   failClaim = false;
@@ -163,14 +191,14 @@ class MemoryCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
     this.rollbackReceiptCalls.push({
       checkpointId,
       userId,
       projectId,
       operationId,
-      ...(writerIssuedReceipt ? { writerIssuedReceipt } : {}),
+      writerIssuedReceipt,
     });
     const checkpoint = this.checkpoints.get(checkpointId);
     if (
@@ -182,13 +210,16 @@ class MemoryCheckpointStore {
       throw new Error('missing or out-of-scope rollback checkpoint');
     }
     const existing = this.rollbackReceipts.get(checkpointId);
-    if (writerIssuedReceipt && writerIssuedReceipt.projectId !== projectId) {
+    if (writerIssuedReceipt.projectId !== projectId) {
       throw new Error('writer receipt belongs to another project');
     }
-    if (!existing && !writerIssuedReceipt) {
-      throw new Error('writer-issued rollback receipt required');
+    if (existing && (
+      existing.value !== writerIssuedReceipt.revision.value
+      || existing.compatibilityUpdatedAt !== writerIssuedReceipt.revision.compatibilityUpdatedAt
+    )) {
+      throw new Error('conflicting rollback receipt');
     }
-    const expectedRevision = existing ?? structuredClone(writerIssuedReceipt!.revision);
+    const expectedRevision = existing ?? structuredClone(writerIssuedReceipt.revision);
     this.rollbackReceipts.set(checkpointId, expectedRevision);
     return { schemaVersion: 1, receiptId: operationId, expectedRevision: structuredClone(expectedRevision) };
   }
@@ -196,7 +227,7 @@ class MemoryCheckpointStore {
   async restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+    options: { projectId: string; expectedRevision: ProjectRevisionV1; actorKind: 'SYSTEM' },
   ): Promise<RestoreProjectCheckpointResult> {
     this.events.push('restore');
     const checkpoint = this.checkpoints.get(checkpointId);
@@ -266,7 +297,9 @@ class MemoryCheckpointStore {
       stateHash: projectStateFingerprint(projectState),
       ...(input.capturedWriterReceipt
         ? { capturedProjectRevision: structuredClone(input.capturedWriterReceipt.revision) }
-        : {}),
+        : input.capturedProjectRevision
+          ? { capturedProjectRevision: structuredClone(input.capturedProjectRevision) }
+          : {}),
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: new Date(),
@@ -298,6 +331,12 @@ const ORIGINAL_PROJECT = {
   qualityReview: { overallScore: 80 },
 };
 
+const ORIGINAL_REVISION: ProjectRevisionV1 = {
+  schemaVersion: 1,
+  value: 6,
+  compatibilityUpdatedAt: '2026-08-09T00:00:06.000Z',
+};
+
 async function prepare(store: MemoryCheckpointStore, operationId = 'chatop_12345678') {
   return prepareChatAiEditTransaction({
     operationId,
@@ -305,6 +344,7 @@ async function prepare(store: MemoryCheckpointStore, operationId = 'chatop_12345
     projectId: 'proj_1',
     userId: 'user_1',
     project: structuredClone(ORIGINAL_PROJECT),
+    projectRevision: ORIGINAL_REVISION,
   }, { checkpointStore: store, loadProject: store.loadProject });
 }
 
@@ -321,12 +361,42 @@ function writerReceipt(projectId = 'proj_1'): ProjectMutationReceiptV1 {
   };
 }
 
+beforeEach(() => {
+  infrastructureMocks.loadWholeStateMediaPrerequisite.mockReset().mockImplementation(
+    async (link: typeof WHOLE_STATE_MEDIA_PREREQUISITE_LINK) => ({
+      operation: 'CAPTURE_CHECKPOINT_STATE',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      projectOwnerId: 'user_1',
+      orgId: null,
+      candidateMediaContentSha256: link.candidateMediaContentSha256,
+      mediaEntries: Array.from({ length: link.mediaEntryCount }),
+    }),
+  );
+  infrastructureMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+    async (input: any) => ({
+      schemaVersion: 1,
+      kind: 'EDITRON_PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_V1',
+      ...input,
+      mediaEntries: input.overlays
+        .filter((overlay: any) => ['video', 'image', 'sound', 'mg-sequence'].includes(overlay.type))
+        .map((overlay: any) => ({ overlayId: overlay.id })),
+      candidateMediaSetSha256: 'c'.repeat(64),
+      candidateMediaContentSha256: 'e'.repeat(64),
+      issuedAt: '2026-09-02T06:00:00.000Z',
+      receiptSha256: 'd'.repeat(64),
+    }),
+  );
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   infrastructureMocks.auth.mockReset().mockResolvedValue({ userId: 'user_1' });
   infrastructureMocks.findOne.mockReset();
   infrastructureMocks.getDatabase.mockReset();
   infrastructureMocks.insertOne.mockReset();
+  infrastructureMocks.loadWholeStateMediaPrerequisite.mockReset();
+  infrastructureMocks.outboxFindOne.mockReset();
   infrastructureMocks.findOneAndUpdate.mockReset();
   infrastructureMocks.updateOne.mockReset();
 });
@@ -359,6 +429,9 @@ describe('chat AI edit transaction runtime', () => {
     const replay = await prepare(store);
 
     expect(first.status).toBe('ready');
+    expect(store.checkpoints.get(first.beforeCheckpointId)?.capturedProjectRevision).toEqual(
+      ORIGINAL_REVISION,
+    );
     expect(replay).toMatchObject({ status: 'duplicate', operationStatus: 'running' });
     expect(first.beforeCheckpointId).toBe(replay.beforeCheckpointId);
     expect(store.events).toEqual(['claim', 'claim']);
@@ -614,6 +687,7 @@ describe('chat AI edit transaction runtime', () => {
       userId: transaction.userId,
       projectId: transaction.projectId,
       expectedRevision,
+      actorKind: 'SYSTEM',
     }]);
     expect(store.rollbackReceiptCalls).toEqual([
       {
@@ -689,7 +763,6 @@ describe('chat AI edit transaction runtime', () => {
       type: 'before-llm',
       createdAt: new Date(),
     });
-
     await expect(service.recordRollbackExpectedRevision(
       'ckpt_writer_receipt_scope',
       'user_1',
@@ -728,7 +801,43 @@ describe('chat AI edit transaction runtime', () => {
       'user_1',
       'proj_1',
       'chatop_writer_receipt_required',
+      undefined as unknown as ProjectMutationReceiptV1,
     )).rejects.toThrow('requires a writer-issued rollback receipt');
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a conflicting writer receipt when the rollback receipt id already exists', async () => {
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_writer_receipt_replay',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: [],
+      rollbackReceipts: [{
+        schemaVersion: 1,
+        receiptId: 'chatop_writer_receipt_replay',
+        expectedRevision: ORIGINAL_REVISION,
+      }],
+      timestamp: new Date(),
+      description: 'writer receipt replay check',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    await expect(service.recordRollbackExpectedRevision(
+      'ckpt_writer_receipt_replay',
+      'user_1',
+      'proj_1',
+      'chatop_writer_receipt_replay',
+      {
+        ...writerReceipt(),
+        revision: {
+          ...ORIGINAL_REVISION,
+          value: ORIGINAL_REVISION.value + 1,
+        },
+      },
+    )).rejects.toThrow('conflicting rollback receipt');
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
@@ -918,7 +1027,10 @@ describe('chat AI edit transaction runtime', () => {
         throw new Error(`Unexpected collection ${name}`);
       },
     });
-    vi.spyOn(projectService, 'getProjectRevision').mockResolvedValue(expectedRevision);
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: projectWithUndefinedMetadata as any,
+      revision: expectedRevision,
+    });
     vi.spyOn(projectService, 'restoreCheckpointState').mockImplementation(async (_userId, _projectId, input) => {
       Object.assign(persistedProject, emulateMongoRoundTrip(input.setFields));
       for (const field of input.unsetFields) delete persistedProject[field];
@@ -932,6 +1044,7 @@ describe('chat AI edit transaction runtime', () => {
           revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: committedAt },
           committedAt,
         },
+        timelineChangeReceipt: {} as any,
         project: emulateMongoRoundTrip(persistedProject),
       };
     });
@@ -945,6 +1058,7 @@ describe('chat AI edit transaction runtime', () => {
       projectState: captureRestorableProjectState(projectWithUndefinedMetadata),
       description: 'Before manual undo',
       type: 'before-llm',
+      capturedProjectRevision: expectedRevision,
       force: true,
     });
     expect(created).not.toBeNull();
@@ -952,11 +1066,36 @@ describe('chat AI edit transaction runtime', () => {
       'overlays', 'fps', 'durationInFrames', 'playerDimensions', 'metadata', 'sourceAssetIds',
     ]));
     expect(insertedCheckpoint?.stateHashVersion).toBe(2);
+    expect(insertedCheckpoint?.wholeStateMediaPrerequisite).toEqual({
+      status: 'MATERIALIZED',
+      collection: 'editron_project_whole_state_media_prerequisites_v1',
+      receiptSha256: 'd'.repeat(64),
+      candidateMediaSetSha256: 'c'.repeat(64),
+      candidateMediaContentSha256: 'e'.repeat(64),
+      mediaEntryCount: 0,
+    });
+    expect(infrastructureMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: 'user_1',
+        userId: 'user_1',
+        projectOwnerId: 'user_1',
+        orgId: null,
+        projectId: 'proj_1',
+        projectRevision: expectedRevision,
+        overlays: expect.arrayContaining([
+          expect.objectContaining({ id: 1, type: 'text' }),
+        ]),
+      }),
+      expect.anything(),
+      COLLECTIONS.MEDIA_ASSETS,
+    );
     vi.spyOn(service, 'getCheckpoint').mockResolvedValue(insertedCheckpoint ?? null);
 
     const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
@@ -989,9 +1128,10 @@ describe('chat AI edit transaction runtime', () => {
         throw new Error(`Unexpected collection ${name}`);
       },
     });
-    const getRevision = vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(
-      new Error('checkpoint must not reread the revision when a writer receipt was supplied'),
-    );
+    const loadSnapshot = vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: receipt.revision,
+    });
 
     const created = await service.createCheckpoint({
       checkpointId: 'ckpt_receipt_bound',
@@ -1007,7 +1147,7 @@ describe('chat AI edit transaction runtime', () => {
     });
 
     expect(created?.capturedProjectRevision).toEqual(receipt.revision);
-    expect(getRevision).not.toHaveBeenCalled();
+    expect(loadSnapshot).toHaveBeenCalledTimes(1);
 
     await expect(service.createCheckpoint({
       checkpointId: 'ckpt_wrong_receipt_scope',
@@ -1023,8 +1163,88 @@ describe('chat AI edit transaction runtime', () => {
     expect(infrastructureMocks.insertOne).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a post-mutation checkpoint when its writer receipt is no longer the current snapshot', async () => {
+    const receipt = writerReceipt();
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: {
+        ...receipt.revision,
+        value: receipt.revision.value + 1,
+        compatibilityUpdatedAt: '2026-08-09T00:00:08.000Z',
+      },
+    });
+
+    await expect(new CheckpointService().createCheckpoint({
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState: captureRestorableProjectState(ORIGINAL_PROJECT),
+      description: 'Stale post-mutation state',
+      type: 'after-llm',
+      capturedWriterReceipt: receipt,
+      force: true,
+    })).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing or misclassified checkpoint capture provenance before project access', async () => {
+    const service = new CheckpointService();
+    const loadSnapshot = vi.spyOn(projectService, 'loadProjectForMutation');
+    const base = {
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      description: 'Invalid capture provenance',
+      force: true,
+    };
+
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'after-llm',
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one writer-issued receipt');
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'after-llm',
+      capturedProjectRevision: ORIGINAL_REVISION,
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one writer-issued receipt');
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'before-llm',
+      capturedWriterReceipt: writerReceipt(),
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one observed project revision');
+    expect(loadSnapshot).not.toHaveBeenCalled();
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects caller-supplied checkpoint state that differs from the authoritative snapshot', async () => {
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: ORIGINAL_REVISION,
+    });
+
+    await expect(new CheckpointService().createCheckpoint({
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState: captureRestorableProjectState({
+        ...ORIGINAL_PROJECT,
+        metadata: { title: 'forged stale state' },
+      }),
+      capturedProjectRevision: ORIGINAL_REVISION,
+      description: 'Forged pre-mutation state',
+      type: 'before-llm',
+      force: true,
+    })).rejects.toThrow('does not match its authoritative project snapshot');
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
+  });
+
   it('rejects checkpoint list, create, clear, and prune for a principal outside the actual project', async () => {
     vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(new ProjectNotFoundOrForbiddenError());
+    vi.spyOn(projectService, 'loadProjectForMutation').mockRejectedValue(new ProjectNotFoundOrForbiddenError());
     const service = new CheckpointService();
 
     const listResponse = await listCheckpointsRoute(new NextRequest(
@@ -1033,7 +1253,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(listResponse.status).toBe(404);
     await expect(service.createCheckpoint({
       sessionId: 'sess_b', projectId: 'proj_b', userId: 'user_1', overlays: [],
-      description: 'unauthorized', type: 'user-edit',
+      description: 'unauthorized', type: 'user-edit', capturedProjectRevision: ORIGINAL_REVISION,
     })).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
     await expect(service.clearCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
     await expect(service.pruneCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
@@ -1053,6 +1273,9 @@ describe('chat AI edit transaction runtime', () => {
       metadata: { title: 'mutated' },
       unrelatedWorkerReceipt: { preserved: true },
     };
+    infrastructureMocks.findOne.mockResolvedValue(persistedProject);
+    infrastructureMocks.insertOne.mockResolvedValue({ acknowledged: true });
+    infrastructureMocks.outboxFindOne.mockResolvedValue(null);
     infrastructureMocks.findOneAndUpdate.mockImplementation(async (
       filter: Record<string, unknown>,
       update: { $set: Record<string, unknown>; $unset?: Record<string, unknown>; $inc: Record<string, number> },
@@ -1070,20 +1293,123 @@ describe('chat AI edit transaction runtime', () => {
     });
     infrastructureMocks.getDatabase.mockResolvedValue({
       collection: (name: string) => {
-        if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
-        return { findOneAndUpdate: infrastructureMocks.findOneAndUpdate, findOne: infrastructureMocks.findOne };
+        if (name === COLLECTIONS.PROJECTS) {
+          return {
+            findOneAndUpdate: infrastructureMocks.findOneAndUpdate,
+            findOne: infrastructureMocks.findOne,
+          };
+        }
+        return {
+          findOne: infrastructureMocks.outboxFindOne,
+          insertOne: infrastructureMocks.insertOne,
+        };
       },
     });
 
     const restored = await projectService.restoreCheckpointState('user_1', 'proj_1', {
+      checkpointId: 'ckpt_direct_restore',
+      actorKind: 'SYSTEM',
       expectedRevision,
+      capturedWholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       setFields: { overlays: structuredClone(ORIGINAL_PROJECT.overlays), fps: 30 },
       unsetFields: ['metadata'],
     });
 
     expect(restored.receipt.revision).toMatchObject({ schemaVersion: 1, value: 8 });
+    expect(restored.timelineChangeReceipt).toMatchObject({
+      operation: 'RESTORE_CHECKPOINT_STATE',
+      actorKind: 'SYSTEM',
+      beforeProjectRevision: { value: 7 },
+      afterProjectRevision: { value: 8 },
+      rangeObservation: 'EXACT',
+      downstreamInvalidation: {
+        status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+      },
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
+    });
+    expect(infrastructureMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(infrastructureMocks.findOneAndUpdate.mock.invocationCallOrder[0]!);
     expect(restored.project).toMatchObject({ projectRevision: 8, unrelatedWorkerReceipt: { preserved: true } });
     expect(restored.project.metadata).toBeUndefined();
+  });
+
+  it('blocks checkpoint restore for live mutation leases, range locks, and invalid timebases', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const baseProject = {
+      ...structuredClone(ORIGINAL_PROJECT),
+      projectRevision: 7,
+      updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
+    };
+    infrastructureMocks.findOne
+      .mockResolvedValueOnce({
+        ...baseProject,
+        directorLock: true,
+        directorLockAt: new Date(),
+        directorLockToken: 'director_restore_block',
+      })
+      .mockResolvedValueOnce({
+        ...baseProject,
+        timelineRangeCutLocks: [{
+          schemaVersion: 1,
+          lockId: 'timeline-cut-lock_abcdefghijklmnopqr',
+          actorKind: 'AGENT',
+          frameRange: { startFrame: 0, endFrame: 30 },
+          acquiredAt: '2026-08-09T01:00:00.000Z',
+          expiresAt: '2099-08-09T01:01:00.000Z',
+        }],
+      })
+      .mockResolvedValueOnce(baseProject);
+    infrastructureMocks.findOne.mockResolvedValueOnce(baseProject);
+    infrastructureMocks.getDatabase.mockResolvedValue({
+      collection: (name: string) => {
+        if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
+        return { findOneAndUpdate: infrastructureMocks.findOneAndUpdate, findOne: infrastructureMocks.findOne };
+      },
+    });
+    const restore = (setFields: Record<string, unknown>) => projectService.restoreCheckpointState(
+      'user_1',
+      'proj_1',
+      {
+        checkpointId: 'ckpt_restore_barriers',
+        actorKind: 'SYSTEM',
+        expectedRevision,
+        capturedWholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
+        setFields,
+        unsetFields: [],
+      },
+    );
+
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({ code: 'PROJECT_REVISION_CONFLICT' });
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({
+        code: 'PROJECT_TIMELINE_RANGE_LOCKED',
+        blockingLockIds: ['timeline-cut-lock_abcdefghijklmnopqr'],
+      });
+    await expect(restore({
+      overlays: structuredClone(ORIGINAL_PROJECT.overlays),
+      fps: 0,
+    })).rejects.toMatchObject({ code: 'PROJECT_MUTATION_WRITE_FAILED' });
+    infrastructureMocks.loadWholeStateMediaPrerequisite.mockResolvedValueOnce({
+      operation: 'CAPTURE_CHECKPOINT_STATE',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      projectOwnerId: 'user_1',
+      orgId: null,
+      candidateMediaContentSha256: 'f'.repeat(64),
+      mediaEntries: [],
+    });
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({
+        code: 'PROJECT_MUTATION_WRITE_FAILED',
+        message: expect.stringContaining('no longer matches'),
+      });
+    expect(infrastructureMocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
   });
 
   it('rejects a stale browser-selected restore with zero project or checkpoint mutation', async () => {
@@ -1095,6 +1421,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_stale_browser', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'stale browser', type: 'before-llm', createdAt: new Date(),
     };
     const projectAfterBrowserMutation = { ...structuredClone(ORIGINAL_PROJECT), projectRevision: 8 };
@@ -1108,6 +1435,7 @@ describe('chat AI edit transaction runtime', () => {
     const result = await service.restoreProjectCheckpoint('ckpt_stale_browser', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
@@ -1126,6 +1454,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_stale_worker', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'stale worker', type: 'before-llm', createdAt: new Date(),
     });
     vi.spyOn(projectService, 'restoreCheckpointState').mockRejectedValue(new ProjectMutationConflictError({
@@ -1135,6 +1464,7 @@ describe('chat AI edit transaction runtime', () => {
     const result = await service.restoreProjectCheckpoint('ckpt_stale_worker', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'SYSTEM',
     });
 
     expect(result).toMatchObject({
@@ -1154,6 +1484,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_retry', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'retry', type: 'before-llm', createdAt: new Date(),
     };
     const service = new CheckpointService();
@@ -1165,6 +1496,7 @@ describe('chat AI edit transaction runtime', () => {
           revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
           committedAt: '2026-08-09T01:00:01.000Z',
         },
+        timelineChangeReceipt: {} as any,
         project: structuredClone(ORIGINAL_PROJECT),
       })
       .mockRejectedValueOnce(new ProjectMutationConflictError({
@@ -1174,10 +1506,12 @@ describe('chat AI edit transaction runtime', () => {
     const first = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
     const duplicate = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(first).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
@@ -1206,6 +1540,7 @@ describe('chat AI edit transaction runtime', () => {
         value: 7,
         compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
       },
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({
@@ -1240,6 +1575,7 @@ describe('chat AI edit transaction runtime', () => {
         value: 7,
         compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
       },
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({
@@ -1247,6 +1583,53 @@ describe('chat AI edit transaction runtime', () => {
       reason: 'checkpoint-state-hash-mismatch',
       expectedStateHash: 'corrupt-state-hash',
     });
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy full-state checkpoint without sealed media prerequisites', async () => {
+    const service = new CheckpointService();
+    const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const restore = vi.spyOn(projectService, 'restoreCheckpointState');
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_legacy_media',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState,
+      stateHash: projectStateFingerprint(projectState),
+      stateHashVersion: 2,
+      timestamp: new Date(),
+      description: 'Legacy full-state checkpoint',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: {
+        ...structuredClone(ORIGINAL_PROJECT),
+        name: 'Current project differs from historical checkpoint',
+      } as never,
+      revision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+    });
+
+    await expect(service.restoreProjectCheckpoint('ckpt_legacy_media', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+      actorKind: 'USER',
+    })).resolves.toMatchObject({
+      restored: false,
+      reason: 'legacy-checkpoint-historical-state-unverifiable',
+    });
+    expect(restore).not.toHaveBeenCalled();
+    expect(infrastructureMocks.wholeStateMediaPrerequisite).not.toHaveBeenCalled();
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
@@ -1297,7 +1680,11 @@ describe('chat AI edit transaction runtime', () => {
       projectId: 'proj_1',
       reloadProject: true,
     });
-    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1', { projectId: 'proj_1', expectedRevision });
+    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+      actorKind: 'USER',
+    });
 
     restoreSpy.mockResolvedValueOnce({
       restored: false,
@@ -1376,6 +1763,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(restoreSpy).toHaveBeenCalledWith('ckpt_tool', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'AGENT',
     });
     expect(checkpointService.getRollbackReceipt).toHaveBeenCalledWith(
       'ckpt_tool',
@@ -1423,8 +1811,11 @@ describe('chat AI edit transaction runtime', () => {
       'components/editron/editor/version-7.0.0/checkpoint-manager.ts',
     ), 'utf8');
 
-    expect(manager).toContain('body: JSON.stringify({ checkpointId, projectId })');
-    expect(manager).toContain('checkpointService.restoreProjectCheckpoint(checkpointId, userId)');
+    expect(manager).toContain('projectService.loadProjectForMutation(userId, projectId)');
+    expect(manager).toContain('capturedProjectRevision: snapshot.revision');
+    expect(manager).toContain('expectedRevision,');
+    expect(manager).toContain('body: JSON.stringify({ checkpointId, projectId, expectedRevision })');
+    expect(manager).toContain("actorKind: 'USER'");
     expect(manager).toContain('`/api/services/editron/projects/${encodeURIComponent(projectId)}`');
     expect(manager).not.toContain('return checkpoint ? checkpoint.overlays : null');
   });

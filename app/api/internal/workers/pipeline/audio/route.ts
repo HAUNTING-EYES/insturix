@@ -18,7 +18,7 @@ import {
   resolveAudioPlatformEvidence,
   resolveMusicGenerationPolicy,
 } from '@/lib/pipeline/bgm-conditioning-contract';
-import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
@@ -28,32 +28,14 @@ import {
   buildMusicCoverageOverlays,
   resolveRuntimeMusicCoveragePlan,
 } from '@/lib/editron/services/music-coverage-runtime';
-
-/**
- * Persist pipeline warnings from this worker run to the project doc.
- * Merges with any existing warnings (from finalize, director, etc.) rather than replacing.
- * Phase A3.5.14 fix: previously the audio worker failed silently — no SFX in the final
- * project but zero warnings surfaced. Now every failure leaves a trail.
- */
-async function persistWarnings(
-  db: any,
-  projectId: string,
-  warnings: ReturnType<typeof createPipelineWarnings>,
-): Promise<void> {
-  const all = warnings.getAll();
-  if (all.length === 0) return;
-  try {
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId },
-      {
-        $push: { pipelineWarnings: { $each: all } as any },
-        $set: { updatedAt: new Date() },
-      },
-    );
-  } catch (err: any) {
-    console.error('[AudioWorker] Failed to persist pipeline warnings:', err.message);
-  }
-}
+import {
+  projectService,
+  type ProjectPipelineAudioDeliveryCommandV1,
+  type ProjectPipelineAudioDeliveryResultV1,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
+import { projectPipelineAudioTimelineBindingHashV1 } from '@/lib/editron/services/pipeline-audio-project-delivery-v1';
+import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -62,7 +44,8 @@ interface AudioWorkerPayload {
   type: 'bgm' | 'sfx';
   projectId: string;
   userId: string;
-  storyboardId: string;
+  /** Generated before QStash publication; retained unchanged on delivery retry. */
+  audioDeliveryId?: string;
   // BGM fields
   musicPrompt?: string;
   totalDurationSec?: number;
@@ -90,44 +73,212 @@ interface AudioWorkerPayload {
   }>;
 }
 
+interface AudioWorkerLegacyProjectFacts {
+  musicPreference?: unknown;
+  editorialPreferences?: unknown;
+  productionBrief?: {
+    musicPreference?: unknown;
+    editorialPreferences?: unknown;
+    output?: { platform?: unknown };
+  };
+  productionBriefIntake?: {
+    musicPreference?: unknown;
+    editorialPreferences?: unknown;
+  };
+  creativeBrief?: {
+    musicPreference?: unknown;
+    editorialPreferences?: unknown;
+  };
+  syntheticStoryboard?: { platform?: unknown };
+  platform?: unknown;
+}
+
+type AudioWorkerType = AudioWorkerPayload['type'];
+
+interface AudioWorkerDeliveryContext {
+  userId: string;
+  projectId: string;
+  deliveryId: string;
+  expectedRevision: ProjectRevisionV1;
+  planningTimelineBindingHash: string;
+}
+
+interface AudioWorkerFinalizationState {
+  started: boolean;
+}
+
+const AUDIO_DELIVERY_ID_PATTERN = /^audio-delivery_[A-Za-z0-9_-]{18}$/;
+
+function isAudioWorkerType(value: unknown): value is AudioWorkerType {
+  return value === 'bgm' || value === 'sfx';
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function canonicalWarningValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('Audio worker warning contains a non-finite number.');
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (Array.isArray(value)) return value.map(canonicalWarningValue);
+  if (!isPlainRecord(value)) {
+    throw new Error('Audio worker warning contains a non-JSON value.');
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, canonicalWarningValue(entry)]),
+  );
+}
+
+function deliveryWarnings(
+  warnings: ReturnType<typeof createPipelineWarnings>,
+): Record<string, unknown>[] {
+  return warnings.getAll().map((warning) => (
+    canonicalWarningValue(warning) as Record<string, unknown>
+  ));
+}
+
+function projectDeliveryKind(type: AudioWorkerType): 'BGM' | 'SFX' {
+  return type === 'bgm' ? 'BGM' : 'SFX';
+}
+
+async function finalizeAudioWorkerDelivery(
+  context: AudioWorkerDeliveryContext,
+  finalization: AudioWorkerFinalizationState,
+  input: Omit<
+    ProjectPipelineAudioDeliveryCommandV1,
+    'expectedRevision' | 'planningTimelineBindingHash' | 'deliveryId'
+  >,
+): Promise<ProjectPipelineAudioDeliveryResultV1> {
+  finalization.started = true;
+  const result = await projectService.commitPipelineAudioDeliveryV1(
+    context.userId,
+    context.projectId,
+    {
+      ...input,
+      expectedRevision: context.expectedRevision,
+      planningTimelineBindingHash: context.planningTimelineBindingHash,
+      deliveryId: context.deliveryId,
+    },
+  );
+  return result;
+}
+
+function deliveryResponse(
+  result: ProjectPipelineAudioDeliveryResultV1,
+): Record<string, unknown> {
+  const receipt = result.deliveryReceipt;
+  return {
+    disposition: result.disposition,
+    deliveryId: receipt.deliveryId,
+    outcome: receipt.outcome,
+    revision: receipt.afterRevision,
+    rebase: receipt.rebase,
+    proof: receipt.proof,
+  };
+}
+
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function errorStatus(error: unknown): number {
+  switch (errorCode(error)) {
+    case 'PROJECT_NOT_FOUND_OR_FORBIDDEN':
+      return 404;
+    case 'PROJECT_REVISION_CONFLICT':
+    case 'PROJECT_PIPELINE_AUDIO_DELIVERY_REBASE_BLOCKED':
+      return 409;
+    default:
+      return 500;
+  }
+}
+
+async function recordAudioWorkerFailure(
+  context: AudioWorkerDeliveryContext,
+  finalization: AudioWorkerFinalizationState,
+  type: AudioWorkerType,
+  warnings: ReturnType<typeof createPipelineWarnings>,
+): Promise<ProjectPipelineAudioDeliveryResultV1 | null> {
+  try {
+    return await finalizeAudioWorkerDelivery(context, finalization, {
+      kind: projectDeliveryKind(type),
+      outcome: 'FAILED',
+      overlays: [],
+      warnings: deliveryWarnings(warnings),
+    });
+  } catch (failureRecordError: unknown) {
+    console.error(
+      '[AudioWorker] Failed to record terminal ProjectService audio outcome:',
+      errorMessage(failureRecordError),
+    );
+    return null;
+  }
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   const warnings = createPipelineWarnings();
-  let projectIdForWarnings: string | null = null;
+  let deliveryContext: AudioWorkerDeliveryContext | null = null;
+  let workerType: AudioWorkerType | null = null;
+  const finalization: AudioWorkerFinalizationState = { started: false };
   try {
     const payload: AudioWorkerPayload = await request.json();
-    const { type, projectId, userId, storyboardId } = payload;
-    projectIdForWarnings = projectId;
+    const { type, projectId, userId, audioDeliveryId } = payload;
+    if (
+      !isAudioWorkerType(type)
+      || !isNonBlankString(projectId)
+      || !isNonBlankString(userId)
+      || !isNonBlankString(audioDeliveryId)
+      || !AUDIO_DELIVERY_ID_PATTERN.test(audioDeliveryId)
+    ) {
+      return NextResponse.json({ success: false, error: 'Invalid audio worker delivery identity' }, { status: 400 });
+    }
+    workerType = type;
 
     console.log(`[AudioWorker] Processing ${type} for project ${projectId}`);
 
-    const db = await getDatabase();
-
-    // C7 FIX: Validate userId owns the project
-    const project = await db.collection('projects').findOne({ projectId }) as any;
-    if (!project) {
-      return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
-    }
-    if (project.userId !== userId) {
-      console.error(`[AudioWorker] SECURITY: userId mismatch. Payload: ${userId}, Project: ${project.userId}`);
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
-    }
+    const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const project = snapshot.project;
+    const legacyProjectFacts = project as typeof project & AudioWorkerLegacyProjectFacts;
+    deliveryContext = {
+      userId,
+      projectId,
+      deliveryId: audioDeliveryId,
+      expectedRevision: snapshot.revision,
+      planningTimelineBindingHash: projectPipelineAudioTimelineBindingHashV1(project),
+    };
 
     if (type === 'bgm') {
       const musicGenerationPolicy = resolveMusicGenerationPolicy({
         musicPreferences: [
           { value: payload.musicPreference, source: 'audio-worker-payload.musicPreference' },
-          { value: project.musicPreference, source: 'project.musicPreference' },
-          { value: project.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
-          { value: project.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
-          { value: project.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+          { value: legacyProjectFacts.musicPreference, source: 'project.musicPreference' },
+          { value: legacyProjectFacts.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+          { value: legacyProjectFacts.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+          { value: legacyProjectFacts.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
         ],
         editorialPreferences: [
           { value: payload.editorialPreferences, source: 'audio-worker-payload.editorialPreferences' },
-          { value: project.editorialPreferences, source: 'project.editorialPreferences' },
-          { value: project.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
-          { value: project.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
-          { value: project.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+          { value: legacyProjectFacts.editorialPreferences, source: 'project.editorialPreferences' },
+          { value: legacyProjectFacts.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+          { value: legacyProjectFacts.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+          { value: legacyProjectFacts.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
         ],
       });
       if (!musicGenerationPolicy.allowed) {
@@ -137,12 +288,19 @@ async function handler(request: NextRequest) {
             ? musicGenerationPolicy.musicPreferenceSource
             : musicGenerationPolicy.editorialPreferencesSource})`,
         );
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'BGM',
+          outcome: 'SKIPPED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
         return NextResponse.json({
           success: true,
           type: 'bgm',
           skipped: true,
           reason: musicGenerationPolicy.reason,
           musicGenerationPolicy,
+          delivery: deliveryResponse(delivery),
         });
       }
 
@@ -150,8 +308,13 @@ async function handler(request: NextRequest) {
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {
         console.error('[AudioWorker] BGM: missing required fields');
         warnings.add({ severity: 'error', phase: 'bgm', message: 'Missing required fields for BGM generation', details: { hasPrompt: !!musicPrompt, totalDurationSec, totalFrames, fps } });
-        await persistWarnings(db, projectId, warnings);
-        return NextResponse.json({ success: false, error: 'Missing BGM fields' }, { status: 400 });
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'BGM',
+          outcome: 'FAILED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
+        return NextResponse.json({ success: false, error: 'Missing BGM fields', delivery: deliveryResponse(delivery) }, { status: 400 });
       }
 
       let musicCoveragePlan;
@@ -170,24 +333,27 @@ async function handler(request: NextRequest) {
           message: `Invalid music coverage evidence: ${coverageErr.message}`,
           details: { code: coverageErr.code },
         });
-        await persistWarnings(db, projectId, warnings);
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'BGM',
+          outcome: 'FAILED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
         return NextResponse.json({
           success: false,
           error: `Music coverage planning failed: ${coverageErr.message}`,
+          delivery: deliveryResponse(delivery),
         }, { status: 400 });
       }
 
       if (musicCoveragePlan.mode === 'none') {
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId },
-          {
-            $set: {
-              musicCoveragePlan,
-              'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-              updatedAt: new Date(),
-            },
-          },
-        );
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'BGM',
+          outcome: 'SKIPPED',
+          overlays: [],
+          musicCoveragePlan,
+          warnings: deliveryWarnings(warnings),
+        });
         console.log(`[AudioWorker] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
         return NextResponse.json({
           success: true,
@@ -195,14 +361,15 @@ async function handler(request: NextRequest) {
           skipped: true,
           reason: 'music-coverage-none',
           musicCoveragePlan,
+          delivery: deliveryResponse(delivery),
         });
       }
 
       const audioPlatformEvidence = resolveAudioPlatformEvidence([
         { value: payload.platform, source: 'audio-worker-payload.platform' },
-        { value: project.productionBrief?.output?.platform, source: 'project.productionBrief.output.platform' },
-        { value: project.syntheticStoryboard?.platform, source: 'project.syntheticStoryboard.platform' },
-        { value: project.platform, source: 'project.platform' },
+        { value: legacyProjectFacts.productionBrief?.output?.platform, source: 'project.productionBrief.output.platform' },
+        { value: legacyProjectFacts.syntheticStoryboard?.platform, source: 'project.syntheticStoryboard.platform' },
+        { value: legacyProjectFacts.platform, source: 'project.platform' },
       ]);
 
       let bgm;
@@ -217,8 +384,13 @@ async function handler(request: NextRequest) {
         assertConditionedBGMResult(bgm, totalFrames, audioPlatformEvidence.platform);
       } catch (bgmErr: any) {
         warnings.errorSwallowed('bgm', bgmErr, `CassetteAI BGM generation for "${musicPrompt.substring(0, 60)}"`);
-        await persistWarnings(db, projectId, warnings);
-        return NextResponse.json({ success: false, error: `BGM generation failed: ${bgmErr.message}` }, { status: 500 });
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'BGM',
+          outcome: 'FAILED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
+        return NextResponse.json({ success: false, error: `BGM generation failed: ${bgmErr.message}`, delivery: deliveryResponse(delivery) }, { status: 500 });
       }
 
       let beatEvidence: Awaited<ReturnType<typeof analyzeConditionedMusicBeatGrid>> | null = null;
@@ -285,28 +457,15 @@ async function handler(request: NextRequest) {
         _workerAdded: true,
       };
 
-      // F6.6 FIX: Push to overlays AND mark as worker-added.
-      // The _workerAdded flag tells saveProject to preserve these overlays
-      // even when the user saves (browser autosave would otherwise clobber them).
       const markedBgm = buildMusicCoverageOverlays({
         baseOverlay: bgmOverlayBase,
         plan: musicCoveragePlan,
         totalFrames,
         idFactory: sectionIndex => overlayId + sectionIndex,
       });
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId },
-        {
-          $push: { overlays: { $each: markedBgm } } as any,
-          $set: {
-            musicCoveragePlan,
-            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-            updatedAt: new Date(),
-          },
-        },
-      );
 
-      // Register asset
+      // Media asset registration is deliberately separate from canonical project mutation.
+      const db = await getDatabase();
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId: bgm.audioAssetId },
         {
@@ -338,51 +497,53 @@ async function handler(request: NextRequest) {
         { upsert: true },
       );
 
-      console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
-      
-      if (beatEvidence) {
+      const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+        kind: 'BGM',
+        outcome: 'ATTACHED',
+        overlays: markedBgm as Overlay[],
+        musicCoveragePlan,
+        warnings: deliveryWarnings(warnings),
+      });
+      if (beatEvidence && markedBgm.length > 0) {
         try {
-          console.log('[AudioWorker] Starting automatic cut alignment to analyzed beats...');
-          const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
-          if (updatedProject && updatedProject.overlays) {
-            const snappedCount = alignCutsToBeats(
-              updatedProject.overlays,
-              beatEvidence.beatGrid.beats,
-              fps,
-            );
-            if (snappedCount > 0) {
-              await db.collection(COLLECTIONS.PROJECTS).updateOne(
-                { projectId },
-                {
-                  $set: {
-                    overlays: updatedProject.overlays,
-                    updatedAt: new Date(),
-                  },
-                },
-              );
-              console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} cuts to BGM beats`);
-            } else {
-              console.log('[AudioWorker] Pipeline Flow: No cuts required alignment');
-            }
+          const beatSync = await projectService.alignCutsToBeatsAtRevisionV1(
+            userId,
+            projectId,
+            {
+              expectedRevision: delivery.deliveryReceipt.afterRevision,
+              actorKind: 'SYSTEM',
+              audioOverlayId: markedBgm[0].id,
+              beatFilter: 'all',
+              strengthThreshold: 0,
+              evidenceSource: 'persisted-beat-grid',
+            },
+          );
+          if (beatSync.disposition !== 'APPLIED') {
+            warnings.add({
+              severity: 'warning',
+              phase: 'bgm',
+              message: `Music was attached, but authoritative beat-sync did not change cuts: ${beatSync.reason}.`,
+            });
           }
-        } catch (alignErr: any) {
-          console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
+        } catch (beatSyncError: unknown) {
+          const message = errorMessage(beatSyncError);
+          console.warn(`[AudioWorker] Authoritative beat-sync failed after BGM attachment: ${message}`);
           warnings.add({
             severity: 'warning',
             phase: 'bgm',
-            message: `Beat alignment failed: ${alignErr.message}. Cuts may not sync to music beats.`,
-            details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' -> ') },
+            message: `Music was attached, but authoritative beat-sync failed: ${message}.`,
+            details: { code: errorCode(beatSyncError) },
           });
         }
       }
-
-      await persistWarnings(db, projectId, warnings);
+      console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
       return NextResponse.json({
         success: true,
         type: 'bgm',
         assetId: bgm.audioAssetId,
         musicCoveragePlan,
         warnings: warnings.getAll(),
+        delivery: deliveryResponse(delivery),
       });
 
     } else if (type === 'sfx') {
@@ -390,8 +551,13 @@ async function handler(request: NextRequest) {
       if (!sfxInputs || !sceneFrameMap || sfxInputs.length === 0) {
         console.error('[AudioWorker] SFX: missing required fields');
         warnings.add({ severity: 'error', phase: 'sfx', message: 'Missing required fields for SFX generation', details: { hasInputs: !!sfxInputs, hasFrameMap: !!sceneFrameMap, inputCount: sfxInputs?.length ?? 0 } });
-        await persistWarnings(db, projectId, warnings);
-        return NextResponse.json({ success: false, error: 'Missing SFX fields' }, { status: 400 });
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'SFX',
+          outcome: 'FAILED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
+        return NextResponse.json({ success: false, error: 'Missing SFX fields', delivery: deliveryResponse(delivery) }, { status: 400 });
       }
 
       let sfxResults;
@@ -399,8 +565,13 @@ async function handler(request: NextRequest) {
         sfxResults = await generateSFXForScenes(sfxInputs, userId);
       } catch (sfxErr: any) {
         warnings.errorSwallowed('sfx', sfxErr, `SFX batch generation for ${sfxInputs.length} scenes`);
-        await persistWarnings(db, projectId, warnings);
-        return NextResponse.json({ success: false, error: `SFX batch failed: ${sfxErr.message}` }, { status: 500 });
+        const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+          kind: 'SFX',
+          outcome: 'FAILED',
+          overlays: [],
+          warnings: deliveryWarnings(warnings),
+        });
+        return NextResponse.json({ success: false, error: `SFX batch failed: ${sfxErr.message}`, delivery: deliveryResponse(delivery) }, { status: 500 });
       }
 
       // Report per-scene SFX failures (scene requested but nothing generated)
@@ -412,6 +583,7 @@ async function handler(request: NextRequest) {
 
       let overlayId = Date.now() * 1000 + 500000 + Math.floor(Math.random() * 499999);
       const sfxOverlays: any[] = [];
+      const db = await getDatabase();
 
       for (const [sceneIndex, sfx] of sfxResults) {
         // H8 FIX: Null check on sfx object before accessing sfx.audioUrl
@@ -421,7 +593,10 @@ async function handler(request: NextRequest) {
           continue;
         }
         const frameInfo = sceneFrameMap.find(f => f.sceneIndex === sceneIndex);
-        if (!frameInfo) continue;
+        if (!frameInfo) {
+          warnings.degraded('sfx', `Scene ${sceneIndex}`, 'SFX was generated but has no matching timeline frame range');
+          continue;
+        }
 
         sfxOverlays.push({
           id: overlayId++,
@@ -459,35 +634,42 @@ async function handler(request: NextRequest) {
         );
       }
 
-      // F6.6 FIX: Push SFX with _workerAdded flag
-      if (sfxOverlays.length > 0) {
-        const markedSfx = sfxOverlays.map(o => ({ ...o, _workerAdded: true }));
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId },
-          {
-            $push: { 'overlays': { $each: markedSfx } } as any,
-            $set: { updatedAt: new Date() },
-          },
-        );
-      }
+      const delivery = await finalizeAudioWorkerDelivery(deliveryContext, finalization, {
+        kind: 'SFX',
+        outcome: sfxOverlays.length > 0 ? 'ATTACHED' : 'SKIPPED',
+        overlays: sfxOverlays as Overlay[],
+        warnings: deliveryWarnings(warnings),
+      });
 
       console.log(`[AudioWorker] SFX complete: ${sfxResults.size} clips (${Date.now() - startMs}ms)`);
-      await persistWarnings(db, projectId, warnings);
-      return NextResponse.json({ success: true, type: 'sfx', clips: sfxResults.size, warnings: warnings.getAll() });
+      return NextResponse.json({
+        success: true,
+        type: 'sfx',
+        clips: sfxResults.size,
+        warnings: warnings.getAll(),
+        delivery: deliveryResponse(delivery),
+      });
     }
 
     return NextResponse.json({ success: false, error: `Unknown type: ${type}` }, { status: 400 });
-  } catch (error: any) {
-    console.error(`[AudioWorker] Error:`, error.message);
-    // Best-effort: persist the top-level error so the user sees SOMETHING instead of a silent empty project.
-    if (projectIdForWarnings) {
-      try {
-        const db = await getDatabase();
-        warnings.errorSwallowed(payloadPhaseFallback(warnings), error, 'audio worker top-level handler');
-        await persistWarnings(db, projectIdForWarnings, warnings);
-      } catch { /* don't mask the original error */ }
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    console.error(`[AudioWorker] Error:`, message);
+    if (deliveryContext && workerType && !finalization.started) {
+      warnings.errorSwallowed(payloadPhaseFallback(warnings), message, 'audio worker top-level handler');
+      const delivery = await recordAudioWorkerFailure(
+        deliveryContext,
+        finalization,
+        workerType,
+        warnings,
+      );
+      return NextResponse.json({
+        success: false,
+        error: message,
+        ...(delivery ? { delivery: deliveryResponse(delivery) } : {}),
+      }, { status: errorStatus(error) });
     }
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: errorStatus(error) });
   }
 }
 

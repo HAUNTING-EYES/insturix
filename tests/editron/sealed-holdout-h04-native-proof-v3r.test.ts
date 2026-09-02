@@ -23,7 +23,10 @@ import { runSealedHoldoutEpisodeV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
 import { proveSealedHoldoutH04NativeOutcomeV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h04-native-proof-v3r';
-import { proveSealedHoldoutH04NativeOutcomeV3R2 }
+import {
+  assertSealedHoldoutH04FinalStateEquivalenceV4R,
+  proveSealedHoldoutH04NativeOutcomeV3R2,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h04-native-proof-v3r2';
 import type { ProviderNativeEpisodeReceiptV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
@@ -40,6 +43,10 @@ type JsonRecord = Record<string, unknown>;
 let suiteRoot = '';
 let sequence = 0;
 let mediaManifest: Awaited<ReturnType<typeof materializeHoldoutMediaV2R>>;
+const finalStateContract = {
+  projectDurationInFrames: 540,
+  expectedRemovedRange: { startFrame: 120, endFrame: 225 },
+} as const;
 
 beforeAll(async () => {
   suiteRoot = await mkdtemp(join(tmpdir(), 'e3h4-'));
@@ -51,6 +58,72 @@ afterAll(async () => {
 }, 60_000);
 
 describe('sealed HOLD-04 evolving-state and rendered native proof V3R', () => {
+  it('accepts a canonical one-cut V4 final state', () => {
+    expect(assertSealedHoldoutH04FinalStateEquivalenceV4R({
+      currentTimelineCuts: [{ startFrame: 120, endFrame: 225 }],
+      writerIssuedProjectRevisions: ['W1'],
+      finalReadExpectedProjectRevision: 'W1',
+      contract: finalStateContract,
+    })).toEqual({
+      keptRanges: [{ startFrame: 0, endFrame: 120 }, { startFrame: 225, endFrame: 540 }],
+      removedRanges: [{ startFrame: 120, endFrame: 225 }],
+    });
+  });
+
+  it('accepts an equivalent two-cut outcome from the last writer-bound state', () => {
+    expect(assertSealedHoldoutH04FinalStateEquivalenceV4R({
+      currentTimelineCuts: [
+        { startFrame: 120, endFrame: 192 },
+        { startFrame: 120, endFrame: 153 },
+      ],
+      writerIssuedProjectRevisions: ['W1', 'W2'],
+      finalReadExpectedProjectRevision: 'W2',
+      contract: finalStateContract,
+    }).removedRanges).toEqual([{ startFrame: 120, endFrame: 225 }]);
+  });
+
+  it('rejects a two-cut outcome that is one frame short', () => {
+    expect(() => assertSealedHoldoutH04FinalStateEquivalenceV4R({
+      currentTimelineCuts: [
+        { startFrame: 120, endFrame: 192 },
+        { startFrame: 120, endFrame: 152 },
+      ],
+      writerIssuedProjectRevisions: ['W1', 'W2'],
+      finalReadExpectedProjectRevision: 'W2',
+      contract: finalStateContract,
+    })).toThrow('SEALED_V4_H04_PROOF_FINAL_STATE_PREDICATE_FAILED');
+  });
+
+  it('rejects a final read that uses the first writer revision', () => {
+    expect(() => assertSealedHoldoutH04FinalStateEquivalenceV4R({
+      currentTimelineCuts: [
+        { startFrame: 120, endFrame: 192 },
+        { startFrame: 120, endFrame: 153 },
+      ],
+      writerIssuedProjectRevisions: ['W1', 'W2'],
+      finalReadExpectedProjectRevision: 'W1',
+      contract: finalStateContract,
+    })).toThrow('SEALED_V4_H04_PROOF_FINAL_STATE_READ_STALE');
+  });
+
+  it('metamorphically follows an alternate duration and expected removal', () => {
+    expect(assertSealedHoldoutH04FinalStateEquivalenceV4R({
+      currentTimelineCuts: [
+        { startFrame: 150, endFrame: 210 },
+        { startFrame: 150, endFrame: 200 },
+      ],
+      writerIssuedProjectRevisions: ['W1', 'W2'],
+      finalReadExpectedProjectRevision: 'W2',
+      contract: {
+        projectDurationInFrames: 600,
+        expectedRemovedRange: { startFrame: 150, endFrame: 260 },
+      },
+    })).toEqual({
+      keptRanges: [{ startFrame: 0, endFrame: 150 }, { startFrame: 260, endFrame: 600 }],
+      removedRanges: [{ startFrame: 150, endFrame: 260 }],
+    });
+  });
+
   it('binds the current metered writer handoff to the same state and AV proof', async () => {
     const root = join(suiteRoot, `current-${++sequence}`);
     const result = await runScriptedBudgetedSealedHoldoutV3R2({

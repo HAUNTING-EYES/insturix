@@ -19,6 +19,14 @@
  *           signal-registry.ts (enriches NEEDS_INFRA visual signals)
  */
 
+import {
+  isModalProxyEndpointV1,
+  modalProxyAuthHeadersV1,
+  readModalProxyAuthV1,
+  type ModalProxyAuthEnvironmentV1,
+  type ModalProxyAuthV1,
+} from './modal-proxy-auth-v1';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface VjepaSegmentInput {
@@ -138,8 +146,32 @@ interface ModalVjepaResponse {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MODAL_VJEPA_ENDPOINT = process.env.MODAL_VJEPA_ENDPOINT
-  || 'https://jainnimit728--vjepa-2-visual-vjepaanalyzer-analyze.modal.run';
+export const EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1 = 'MODAL_VJEPA_ENDPOINT' as const;
+
+const DEFAULT_MODAL_VJEPA_ENDPOINT =
+  'https://jainnimit728--vjepa-2-visual-vjepaanalyzer-analyze.modal.run';
+
+export type VjepaFetchV1 = typeof fetch;
+
+export interface AnalyzeVideoWithVjepaOptionsV1 {
+  /** Injected for focused tests; defaults to global fetch. */
+  fetchImpl?: VjepaFetchV1;
+}
+
+/** Resolves only a trusted HTTPS Modal endpoint for dedicated proxy credentials. */
+function vjepaEndpointV1(
+  environment: ModalProxyAuthEnvironmentV1 = process.env,
+): string | null {
+  const configured = environment[EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1]?.trim();
+  const endpoint = configured || DEFAULT_MODAL_VJEPA_ENDPOINT;
+  return isModalProxyEndpointV1(endpoint) ? endpoint : null;
+}
+
+export function isVjepaConfiguredV1(
+  environment: ModalProxyAuthEnvironmentV1 = process.env,
+): boolean {
+  return Boolean(vjepaEndpointV1(environment) && readModalProxyAuthV1(environment));
+}
 
 const VALID_ACTION_TYPES: Set<string> = new Set([
   'talking', 'walking', 'gesturing', 'demonstrating',
@@ -177,23 +209,21 @@ const FRAME_SAMPLE_OVERRIDE = readOptionalIntEnv('MODAL_VJEPA_MAX_FRAMES_PER_SEG
  * Returns immediately (does not await the response).
  */
 export function warmupVjepa(): void {
-  const tokenId = process.env.MODAL_TOKEN_ID;
-  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
-  if (!tokenId || !tokenSecret) return;
+  const endpoint = vjepaEndpointV1();
+  const proxyAuth = readModalProxyAuthV1();
+  if (!endpoint || !proxyAuth) return;
 
   // Send a minimal request that forces container creation but does minimal work.
   // Empty segments array → Modal returns immediately after model load.
-  fetch(MODAL_VJEPA_ENDPOINT, {
+  fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Token ${tokenId}:${tokenSecret}`,
+      ...modalProxyAuthHeadersV1(proxyAuth),
     },
     body: JSON.stringify({ video_url: '', segments: [] }),
     signal: AbortSignal.timeout(90_000), // 90s for cold start warmup
-  }).then(() => {
-    console.log('[VjepaService] Warmup: container ready');
-  }).catch(() => {
+  }).then(() => undefined).catch(() => {
     // Non-fatal — container may still warm up from the actual request later
   });
 }
@@ -210,15 +240,17 @@ export function warmupVjepa(): void {
 export async function analyzeVideoWithVjepa(
   videoUrl: string,
   segments: VjepaSegmentInput[],
+  options: AnalyzeVideoWithVjepaOptionsV1 = {},
 ): Promise<VjepaAnalysisResult | null> {
   if (!videoUrl || segments.length === 0) return null;
 
-  const tokenId = process.env.MODAL_TOKEN_ID;
-  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
-  if (!tokenId || !tokenSecret) {
-    console.warn('[VjepaService] MODAL_TOKEN_ID/SECRET not set — skipping V-JEPA analysis');
+  const endpoint = vjepaEndpointV1();
+  const proxyAuth = readModalProxyAuthV1();
+  if (!endpoint || !proxyAuth) {
+    console.warn('[VjepaService] No trusted Modal endpoint or dedicated proxy credentials');
     return null;
   }
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   try {
     // Batch segments to avoid timeout on long videos.
@@ -231,7 +263,6 @@ export async function analyzeVideoWithVjepa(
     }
 
     const frameSampleCount = chooseVjepaFrameSampleCount(segments.length);
-    console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
     const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
     const failedBatchIndices: number[] = [];
@@ -239,12 +270,13 @@ export async function analyzeVideoWithVjepa(
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
       const mapped = await analyzeBatchWithFallback({
+        endpoint,
+        proxyAuth,
+        fetchImpl,
         videoUrl,
         batch,
         batchIndex: b,
         batchCount: batches.length,
-        tokenId,
-        tokenSecret,
         deadlineMs,
         frameSampleCount,
       });
@@ -258,7 +290,6 @@ export async function analyzeVideoWithVjepa(
       }
 
       allResults.push(...mapped);
-      console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
     }
 
     if (!allResults.length) return null;
@@ -266,10 +297,6 @@ export async function analyzeVideoWithVjepa(
     const totalMs = Date.now() - batchStartMs;
     const droppedSegmentCount = Math.max(0, segments.length - allResults.length);
     const partial = droppedSegmentCount > 0 || failedBatchIndices.length > 0;
-    console.log(
-      `[VjepaService] ${partial ? 'Partial' : 'All'} ${allResults.length}/${segments.length} segments analyzed in ${totalMs}ms ` +
-      `(avg significance: ${(allResults.reduce((sum, r) => sum + r.visualSignificance, 0) / allResults.length).toFixed(2)})`,
-    );
     if (partial) {
       console.warn(
         `[VjepaService] Partial V-JEPA coverage: dropped ${droppedSegmentCount}/${segments.length} segment(s); ` +
@@ -290,23 +317,25 @@ export async function analyzeVideoWithVjepa(
       failedBatchCount: failedBatchIndices.length,
       failedBatchIndices,
     };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[VjepaService] Analysis failed: ${msg}`);
+  } catch {
+    console.error('[VjepaService] Analysis request failed');
     return null;
   }
 }
 
-async function analyzeBatchWithFallback(args: {
+interface VjepaBatchRequestV1 {
+  endpoint: string;
+  proxyAuth: ModalProxyAuthV1;
+  fetchImpl: VjepaFetchV1;
   videoUrl: string;
   batch: VjepaSegmentInput[];
   batchIndex: number;
   batchCount: number;
-  tokenId: string;
-  tokenSecret: string;
   deadlineMs: number;
   frameSampleCount: number;
-}): Promise<VjepaSegmentResult[] | null> {
+}
+
+async function analyzeBatchWithFallback(args: VjepaBatchRequestV1): Promise<VjepaSegmentResult[] | null> {
   if (Date.now() >= args.deadlineMs) {
     console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: total V-JEPA deadline exceeded`);
     return null;
@@ -351,16 +380,7 @@ async function analyzeBatchWithFallback(args: {
   return retryResults;
 }
 
-async function fetchVjepaBatch(args: {
-  videoUrl: string;
-  batch: VjepaSegmentInput[];
-  batchIndex: number;
-  batchCount: number;
-  tokenId: string;
-  tokenSecret: string;
-  deadlineMs: number;
-  frameSampleCount: number;
-}): Promise<VjepaSegmentResult[] | null> {
+async function fetchVjepaBatch(args: VjepaBatchRequestV1): Promise<VjepaSegmentResult[] | null> {
   const remainingMs = args.deadlineMs - Date.now();
   if (remainingMs <= 1_000) {
     console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: no V-JEPA time budget remaining`);
@@ -371,11 +391,11 @@ async function fetchVjepaBatch(args: {
   const timeout = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, remainingMs));
 
   try {
-    const response = await fetch(MODAL_VJEPA_ENDPOINT, {
+    const response = await args.fetchImpl(args.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Token ${args.tokenId}:${args.tokenSecret}`,
+        ...modalProxyAuthHeadersV1(args.proxyAuth),
       },
       body: JSON.stringify({
         video_url: args.videoUrl,
@@ -391,20 +411,18 @@ async function fetchVjepaBatch(args: {
     });
 
     if (!response.ok) {
-      console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${response.status} ${response.statusText}`);
+      console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${response.status}`);
       return null;
     }
 
-    const data = (await response.json()) as ModalVjepaResponse;
+    const data = parseModalVjepaResponseV1(await response.json());
     if (!data?.segments?.length) {
       console.warn(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: empty response`);
       return null;
     }
-
     return data.segments.map(normalizeModalVjepaSegment);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${msg}`);
+  } catch {
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} request failed`);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -465,6 +483,152 @@ export function toSignalEnrichment(
 }
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
+
+function parseModalVjepaResponseV1(value: unknown): ModalVjepaResponse | null {
+  if (!isRecord(value)
+    || !Array.isArray(value.segments)
+    || !isOptionalStringV1(value.model_version)
+    || !isOptionalFiniteNumberV1(value.processing_time_ms)) {
+    return null;
+  }
+
+  const segments: ModalVjepaSegment[] = [];
+  for (const segment of value.segments) {
+    const parsed = parseModalVjepaSegmentV1(segment);
+    if (!parsed) return null;
+    segments.push(parsed);
+  }
+
+  return {
+    segments,
+    model_version: optionalStringV1(value.model_version),
+    processing_time_ms: optionalFiniteNumberV1(value.processing_time_ms),
+  };
+}
+
+function parseModalVjepaSegmentV1(value: unknown): ModalVjepaSegment | null {
+  if (!isRecord(value)
+    || !isFiniteNumber(value.start_ms)
+    || !isFiniteNumber(value.end_ms)
+    || !isFiniteNumber(value.visual_significance)
+    || !isFiniteNumber(value.motion_intensity)
+    || !isOptionalStringV1(value.action_type)
+    || !isOptionalStringV1(value.motion_type)
+    || !isOptionalStringV1(value.face_emotion)
+    || !isOptionalBooleanV1(value.eye_contact)
+    || !isOptionalFiniteNumberV1(value.motion_vector_x)
+    || !isOptionalFiniteNumberV1(value.motion_vector_y)
+    || !isOptionalPrimitiveBoxV1(value.main_subject)
+    || !isOptionalFiniteNumberV1(value.main_subject_x)
+    || !isOptionalFiniteNumberV1(value.main_subject_y)
+    || !isOptionalFiniteNumberV1(value.main_subject_width)
+    || !isOptionalFiniteNumberV1(value.main_subject_height)
+    || !isOptionalTextBoxesV1(value.text_boxes)
+    || !isOptionalFiniteNumberV1(value.text_box_count)
+    || !isOptionalFiniteNumberV1(value.text_coverage)
+    || !isOptionalFiniteNumberV1(value.object_count)
+    || !isOptionalFiniteNumberV1(value.face_count)
+    || !isOptionalFiniteNumberV1(value.negative_space_top)
+    || !isOptionalFiniteNumberV1(value.negative_space_right)
+    || !isOptionalFiniteNumberV1(value.negative_space_bottom)
+    || !isOptionalFiniteNumberV1(value.negative_space_left)) {
+    return null;
+  }
+
+  return {
+    start_ms: value.start_ms,
+    end_ms: value.end_ms,
+    visual_significance: value.visual_significance,
+    motion_intensity: value.motion_intensity,
+    action_type: optionalStringV1(value.action_type),
+    motion_type: optionalStringV1(value.motion_type),
+    face_emotion: optionalStringV1(value.face_emotion),
+    eye_contact: optionalBooleanV1(value.eye_contact),
+    motion_vector_x: optionalFiniteNumberV1(value.motion_vector_x),
+    motion_vector_y: optionalFiniteNumberV1(value.motion_vector_y),
+    main_subject: optionalPrimitiveBoxV1(value.main_subject),
+    main_subject_x: optionalFiniteNumberV1(value.main_subject_x),
+    main_subject_y: optionalFiniteNumberV1(value.main_subject_y),
+    main_subject_width: optionalFiniteNumberV1(value.main_subject_width),
+    main_subject_height: optionalFiniteNumberV1(value.main_subject_height),
+    text_boxes: optionalTextBoxesV1(value.text_boxes),
+    text_box_count: optionalFiniteNumberV1(value.text_box_count),
+    text_coverage: optionalFiniteNumberV1(value.text_coverage),
+    object_count: optionalFiniteNumberV1(value.object_count),
+    face_count: optionalFiniteNumberV1(value.face_count),
+    negative_space_top: optionalFiniteNumberV1(value.negative_space_top),
+    negative_space_right: optionalFiniteNumberV1(value.negative_space_right),
+    negative_space_bottom: optionalFiniteNumberV1(value.negative_space_bottom),
+    negative_space_left: optionalFiniteNumberV1(value.negative_space_left),
+  };
+}
+
+function isOptionalStringV1(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'string';
+}
+
+function optionalStringV1(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function isOptionalBooleanV1(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'boolean';
+}
+
+function optionalBooleanV1(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function isOptionalFiniteNumberV1(value: unknown): boolean {
+  return value === undefined || value === null || isFiniteNumber(value);
+}
+
+function optionalFiniteNumberV1(value: unknown): number | undefined {
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+function isOptionalPrimitiveBoxV1(value: unknown): boolean {
+  return value === undefined || value === null || (
+    isRecord(value)
+    && isOptionalFiniteNumberV1(value.x)
+    && isOptionalFiniteNumberV1(value.y)
+    && isOptionalFiniteNumberV1(value.width)
+    && isOptionalFiniteNumberV1(value.height)
+    && isOptionalFiniteNumberV1(value.confidence)
+  );
+}
+
+function optionalPrimitiveBoxV1(value: unknown): Partial<VjepaPrimitiveBox> | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    x: optionalFiniteNumberV1(value.x),
+    y: optionalFiniteNumberV1(value.y),
+    width: optionalFiniteNumberV1(value.width),
+    height: optionalFiniteNumberV1(value.height),
+    confidence: optionalFiniteNumberV1(value.confidence),
+  };
+}
+
+function isOptionalTextBoxesV1(value: unknown): boolean {
+  return value === undefined || value === null || (
+    Array.isArray(value)
+    && value.every(box => isOptionalPrimitiveBoxV1(box)
+      && isRecord(box)
+      && isOptionalStringV1(box.text))
+  );
+}
+
+function optionalTextBoxesV1(value: unknown): Array<Partial<VjepaTextBox>> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isRecord).map(box => ({
+    x: optionalFiniteNumberV1(box.x),
+    y: optionalFiniteNumberV1(box.y),
+    width: optionalFiniteNumberV1(box.width),
+    height: optionalFiniteNumberV1(box.height),
+    confidence: optionalFiniteNumberV1(box.confidence),
+    text: optionalStringV1(box.text),
+  }));
+}
 
 export function normalizeModalVjepaSegment(s: ModalVjepaSegment): VjepaSegmentResult {
   const primitivePresence: VjepaPrimitivePresence = {
@@ -600,6 +764,10 @@ function clampNumber(value: number | undefined, min: number, max: number, fallba
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function readPositiveMs(value: unknown): number | null {

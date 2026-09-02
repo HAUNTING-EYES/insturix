@@ -26,9 +26,22 @@ import type { GateResult } from '@/lib/editron/services/quality-gate';
 import type { ExecutionResult } from '@/lib/editron/services/edl-executor';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import {
+  ProjectMutationConflictError,
+  ProjectMutationWriteError,
+  ProjectNotFoundOrForbiddenError,
   projectService,
+  type ProjectMutationReceiptV1,
   type ProjectPhase0ProofFactsV1,
+  type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
+import { advanceDirectorRevisionFromReceiptsV1 } from '@/lib/editron/agent/director-revision-chain-v1';
+import {
+  buildDirectorVjepaCoverageAuditSummaryV1,
+  createDirectorAuditFactV1,
+  type DirectorAuditFactV1,
+  type PostBundleProfileActionPolicySummaryV1,
+} from '@/lib/editron/services/director-audit-fact-v1';
+import { buildPersistedDirectorDecisionLogV1 } from '@/lib/editron/services/director-decision-log-v1';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -194,6 +207,18 @@ function summarizeDecisionExecutionTrace(executionResult?: ExecutionResult) {
   };
 }
 
+function recordDirectorAsyncChildren(
+  result: DirectorResult,
+  executionResult: ExecutionResult,
+): void {
+  const designJob = executionResult.mgDesignJob;
+  const jobId = designJob?.jobId?.trim();
+  if (!designJob || !jobId || (designJob.status !== 'queued' && designJob.status !== 'running')) return;
+  result.pendingAsyncChildJobIds = [
+    ...new Set([...(result.pendingAsyncChildJobIds ?? []), jobId]),
+  ].slice(0, 100);
+}
+
 function summarizeCanonicalTimelineFromDecisions(decisions: UnifiedDecisionBundle['edl']['decisions']) {
   const stamps = decisions
     .map((decision) => decision.params?.canonicalTimeline)
@@ -232,61 +257,6 @@ function summarizeSignalAuditBucketCounts(
       .filter(([, bucket]) => bucket.count > 0)
       .map(([key, bucket]) => [key, bucket.count]),
   );
-}
-
-async function persistUnifiedDecisionBundleSummary(
-  projectId: string,
-  summary: ReturnType<typeof summarizeUnifiedDecisionBundle>,
-): Promise<void> {
-  try {
-    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-    await bundleDb.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          'intelligence.unifiedDecisionBundle': {
-            ...summary,
-            persistedAt: new Date().toISOString(),
-          },
-        },
-      },
-    );
-  } catch (err: unknown) {
-    console.warn('[Director] non-fatal unified decision bundle persistence:', err instanceof Error ? err.message : err);
-  }
-}
-
-type PostBundleProfileActionPolicySummary = {
-  version: 'post-bundle-profile-action-policy-v1';
-  unifiedDecisionBundleExecuted: true;
-  evaluatedAt: string;
-  allowedActionCount: number;
-  skippedActionCount: number;
-  allowedTools: string[];
-  skippedActions: Array<{
-    tool: string;
-    action: string;
-    reason: string;
-  }>;
-};
-
-async function persistPostBundleProfileActionPolicy(
-  projectId: string,
-  summary: PostBundleProfileActionPolicySummary,
-): Promise<void> {
-  try {
-    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-    await bundleDb.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          'intelligence.postBundleProfileActionPolicy': summary,
-        },
-      },
-    );
-  } catch (err: unknown) {
-    console.warn('[Director] non-fatal post-bundle profile action policy persistence:', err instanceof Error ? err.message : err);
-  }
 }
 
 async function buildFinalPhase0LiveTruthFacts(options: {
@@ -410,6 +380,28 @@ function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }
 
+type DirectorProgressObserverV1 = (
+  step: number,
+  total: number,
+  description: string,
+) => void | Promise<void>;
+
+/**
+ * Only the QStash Director worker opts into durable progress. Other callers
+ * retain their existing observer-only progress behaviour and cannot create a
+ * surprise stage write on a manually invoked Director run.
+ */
+interface DirectorProgressReporterV1 {
+  persistProjectProgress?: boolean;
+  onProgress?: DirectorProgressObserverV1;
+  /**
+   * The automatic QStash worker owns terminal lifecycle state through
+   * ProjectService. It opts in so this reusable executor does not perform a
+   * legacy raw status transition after emitting its final writer receipt.
+   */
+  deferProjectStatusTransitions?: boolean;
+}
+
 
 /**
  * Execute a Director Agent plan on a project.
@@ -418,17 +410,21 @@ function isCanonicalDecisionTimelineError(error: unknown): boolean {
  * @param userId - Owner
  * @param profileId - Edit profile to execute
  * @param brief - Optional project brief with overrides
- * @param onProgress - Progress callback for SSE streaming
+ * @param progress - Optional observer; the QStash Director worker may opt into
+ * lease-bound durable progress through `persistProjectProgress`.
  */
 export async function executeDirectorPlan(
   projectId: string,
   userId: string,
   profileId: string,
   brief?: ProjectBrief,
-  onProgress?: (step: number, total: number, description: string) => void,
+  progress?: DirectorProgressObserverV1 | DirectorProgressReporterV1,
 ): Promise<DirectorResult> {
   const startTime = Date.now();
   const profile = getProfileById(profileId);
+  const deferProjectStatusTransitions =
+    typeof progress !== 'function'
+    && progress?.deferProjectStatusTransitions === true;
 
   // C6 FIX: Validate profile exists before proceeding
   if (!profile) {
@@ -496,7 +492,75 @@ export async function executeDirectorPlan(
     directorLeaseId = directorLease.leaseId;
 
     // ─── Step 1: Load project state ──────────────────────────
-    const { project, revision: directorStartRevision } = directorLease;
+    const { project } = directorLease;
+    let directorCurrentRevision: ProjectRevisionV1 = directorLease.revision;
+    const progressReporter = typeof progress === 'function' ? undefined : progress;
+    const progressObserver = typeof progress === 'function'
+      ? progress
+      : progressReporter?.onProgress;
+    let lastPersistedStagePct = -1;
+    let lastPersistedStageDesc = '';
+    const reportDirectorProgress = async (
+      step: number,
+      total: number,
+      description: string,
+    ): Promise<ProjectMutationReceiptV1 | undefined> => {
+      let persistedReceipt: ProjectMutationReceiptV1 | undefined;
+      const stagePercent = total > 0
+        ? Math.min(99, Math.max(0, Math.round((step / total) * 100)))
+        : 3;
+      if (
+        progressReporter?.persistProjectProgress === true
+        && directorLeaseId !== null
+        && (stagePercent !== lastPersistedStagePct || description !== lastPersistedStageDesc)
+      ) {
+        const receipt = await projectService.recordDirectorProgressV1(
+          userId,
+          projectId,
+          {
+            expectedRevision: directorCurrentRevision,
+            directorLeaseId,
+            stagePercent,
+            stageDescription: description,
+          },
+        );
+        directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+          projectId,
+          currentRevision: directorCurrentRevision,
+          receipts: [receipt],
+        });
+        lastPersistedStagePct = stagePercent;
+        lastPersistedStageDesc = description;
+        persistedReceipt = receipt;
+      }
+
+      await progressObserver?.(step, total, description);
+      return persistedReceipt;
+    };
+    const recordDirectorAuditFact = async (
+      fact: DirectorAuditFactV1,
+    ): Promise<ProjectMutationReceiptV1> => {
+      if (directorLeaseId === null) {
+        throw new ProjectMutationWriteError(
+          'Director audit facts require the active Director lease.',
+        );
+      }
+      const receipt = await projectService.recordDirectorAuditFactV1(
+        userId,
+        projectId,
+        {
+          expectedRevision: directorCurrentRevision,
+          directorLeaseId,
+          fact,
+        },
+      );
+      directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+        projectId,
+        currentRevision: directorCurrentRevision,
+        receipts: [receipt],
+      });
+      return receipt;
+    };
 
     const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
@@ -548,7 +612,7 @@ export async function executeDirectorPlan(
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
-    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
+    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummaryV1 | null = null;
 
     const edlSummary: {
       totalDecisions: number;
@@ -663,7 +727,7 @@ export async function executeDirectorPlan(
         edlSummary.skipReason = 'creative-brief-per-asset-analysis-bypassed';
         console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, raw-footage mode, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
       } else {
-        onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
+        await reportDirectorProgress(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
       }
 
       for (let i = 0; i < videoOverlays.length && !skipPerAssetAnalysis; i++) {
@@ -746,7 +810,7 @@ export async function executeDirectorPlan(
             }
           }
 
-          onProgress?.(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
+          await reportDirectorProgress(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
 
           analysis = await runFullAnalysis(assetId, userId, {
             videoUrl,
@@ -825,7 +889,7 @@ export async function executeDirectorPlan(
       const creativeBriefRawFootageActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
       if (creativeBriefRawFootageActive) {
         try {
-          onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
+          await reportDirectorProgress(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
 
           const { generateCreativeBrief, routeContentType, DEFAULT_ROUTING_THRESHOLDS } = await import('@/lib/editron/services/creative-brief');
@@ -1212,16 +1276,37 @@ export async function executeDirectorPlan(
                 projectId, userId, humanizedEdl.decisions, contentMode,
                 totalDurationMs, vjepaLookup,
               );
-              // Persist to MongoDB for render-time outcome capture
-              try {
-                const snapDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-                await snapDb.collection('projects').updateOne(
-                  { projectId },
-                  { $set: { 'intelligence.decisionLog': decisionLog } },
+              if (directorLeaseId === null) {
+                throw new ProjectMutationWriteError(
+                  'Director decision-log evidence requires the active Director lease.',
                 );
-              } catch (err: unknown) { console.warn('[Director] persistence is non-fatal:', err instanceof Error ? err.message : err); }
+              }
+              const decisionLogReceipt = await projectService.recordDirectorDecisionLogV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  decisionLog: buildPersistedDirectorDecisionLogV1(decisionLog),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [decisionLogReceipt],
+              });
               console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
             } catch (snapErr: any) {
+              if (
+                snapErr instanceof ProjectMutationConflictError
+                || snapErr instanceof ProjectMutationWriteError
+                || snapErr instanceof ProjectNotFoundOrForbiddenError
+              ) {
+                throw snapErr;
+              }
+              if (snapErr instanceof Error && snapErr.message === 'DIRECTOR_DECISION_LOG_INVALID') {
+                throw new ProjectMutationWriteError('Computed Director decision-log evidence is invalid.');
+              }
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
             }
 
@@ -1236,6 +1321,13 @@ export async function executeDirectorPlan(
             console.warn('[Director] Path E: Creative Brief returned null or empty — falling through to Path D');
           }
         } catch (pathEErr: any) {
+          if (
+            pathEErr instanceof ProjectMutationConflictError
+            || pathEErr instanceof ProjectMutationWriteError
+            || pathEErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
+            throw pathEErr;
+          }
           console.error(`[Director] Path E failed (${pathEErr.message}), falling through to Path D`);
         }
       }
@@ -1255,7 +1347,7 @@ export async function executeDirectorPlan(
           const graphIndex = loadGraph();
 
           if (graphIndex) {
-            onProgress?.(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
+            await reportDirectorProgress(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
             console.log(`[Director] Path D: Signal-driven execution (${graphIndex.mappings.size} mappings, ${graphIndex.constraints.size} constraints)`);
 
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
@@ -1804,6 +1896,7 @@ export async function executeDirectorPlan(
             unifiedDecisionBundle.graphicsDensity,
             { deferMgDesign: true },
           );
+          recordDirectorAsyncChildren(result, unifiedExecutionResult);
 
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
@@ -1836,7 +1929,10 @@ export async function executeDirectorPlan(
           // the execution result only adds observed decision-to-overlay trace evidence.
           const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle, unifiedExecutionResult);
           (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
-          await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+          await recordDirectorAuditFact(createDirectorAuditFactV1({
+            kind: 'UNIFIED_DECISION_BUNDLE',
+            payload: unifiedDecisionBundleSummary,
+          }));
           result.decisionAuthority = {
             version: 'decision-authority-v1',
             source: 'unified-decision-bundle',
@@ -1863,8 +1959,7 @@ export async function executeDirectorPlan(
           // DECIDED (shouldAddBgm) but never PRODUCED ("we never received a BGM"). Enqueue the
           // same worker here, gated on (a) the signal AND (b) this being a NON-storyboard
           // project: storyboard projects already get BGM from finalize, so dispatching here too
-          // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
-          // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          // would double it. ProjectService owns both the decision receipt and later delivery.
           const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
           const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
           const isStoryboardProject = storyboardContextSource === 'storyboard';
@@ -1874,8 +1969,8 @@ export async function executeDirectorPlan(
           });
           try {
             const {
+              autoBgmDecisionEvidenceHashV1,
               buildAutoBgmDecisionEvidence,
-              persistAutoBgmDecisionEvidence,
             } = await import('@/lib/editron/services/auto-bgm-decision');
             const bgmFps = project.fps || 30;
             const bgmTotalFrames = overlays.reduce(
@@ -1894,16 +1989,34 @@ export async function executeDirectorPlan(
                 musicGenerationPolicy,
                 ...evidenceInput,
               });
-              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              if (!directorLeaseId) {
+                throw new ProjectMutationWriteError('Auto-BGM evidence requires the active Director lease.');
+              }
+              const receipt = await projectService.recordDirectorAutoBgmDecisionV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  evidence,
+                  evidenceHash: autoBgmDecisionEvidenceHashV1(evidence),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [receipt],
+              });
               return evidence;
             };
 
-            if (!autoBgmExecutionScopePolicy.run) {
-              console.log(`[Director] Auto-BGM skipped (${autoBgmExecutionScopePolicy.reason})`);
-            } else if (!musicGenerationPolicy.allowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
-              const evidence = await persistAutoBgmEvidence({});
-              console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
-            } else {
+            if (autoBgmExecutionScopePolicy.run && (
+              !musicGenerationPolicy.allowed
+              || bgmRec?.shouldAddBgm !== true
+              || isStoryboardProject
+            )) {
+              await persistAutoBgmEvidence({});
+            } else if (autoBgmExecutionScopePolicy.run) {
               const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
               const providerAvailable = isBGMAvailable();
               if (providerAvailable && bgmDurationSec >= 10) {
@@ -1934,6 +2047,12 @@ export async function executeDirectorPlan(
                 // Signal-driven BGM levels, bounded by the CKG solo/under-speech dB ranges, from THIS video's
                 // energy_baseline — replaces the fixed 0.75/0.20 literals (music was ~9dB too hot in gaps).
                 const bgmMix = resolveBgmMixLevels({ energyBaseline: bgmEnergy });
+                await persistAutoBgmEvidence({
+                  providerAvailable,
+                  mood: bgmMood,
+                  pacing: bgmPacing,
+                  musicPrompt: bgmMusicPrompt,
+                });
                 const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
@@ -1948,25 +2067,23 @@ export async function executeDirectorPlan(
                   musicPreference: musicGenerationPolicy.musicPreference,
                   editorialPreferences: musicGenerationPolicy.editorialPreferences,
                 }, 'BGM(auto-edit)');
-                const evidence = await persistAutoBgmEvidence({
+                await persistAutoBgmEvidence({
                   providerAvailable,
                   mood: bgmMood,
                   pacing: bgmPacing,
                   musicPrompt: bgmMusicPrompt,
                   dispatchResult,
                 });
-                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, mood=${bgmMood}, pacing=${bgmPacing}, durationSec=${bgmDurationSec}`);
               } else {
-                const evidence = await persistAutoBgmEvidence({ providerAvailable });
-                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, providerAvailable=${providerAvailable}, durationSec=${bgmDurationSec}`);
+                await persistAutoBgmEvidence({ providerAvailable });
               }
             }
           } catch (bgmErr: any) {
             console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
             try {
               const {
+                autoBgmDecisionEvidenceHashV1,
                 buildAutoBgmDecisionEvidence,
-                persistAutoBgmDecisionEvidence,
               } = await import('@/lib/editron/services/auto-bgm-decision');
               const bgmFps = project.fps || 30;
               const bgmTotalFrames = overlays.reduce(
@@ -1983,9 +2100,26 @@ export async function executeDirectorPlan(
                 musicGenerationPolicy,
                 error: bgmErr,
               });
-              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              if (!directorLeaseId) {
+                throw new ProjectMutationWriteError('Auto-BGM failure evidence requires the active Director lease.');
+              }
+              const receipt = await projectService.recordDirectorAutoBgmDecisionV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  evidence,
+                  evidenceHash: autoBgmDecisionEvidenceHashV1(evidence),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [receipt],
+              });
             } catch (persistBgmErr: any) {
-              console.warn(`[Director] Auto-BGM evidence persistence failed (non-fatal): ${persistBgmErr?.message ?? persistBgmErr}`);
+              throw persistBgmErr;
             }
           }
           pathDHandled = true;
@@ -1995,7 +2129,12 @@ export async function executeDirectorPlan(
             `${unifiedDecisionBundle.edl.totalDecisions} decisions applied`
           );
         } catch (bundleErr: any) {
-          if (isCanonicalDecisionTimelineError(bundleErr)) {
+          if (
+            isCanonicalDecisionTimelineError(bundleErr)
+            || bundleErr instanceof ProjectMutationConflictError
+            || bundleErr instanceof ProjectMutationWriteError
+            || bundleErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
             result.warnings.push(bundleErr.message);
             throw bundleErr;
           }
@@ -2013,7 +2152,7 @@ export async function executeDirectorPlan(
       }
       if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
-          onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
+          await reportDirectorProgress(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
           // Build analyses map BEFORE the intelligence call — needed by both
           // the creative intent translator and the EDL executor.
@@ -2163,6 +2302,7 @@ export async function executeDirectorPlan(
             densityFromSignalsOrNeutral(pathDGenreParams),
             { deferMgDesign: true },
           );
+          recordDirectorAsyncChildren(result, edlResult);
 
           // Build summary by decision type
           for (const d of edl.decisions) {
@@ -2221,24 +2361,31 @@ export async function executeDirectorPlan(
 
           console.log(`[Director] 5-Track complete: ${edlSummary.assetsAnalyzed}/${videoOverlays.length} analyzed, ${edlSummary.totalDecisions} decisions (${edlSummary.executed} executed), ${moments.length} cinematic moments`);
 
-          // Store intelligence status on project for UI
-          try {
-            const db2 = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-            await db2.collection('projects').updateOne(
-              { projectId },
-              { $set: {
-                'intelligence.status': edlSummary.assetsFailed > 0 ? 'partial' : 'complete',
-                'intelligence.assetsAnalyzed': edlSummary.assetsAnalyzed,
-                'intelligence.assetsFailed': edlSummary.assetsFailed,
-                'intelligence.failedAssets': edlSummary.failedAssets,
-                'intelligence.decisionsGenerated': edlSummary.totalDecisions,
-                'intelligence.decisionsExecuted': edlSummary.executed,
-                'intelligence.cinematicMoments': moments.length,
-                'intelligence.lastRun': new Date(),
-              }},
-            );
-          } catch (err: unknown) { console.warn('[Director] non-fatal intelligence persistence:', err instanceof Error ? err.message : err); }
+          await recordDirectorAuditFact(createDirectorAuditFactV1({
+            kind: 'INTELLIGENCE_RUN_SUMMARY',
+            payload: {
+              version: 'director-intelligence-run-summary-v1',
+              status: edlSummary.assetsFailed > 0 ? 'partial' : 'complete',
+              assetsAnalyzed: edlSummary.assetsAnalyzed,
+              assetsFailed: Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length),
+              failedAssets: edlSummary.failedAssets
+                .map((value) => String(value).trim().slice(0, 500))
+                .filter(Boolean)
+                .slice(0, 100),
+              decisionsGenerated: edlSummary.totalDecisions,
+              decisionsExecuted: edlSummary.executed,
+              cinematicMoments: moments.length,
+              completedAt: new Date().toISOString(),
+            },
+          }));
         } catch (edlErr: any) {
+          if (
+            edlErr instanceof ProjectMutationConflictError
+            || edlErr instanceof ProjectMutationWriteError
+            || edlErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
+            throw edlErr;
+          }
           console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
@@ -2258,20 +2405,21 @@ export async function executeDirectorPlan(
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
 
-        // Store partial state on project for UI to display
-        try {
-          const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          await db.collection('projects').updateOne(
-            { projectId },
-            { $set: {
-              'intelligence.status': 'skipped_edl',
-              'intelligence.reason': intelligenceReason,
-              'intelligence.failedAssets': edlSummary.failedAssets,
-              'intelligence.lastAttempt': new Date(),
-              'intelligence.message': failMsg,
-            }},
-          );
-        } catch (err: unknown) { console.warn('[Director] non-fatal intelligence failure persistence:', err instanceof Error ? err.message : err); }
+        await recordDirectorAuditFact(createDirectorAuditFactV1({
+          kind: 'INTELLIGENCE_SKIP_SUMMARY',
+          payload: {
+            version: 'director-intelligence-skip-summary-v1',
+            status: 'skipped_edl',
+            reason: intelligenceReason,
+            failedAssetCount: Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length),
+            failedAssets: edlSummary.failedAssets
+              .map((value) => String(value).trim().slice(0, 500))
+              .filter(Boolean)
+              .slice(0, 100),
+            message: `Intelligence EDL skipped: ${intelligenceReason}; ${Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length)} asset failure(s).`,
+            attemptedAt: new Date().toISOString(),
+          },
+        }));
       }
     }
 
@@ -2302,17 +2450,22 @@ export async function executeDirectorPlan(
           console.warn(`[Director] ${auditWarning}`);
           result.warnings.push(auditWarning);
         }
-        try {
-          const auditDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          await auditDb.collection('projects').updateOne(
-            { projectId },
-            { $set: { 'intelligence.vjepaCoverageAudit': vjepaAudit } },
-          );
-        } catch (err: unknown) {
-          console.warn('[Director] non-fatal V-JEPA coverage audit persistence:', err instanceof Error ? err.message : err);
-        }
+        await recordDirectorAuditFact(createDirectorAuditFactV1({
+          kind: 'VJEPA_COVERAGE_AUDIT',
+          payload: buildDirectorVjepaCoverageAuditSummaryV1(vjepaAudit),
+        }));
       }
     } catch (auditErr: any) {
+      if (
+        auditErr instanceof ProjectMutationConflictError
+        || auditErr instanceof ProjectMutationWriteError
+        || auditErr instanceof ProjectNotFoundOrForbiddenError
+      ) {
+        throw auditErr;
+      }
+      if (auditErr instanceof Error && auditErr.message === 'DIRECTOR_AUDIT_FACT_INVALID') {
+        throw new ProjectMutationWriteError('Computed V-JEPA coverage audit evidence is invalid.');
+      }
       console.warn(`[Director] V-JEPA coverage audit failed (non-fatal): ${auditErr.message}`);
     }
 
@@ -2555,7 +2708,7 @@ export async function executeDirectorPlan(
 
     if (unifiedDecisionBundleExecuted) {
       const beforeCount = filteredActions.length;
-      const skippedPostBundleActions: PostBundleProfileActionPolicySummary['skippedActions'] = [];
+      const skippedPostBundleActions: PostBundleProfileActionPolicySummaryV1['skippedActions'] = [];
       const allowedPostBundleTools: string[] = [];
       filteredActions = filteredActions.filter(a => {
         const profileActionDecision = shouldRunPostBundleProfileAction({
@@ -2593,10 +2746,14 @@ export async function executeDirectorPlan(
       if (beforeCount !== filteredActions.length) {
         console.log(`[Director] Unified bundle: ${beforeCount - filteredActions.length} legacy profile action(s) skipped after EDL execution`);
       }
+      await recordDirectorAuditFact(createDirectorAuditFactV1({
+        kind: 'POST_BUNDLE_PROFILE_ACTION_POLICY',
+        payload: postBundleProfileActionPolicy,
+      }));
     }
 
     const totalSteps = filteredActions.length;
-    onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
+    await reportDirectorProgress(0, totalSteps, 'Starting Director Agent execution...');
 
     // ─── QualityGate: per-action measurement (TRIBE Phase 1) ──
     const { takeSnapshot, compareSnapshots, summarizeGateSession } = await import('@/lib/editron/services/quality-gate');
@@ -2608,11 +2765,19 @@ export async function executeDirectorPlan(
     // ─── Step 3: Execute actions sequentially ────────────────
     for (let i = 0; i < filteredActions.length; i++) {
       const action = filteredActions[i];
-      onProgress?.(i + 1, totalSteps, action.description);
+      await reportDirectorProgress(i + 1, totalSteps, action.description);
 
       try {
         const beforeSnapshot = takeSnapshot(overlays as any[], fps);
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams, briefCaptionStyle, graphitiGroupId);
+        const capturedAction = await projectService.captureMutationReceipts(() => (
+          executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams, briefCaptionStyle, graphitiGroupId)
+        ));
+        const modified = capturedAction.value;
+        directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+          projectId,
+          currentRevision: directorCurrentRevision,
+          receipts: capturedAction.receipts,
+        });
         const afterSnapshot = takeSnapshot(overlays as any[], fps);
         const gateResult = compareSnapshots(beforeSnapshot, afterSnapshot, action.description);
         gateResults.push(gateResult);
@@ -2827,7 +2992,15 @@ export async function executeDirectorPlan(
       const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
       if (duckAction) {
         try {
-          const modified = await executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, undefined, undefined, briefCaptionStyle, graphitiGroupId);
+          const capturedDuckAction = await projectService.captureMutationReceipts(() => (
+            executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, undefined, undefined, briefCaptionStyle, graphitiGroupId)
+          ));
+          const modified = capturedDuckAction.value;
+          directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+            projectId,
+            currentRevision: directorCurrentRevision,
+            receipts: capturedDuckAction.receipts,
+          });
           result.overlaysModified += modified;
           console.log(`[Director] Step 4.5: audio ducking applied post-merge (BGM arrived async) — ${modified} modified`);
         } catch (duckErr: any) {
@@ -2880,14 +3053,13 @@ export async function executeDirectorPlan(
         durationInFrames: project.durationInFrames,
       },
       {
-        expectedRevision: directorStartRevision,
+        expectedRevision: directorCurrentRevision,
         directorLeaseId,
       },
     );
+    directorCurrentRevision = finalReceipt.revision;
     directorLeaseId = null;
-    if (postBundleProfileActionPolicy) {
-      await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
-    }
+    result.terminalProjectReceipt = finalReceipt;
 
     try {
       const phase0Proof = await buildFinalPhase0LiveTruthFacts({
@@ -2907,6 +3079,8 @@ export async function executeDirectorPlan(
           facts: phase0Proof.facts,
         },
       );
+      directorCurrentRevision = phase0ProofReceipt.revision;
+      result.terminalProjectReceipt = phase0ProofReceipt;
       const phase0Truth = phase0Proof.snapshot;
       (result as any).phase0LiveTruth = {
         version: phase0Truth.version,
@@ -2953,14 +3127,32 @@ export async function executeDirectorPlan(
       console.warn('[Director] non-fatal Phase0 live truth persistence:', message);
     }
     result.success = true;
-    onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
+    const terminalProgressReceipt = await reportDirectorProgress(
+      totalSteps,
+      totalSteps,
+      'Director Agent execution complete',
+    );
+    if (terminalProgressReceipt) {
+      result.terminalProjectReceipt = terminalProgressReceipt;
+    }
 
-    // ─── Brand Intelligence: emit director_completed + transition status ───
+    // ─── Brand Intelligence: emit director_completed + optional status transition ───
     try {
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
-      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-
-      await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
+      if (!deferProjectStatusTransitions) {
+        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+        const statusResult = await transitionProjectStatus(
+          projectId,
+          userId,
+          'editing',
+          'director_completed',
+        );
+        if (!statusResult.success) {
+          throw new Error(
+            `Director lifecycle transition rejected: ${statusResult.error ?? 'unknown reason'}`,
+          );
+        }
+      }
 
       // Read actual quality score from project doc (persisted by quality_review step above)
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
@@ -2989,6 +3181,7 @@ export async function executeDirectorPlan(
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
     } catch (brandErr: unknown) {
       const msg = brandErr instanceof Error ? brandErr.message : String(brandErr);
+      result.warnings.push(`Director completion event requires recovery: ${msg}`);
       console.warn(`[Director] Brand intelligence wiring failed: ${msg}`);
     }
 
@@ -3093,13 +3286,21 @@ export async function executeDirectorPlan(
     result.warnings.push(`Director Agent failed: ${fatalDirectorError.message}`);
     console.error('[Director] Execution failed:', fatalDirectorError.message);
 
-    try {
-      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-      await transitionProjectStatus(
-        projectId, userId, 'failed', 'director_error',
-        { message: fatalDirectorError.message, service: 'editron' },
-      );
-    } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
+    if (!deferProjectStatusTransitions) {
+      try {
+        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+        const failureStatusResult = await transitionProjectStatus(
+          projectId, userId, 'failed', 'director_error',
+          { message: fatalDirectorError.message, service: 'editron' },
+        );
+        if (!failureStatusResult.success) {
+          console.warn(
+            '[Director] failure status transition rejected:',
+            failureStatusResult.error ?? 'unknown reason',
+          );
+        }
+      } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
+    }
   }
 
   if (directorLeaseId) {
@@ -3646,22 +3847,8 @@ async function executeAction(
           report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
         }
 
-        // Persist quality review to project doc — consumed by bandit reward feedback
-        // (video-analysis worker Step 7.1 reads qualityReview.overallScore)
-        try {
-          const qrDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          const persistedQualityReview = buildPersistedQualityReview(report);
-          await qrDb.collection('projects').updateOne(
-            { projectId },
-            {
-              $set: {
-                qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
-              },
-            },
-          );
-        } catch (err: unknown) {
-          console.warn('[Director] non-fatal quality review storage:', err instanceof Error ? err.message : err);
-        }
+        // The authoritative quality review is recomputed from persistableOverlays
+        // and committed with recordPhase0ProofFacts after the final editor save.
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);
       }

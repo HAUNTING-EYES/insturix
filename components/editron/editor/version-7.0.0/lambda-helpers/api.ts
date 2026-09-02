@@ -2,15 +2,28 @@ import { z } from "zod";
 import type { RenderMediaOnLambdaOutput } from "@remotion/lambda/client";
 
 import { CompositionProps } from "@/components/editron/editor/version-7.0.0/types";
-import { buildCompactProjectRenderInputProps } from "@/lib/editron/shared/render-request-payload";
+import {
+  CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+  buildCompactProjectRenderInputProps,
+} from "@/lib/editron/shared/render-request-payload";
+import type { ChapterRenderApiData } from "@/lib/editron/shared/render-request-payload";
 import type {
   RenderDeliveryManifest,
   RenderMusicDeliveryMode,
 } from "@/lib/editron/services/render-delivery-manifest";
 
-export type LambdaRenderResponse = RenderMediaOnLambdaOutput & {
+export type LambdaProviderRenderResponse = RenderMediaOnLambdaOutput & {
+  deliveryManifest?: RenderDeliveryManifest;
+  region?: string;
+};
+
+export type ChapterLambdaRenderResponse = ChapterRenderApiData & {
   deliveryManifest?: RenderDeliveryManifest;
 };
+
+export type LambdaRenderResponse =
+  | LambdaProviderRenderResponse
+  | ChapterLambdaRenderResponse;
 
 export type LambdaProgressResponse =
   | { type: "error"; message: string }
@@ -25,6 +38,26 @@ export type LambdaProgressResponse =
       size: number;
       deliveryManifest?: RenderDeliveryManifest;
     };
+
+export type LambdaProviderProgressRequest = {
+  renderId: string;
+  bucketName: string;
+  region?: string;
+  executionKind?: never;
+  orchestrationId?: never;
+};
+
+export type LambdaChapterProgressRequest = {
+  executionKind: typeof CHAPTER_ORCHESTRATION_EXECUTION_KIND;
+  orchestrationId: string;
+  region: string;
+  renderId?: never;
+  bucketName?: never;
+};
+
+export type LambdaProgressRequest =
+  | LambdaProviderProgressRequest
+  | LambdaChapterProgressRequest;
 
 type ApiResponse<T> = {
   type: "success" | "error";
@@ -110,22 +143,55 @@ export const renderVideo = async ({
   return response;
 };
 
-export const getProgress = async ({
-  id,
-  bucketName,
-  region = 'us-east-1',
-}: {
-  id: string;
-  bucketName: string;
-  region?: string;
-}): Promise<LambdaProgressResponse> => {
+function buildProgressQueryParams(
+  request: LambdaProgressRequest,
+): URLSearchParams {
+  if (request.executionKind !== undefined) {
+    if (request.executionKind !== CHAPTER_ORCHESTRATION_EXECUTION_KIND) {
+      throw new Error("Unsupported render execution kind");
+    }
+    if (
+      request.renderId !== undefined
+      || request.bucketName !== undefined
+    ) {
+      throw new Error(
+        "Chapter orchestration progress cannot include provider identity",
+      );
+    }
+    if (typeof request.orchestrationId !== "string" || !request.orchestrationId.trim()) {
+      throw new Error("Chapter orchestration progress requires orchestrationId");
+    }
+    if (typeof request.region !== "string" || !request.region.trim()) {
+      throw new Error("Chapter orchestration progress requires region");
+    }
+    return new URLSearchParams({
+      executionKind: CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+      orchestrationId: request.orchestrationId.trim(),
+      region: request.region.trim(),
+    });
+  }
 
-  
-  const params = new URLSearchParams({
-    renderId: id,
-    bucketName,
-    region,
+  if (
+    request.orchestrationId !== undefined
+    || typeof request.renderId !== "string"
+    || !request.renderId.trim()
+    || typeof request.bucketName !== "string"
+    || !request.bucketName.trim()
+  ) {
+    throw new Error("Provider progress requires renderId, bucketName, and region");
+  }
+
+  return new URLSearchParams({
+    renderId: request.renderId.trim(),
+    bucketName: request.bucketName.trim(),
+    region: request.region?.trim() || 'us-east-1',
   });
+}
+
+export const getProgress = async (
+  request: LambdaProgressRequest,
+): Promise<LambdaProgressResponse> => {
+  const params = buildProgressQueryParams(request);
 
   const result = await fetch(`/api/services/editron/cloudrun/progress?${params.toString()}`);
   const json = await result.json() as {
@@ -139,9 +205,6 @@ export const getProgress = async ({
     };
     message?: string;
   };
-  
-
-  
   if (json.type === "error") {
     return { type: "error", message: json.message || "Unknown error" };
   }

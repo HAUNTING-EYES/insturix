@@ -20,6 +20,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
+const PRIVATE_NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+  Vary: 'Cookie',
+};
+
 let queueRunInFlight = false;
 
 export async function POST(req: Request) {
@@ -131,7 +136,7 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const { userId, orgId } = await auth();
-  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+  if (!userId) return new NextResponse('Unauthorized', { status: 401, headers: PRIVATE_NO_STORE_HEADERS });
 
   const jobId = new URL(req.url).searchParams.get('jobId') ?? '';
   const store = getDefaultBrandVaultRefineryStore();
@@ -142,7 +147,7 @@ export async function GET(req: Request) {
   if (result.body.ok && isActiveRefineryJobStatus(result.body.job.status)) {
     scheduleQueueRun(() => processNextQueuedBrandVaultRefineryJob(queueProcessorDependencies(store)), 'poll-time queue nudge failed');
   }
-  return NextResponse.json(result.body, { status: result.status });
+  return NextResponse.json(result.body, { status: result.status, headers: PRIVATE_NO_STORE_HEADERS });
 }
 
 function scheduleQueueRun(run: () => Promise<unknown>, label: string): void {

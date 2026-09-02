@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scope": "QUEUE5_SOURCE_QUALIFIED_ATLAS_LIVE_PROOF",
+  "sourceCommit": "51c92fe447b6c4e9965f8ccec000a1208d66708e",
+  "executedAt": "2026-09-02T06:53:12.421Z",
+  "decision": "PASS",
+  "proof": {
+    "status": "PASS",
+    "atlasUri": true,
+    "sourceMedia": {
+      "playableMp4": true,
+      "byteLength": 2362,
+      "contentSha256": "934ec639f32d69bd01dfe486e1072bc58ccb14ae58bdee45ac5300cc0ce0548c",
+      "provider": "GCS",
+      "providerVersionObserved": true,
+      "exactDownloadHashMatched": true
+    },
+    "rights": {
+      "disposition": "AUTHORIZED",
+      "authorityDisposition": "MIGRATED",
+      "authorizationReceiptSha256": "753cb27ae665ddd1265e5e09df4aebc22f98fbf998a5b216f3fdb702f961c8b5"
+    },
+    "mutation": {
+      "operation": "UPDATE_OVERLAY",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "mediaPrerequisite": "MATERIALIZED",
+      "invalidationStatus": "MATERIALIZED"
+    },
+    "deletion": {
+      "disposition": "DELETED",
+      "tombstoneReceiptSha256": "07201a4dbaa38dab090560584899cd492a7dccf8114344ed3c03b0039397afc3",
+      "invalidationStatus": "MATERIALIZED",
+      "sharedMediaPreservedBeforeFixtureCleanup": true
+    },
+    "cleanupVerified": true
+  },
+  "receiptHash": "e69691391ba2d902d95aafbde83274b7404181f8cda572aa5a831a34d689e58e"
+}

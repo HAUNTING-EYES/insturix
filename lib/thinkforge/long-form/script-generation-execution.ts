@@ -34,11 +34,13 @@ import {
   ScriptChapterSemanticValidationInputError,
   validateScriptChapterSemanticExecution,
 } from './script-chapter-semantic-validation';
-import type {
-  LongFormScriptCommitReceipt,
-  LongFormScriptGenerationJobSnapshot,
-  LongFormScriptJobNextAction,
-  ScriptChapterArtifact,
+import {
+  assertLongFormScriptJobInputIntegrity,
+  LongFormScriptJobInputIntegrityError,
+  type LongFormScriptCommitReceipt,
+  type LongFormScriptGenerationJobSnapshot,
+  type LongFormScriptJobNextAction,
+  type ScriptChapterArtifact,
 } from './script-generation-job-contract';
 
 export type LongFormScriptActionResult =
@@ -76,6 +78,7 @@ export async function executeLongFormScriptAction(input: {
   signal?: AbortSignal;
 }): Promise<LongFormScriptActionResult> {
   const { job, action, signal } = input;
+  assertLongFormScriptJobInputIntegrity(job);
   await assertGenerationActive(job);
   switch (action.kind) {
     case 'plan': {
@@ -102,6 +105,12 @@ export async function executeLongFormScriptAction(input: {
         chapterExecution,
         result: output.result,
         abortSignal: signal,
+        telemetry: {
+          userId: job.input.userId,
+          orgId: job.input.orgId ?? undefined,
+          projectId: resolveProjectMetaBrandId(job.input.authoringContext.projectMeta),
+          taskId: job.sessionId,
+        },
       });
       return {
         kind: 'write_chapter',
@@ -155,6 +164,7 @@ function assertScriptChapterPlanFitsWriter(
 
 export function isRetryableLongFormScriptActionError(error: unknown): boolean {
   return !(error instanceof LongFormScriptNonRetryableError)
+    && !(error instanceof LongFormScriptJobInputIntegrityError)
     && !(error instanceof ScriptChapterAssemblyError)
     && !(error instanceof ScriptChapterSemanticValidationInputError);
 }

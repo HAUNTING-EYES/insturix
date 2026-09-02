@@ -230,7 +230,6 @@ export async function POST(req: Request) {
       intentContext,
       silent,
       authoringContext,
-      abortSignal: req.signal,
     });
 
     return new Response(stream, {

@@ -18,6 +18,7 @@ import type {
 } from '@/lib/editron/services/checkpoint-service';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
+import { readProjectRevisionV1 } from '@/lib/editron/services/project-revision-v1';
 
 export const CHAT_EDITORIAL_INTENT_JOB_VERSION = 'editron-chat-editorial-intent-job-v1' as const;
 export const CHAT_EDITORIAL_INTENT_MAX_ATTEMPTS = 3;
@@ -94,6 +95,7 @@ interface DirectorExecutionResult {
   warnings: string[];
   actionsSkipped: Array<{ action: string; reason: string }>;
   decisionAuthority?: Record<string, unknown>;
+  pendingAsyncChildJobIds?: string[];
 }
 
 export interface ChatEditorialIntentJobStore {
@@ -273,6 +275,8 @@ export async function runChatEditorialIntentJob(
   try {
     const beforeProject = await deps.loadProject(job.userId, job.projectId);
     if (!beforeProject) throw new Error('project-not-found-before-editorial-intent');
+    const beforeProjectRevision = readProjectRevisionV1(beforeProject);
+    if (!beforeProjectRevision) throw new Error('project-revision-missing-before-editorial-intent');
 
     attemptOperationId = attemptOperationKey(job);
     const beforeCheckpointId = checkpointId(job, 'before');
@@ -285,6 +289,7 @@ export async function runChatEditorialIntentJob(
       userId: job.userId,
       overlays: Array.isArray(beforeProject.overlays) ? beforeProject.overlays as any[] : [],
       projectState: deps.captureProjectState(beforeProject),
+      capturedProjectRevision: beforeProjectRevision,
       description: `Before durable editorial intent ${job.operationId}`,
       type: 'before-llm',
       force: true,
@@ -319,7 +324,13 @@ export async function runChatEditorialIntentJob(
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-editorial-intent');
     const resultData = directorResultData(director);
-    const pendingChildJobIds = pendingMgRenderJobIds(afterProject);
+    const directorChildJobIds = (director.pendingAsyncChildJobIds ?? [])
+      .filter((jobId): jobId is string => (
+        typeof jobId === 'string' && /^mgd_[a-f0-9]{32}$/.test(jobId)
+      ));
+    const pendingChildJobIds = [
+      ...new Set([...directorChildJobIds, ...pendingMgRenderJobIds(afterProject)]),
+    ].sort().slice(0, 100);
     if (pendingChildJobIds.length > 0) {
       await deps.store.markWaitingChildren(
         job._id,
@@ -406,7 +417,11 @@ export async function runChatEditorialIntentJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(
         checkpoint.checkpointId,
         job.userId,
-        { projectId: job.projectId, expectedRevision: receipt.expectedRevision },
+        {
+          projectId: job.projectId,
+          expectedRevision: receipt.expectedRevision,
+          actorKind: 'SYSTEM',
+        },
       );
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(
@@ -771,10 +786,10 @@ async function loadMgRenderChildJobs(
       { _id: { $in: jobIds }, projectId, userId },
       { projection },
     ).toArray(),
-    // The deferred MG design job lives in its own collection ('editron_mg_design_jobs'); a parent tracking
-    // only render jobs would never see it. Kept as a literal to mirror mg-design-job-runner.ts JOB_COLLECTION.
+    // The deferred MG design job is an explicit Director-reported child and
+    // retains its authoritative lifecycle in the dedicated durable collection.
     db.collection<MgRenderChildJobSnapshot>(
-      'editron_mg_design_jobs' as never,
+      COLLECTIONS.MG_DESIGN_JOBS,
     ).find(
       { _id: { $in: jobIds }, projectId, userId } as never,
       { projection },
@@ -910,16 +925,6 @@ function pendingMgRenderJobIds(project: Record<string, unknown>): string[] {
     const jobId = cleanString(entry?.jobId);
     return entry?.status === 'queued' && jobId ? [jobId] : [];
   });
-  // The deferred video-level MG DESIGN job is also a pending child of this intent: it is enqueued during the
-  // Director run (intelligence.mgDesignJob on the project) and later queues the render jobs. Without tracking
-  // it here the parent can decline ('unified-planner-produced-no-material-change') while its own MG chain is
-  // still in flight — the grounded-process-mg matrix failure (2026-08-03).
-  const designJob = objectRecord(intelligence?.mgDesignJob);
-  const designJobId = cleanString(designJob?.jobId);
-  const designStatus = cleanString(designJob?.status);
-  if (designJobId && (designStatus === 'queued' || designStatus === 'running')) {
-    jobIds.push(designJobId);
-  }
   return [...new Set(jobIds)].sort();
 }
 

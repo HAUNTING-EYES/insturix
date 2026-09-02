@@ -265,7 +265,7 @@ describe('durable chat editorial-intent jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -311,7 +311,7 @@ describe('durable chat editorial-intent jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-intent-1')).toMatchObject({ status: 'failed' });
   });
@@ -564,28 +564,15 @@ describe('durable chat editorial-intent jobs', () => {
 
   it('tracks the deferred MG design job as a pending child instead of declining mid-chain', async () => {
     const store = new MemoryStore(queuedJob());
-    let loadCount = 0;
     const checkpoint = checkpointRuntime([]);
 
     const result = await runChatEditorialIntentJob(workerPayload(), {
       store,
-      loadProject: async () => {
-        loadCount += 1;
-        return loadCount === 1
-          ? project('before')
-          : {
-            ...project('before'),
-            intelligence: {
-              mgDesignJob: {
-                version: 1,
-                jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                status: 'queued',
-                decisionCount: 1,
-              },
-            },
-          };
-      },
-      executeDirector: async () => directorResult(0),
+      loadProject: async () => project('before'),
+      executeDirector: async () => ({
+        ...directorResult(0),
+        pendingAsyncChildJobIds: ['mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+      }),
       loadChildJobs: async (jobIds) => jobIds.map((jobId) => ({
         _id: jobId,
         status: 'queued' as const,
@@ -630,7 +617,6 @@ describe('durable chat editorial-intent jobs', () => {
       loadProject: async () => ({
         ...project('before'),
         intelligence: {
-          mgDesignJob: { jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'completed' },
           mgCodegenRun: {
             outcomes: [{ status: 'queued', jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }],
           },
@@ -1056,6 +1042,8 @@ function project(content: 'before' | 'after') {
   return {
     projectId: 'project-1',
     userId: 'user-1',
+    projectRevision: content === 'before' ? 7 : 8,
+    updatedAt: new Date(CAPTURED_REVISION.compatibilityUpdatedAt),
     fps: 30,
     durationInFrames: 300,
     overlays: [{
@@ -1129,7 +1117,7 @@ function checkpointRuntime(order: string[]) {
     userId: string,
     projectId: string,
     receiptId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ) => {
     const value = checkpoints.get(checkpointId);
     if (!value || value.userId !== userId || value.projectId !== projectId) {

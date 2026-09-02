@@ -9,6 +9,11 @@ import type {
 
 export const AV_SCRIPT_PRESENTATION_VERSION = 1 as const;
 
+type AVScriptHeardDelivery = Exclude<
+  ScriptSidecarV3['acts'][number]['narrativeScenes'][number]['beats'][number]['lines'][number]['delivery'],
+  'on-screen-text'
+>;
+
 type AVScriptCaptureRequirement = Pick<
   CaptureRequirement,
   'objective' | 'whyRequired' | 'captureKind' | 'unresolvedCapabilityQuestions'
@@ -55,7 +60,7 @@ export type AVScriptPresentation = {
         durationIntentSeconds?: number;
         heard: Array<{
           speaker: string;
-          delivery: 'sync-dialogue' | 'voiceover';
+          delivery: AVScriptHeardDelivery;
           text: string;
           onCamera: boolean;
         }>;
@@ -90,9 +95,15 @@ function uniqueCount(values: readonly string[]): number {
 
 function heardDelivery(
   delivery: ScriptSidecarV3['acts'][number]['narrativeScenes'][number]['beats'][number]['lines'][number]['delivery'],
-): 'sync-dialogue' | 'voiceover' | null {
-  if (delivery === 'sync-dialogue' || delivery === 'voiceover') return delivery;
-  return null;
+): AVScriptHeardDelivery | null {
+  switch (delivery) {
+    case 'sync-dialogue':
+    case 'voiceover':
+    case 'diegetic-speech':
+      return delivery;
+    case 'on-screen-text':
+      return null;
+  }
 }
 
 /**

@@ -11,14 +11,17 @@ import {
 } from '@/lib/thinkforge/production/production-capability-profile';
 import {
   createApprovedShootKitSnapshot,
-  verifyApprovedShootKitSnapshot,
 } from '@/lib/thinkforge/production/shoot-kit-snapshot';
 import {
   materializeScriptSidecarV3,
   ScriptWriterSidecarV3ModelSchema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
 import { materializeScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
-import { createCaptureAcquisitionDecisionSet } from '@/lib/thinkforge/production/capture-acquisition-decisions';
+import {
+  createCaptureAcquisitionDecisionSet,
+  createCaptureAcquisitionSourceDocument,
+} from '@/lib/thinkforge/production/capture-acquisition-decisions';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 import {
   abstractExplainerTreatment,
   mixedPresenterCutawayTreatment,
@@ -97,12 +100,50 @@ function confirmedProfile() {
   });
 }
 
+const acquisitionSourceLedger = {
+  ledgerVersion: 1 as const,
+  entries: [{
+    referenceId: 'src_brief',
+    kind: 'upload' as const,
+    title: 'Approved workflow recording',
+    summary: 'Approved evidence for the workflow claim.',
+    sourceId: 'asset_workflow_1',
+    sourceUrl: 'https://assets.example.com/workflow.mp4',
+    confidence: 1,
+    provenance: { origin: 'user_upload', sessionId: 'session_1' },
+  }],
+};
+
+function retrievedAcquisitionSourceLedger() {
+  const fact = {
+    id: 'entry_workflow_reference',
+    title: 'Approved workflow recording',
+    summary: 'Rights-cleared product workflow footage.',
+    tags: [],
+    source: 'https://assets.example.com/workflow.mp4',
+    dataBankType: 'reference' as const,
+    sourceEntryId: 'asset_workflow_1',
+  };
+  return buildThinkForgeSourceLedger({
+    userPrompt: '',
+    sessionId: 'session_1',
+    retrievedContext: {
+      brandDNA: {},
+      projectFacts: [fact],
+      globalFacts: [],
+      semanticFacts: [fact],
+      interactionPatterns: [],
+    },
+  });
+}
+
 function acquisitionSourceDocument() {
-  return {
+  return createCaptureAcquisitionSourceDocument({
     version: 1,
     contentHash: 'c'.repeat(64),
     sidecarHash: 'd'.repeat(64),
-  };
+    sourceLedger: acquisitionSourceLedger,
+  });
 }
 
 function chapteredHostTreatment() {
@@ -255,14 +296,77 @@ describe('semantic V3 capture projection', () => {
     expect(plan.physicalCaptureRequirements[0]?.capabilityEvidence.every((entry) => entry.status === 'confirmed')).toBe(true);
   });
 
-  it('requires an explicit acquisition decision instead of treating ambiguous product evidence as a camera shoot', () => {
-    const sidecar = sidecarFor(productDemonstrationTreatment, ['event_workflow_proof']);
+  it('uses one explicitly preferred room while keeping an unselected multi-room profile ambiguous', () => {
+    const treatment = structuredClone(mixedPresenterCutawayTreatment);
+    treatment.captureRequirements[0]!.unresolvedCapabilityQuestions = [];
+    const sidecar = sidecarFor(treatment, ['event_host_claim', 'event_process_cutaway']);
+    const base = confirmedProfile();
+    const spaces = [
+      { ...base.spaces[0], preferred: false },
+      { ...base.spaces[0], id: 'office', label: 'Confirmed office', preferred: true },
+    ];
+    const preferredProfile = parseProductionCapabilityProfile({ ...base, spaces });
 
-    const plan = buildTreatmentCapturePlan({ sidecar, treatment: productDemonstrationTreatment });
+    const selected = buildTreatmentCapturePlan({ sidecar, treatment, profile: preferredProfile });
+    expect(selected.status).toBe('capture-brief-ready');
+    expect(selected.physicalCaptureRequirements[0]?.capabilityEvidence).toContainEqual({
+      capability: 'space',
+      status: 'confirmed',
+      detail: 'The confirmed preferred production space is Confirmed office.',
+      evidenceIds: ['office'],
+    });
 
+    const unselected = buildTreatmentCapturePlan({
+      sidecar,
+      treatment,
+      profile: parseProductionCapabilityProfile({
+        ...preferredProfile,
+        spaces: preferredProfile.spaces.map((space) => ({ ...space, preferred: false })),
+      }),
+    });
+    expect(unselected.status).toBe('needs-capture-calibration');
+    expect(unselected.physicalCaptureRequirements[0]?.capabilityEvidence).toContainEqual(
+      expect.objectContaining({ capability: 'space', status: 'ambiguous' }),
+    );
+  });
+
+  it('offers a real retrieved source asset without treating ambiguous product evidence as a camera shoot', () => {
+    const treatment = structuredClone(productDemonstrationTreatment);
+    treatment.captureRequirements[0]!.sourceRefs = ['source_1'];
+    const sourceLedger = retrievedAcquisitionSourceLedger();
+    const sidecar = sidecarFor(treatment, ['event_workflow_proof']);
+
+    const plan = buildTreatmentCapturePlan({
+      sidecar,
+      treatment,
+      sourceLedger,
+    });
+
+    expect(sourceLedger.entries).toMatchObject([{
+      referenceId: 'source_1',
+      kind: 'upload',
+      sourceId: 'asset_workflow_1',
+    }]);
     expect(plan.status).toBe('needs-acquisition-decision');
     expect(plan.physicalCaptureRequirements).toEqual([]);
     expect(plan.unclassifiedRequirements.map((requirement) => requirement.id)).toEqual(['capture_real_workflow']);
+    expect(plan.decisionRequests).toMatchObject([{
+      requirementId: 'capture_real_workflow',
+      sourceCandidates: [{ referenceId: 'source_1', title: 'Approved workflow recording' }],
+    }]);
+  });
+
+  it('never offers new physical filming when audiovisual intent forbids it', () => {
+    const treatment = structuredClone(productDemonstrationTreatment);
+    treatment.audiovisualIntent.physicalCapture = 'forbidden';
+    const sidecar = sidecarFor(treatment, ['event_workflow_proof']);
+
+    const plan = buildTreatmentCapturePlan({ sidecar, treatment });
+
+    expect(plan.decisionRequests).toMatchObject([{
+      requirementId: 'capture_real_workflow',
+      allowedAcquisitionKinds: ['screen-recording', 'source-asset'],
+    }]);
   });
 
   it('applies only a document-bound user acquisition choice to an otherwise unresolved requirement', () => {
@@ -272,7 +376,13 @@ describe('semantic V3 capture projection', () => {
     const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
       treatment,
       sourceDocument,
-      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'source-asset', requiredCapabilities: [] }],
+      decisions: [{
+        requirementId: 'capture_real_workflow',
+        acquisitionKind: 'source-asset',
+        requiredCapabilities: [],
+        sourceSelections: [{ referenceId: 'src_brief', rightsBasis: 'user-provided' }],
+      }],
+      sourceLedger: acquisitionSourceLedger,
       decidedBy: 'user_1',
       decidedAt: new Date('2026-08-22T00:00:00.000Z'),
     });
@@ -282,13 +392,22 @@ describe('semantic V3 capture projection', () => {
       treatment,
       acquisitionDecisions,
       acquisitionDecisionSourceDocument: sourceDocument,
+      sourceLedger: acquisitionSourceLedger,
     });
 
     expect(plan.status).toBe('no-physical-capture');
     expect(plan.unclassifiedRequirements).toEqual([]);
     expect(plan.nonPhysicalAcquisitionRequirements).toMatchObject([
-      { id: 'capture_real_workflow', captureKind: 'source-asset' },
+      {
+        id: 'capture_real_workflow',
+        captureKind: 'source-asset',
+        acquisitionDecision: {
+          acquisitionKind: 'source-asset',
+          sourceBindings: [{ referenceId: 'src_brief', sourceId: 'asset_workflow_1' }],
+        },
+      },
     ]);
+    expect(plan.decisionRequests).toEqual([]);
   });
 
   it('rejects acquisition decisions copied from another document', () => {
@@ -297,7 +416,17 @@ describe('semantic V3 capture projection', () => {
     const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
       treatment,
       sourceDocument,
-      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'screen-recording', requiredCapabilities: [] }],
+      decisions: [{
+        requirementId: 'capture_real_workflow',
+        acquisitionKind: 'screen-recording',
+        requiredCapabilities: [],
+        screenTarget: {
+          label: 'Approved workspace',
+          captureScope: 'Record the approved workflow only.',
+          authorizationConfirmed: true,
+        },
+      }],
+      sourceLedger: acquisitionSourceLedger,
       decidedBy: 'user_1',
       decidedAt: new Date('2026-08-22T00:00:00.000Z'),
     });
@@ -316,7 +445,17 @@ describe('semantic V3 capture projection', () => {
     const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
       treatment,
       sourceDocument,
-      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'screen-recording', requiredCapabilities: [] }],
+      decisions: [{
+        requirementId: 'capture_real_workflow',
+        acquisitionKind: 'screen-recording',
+        requiredCapabilities: [],
+        screenTarget: {
+          label: 'Approved workspace',
+          captureScope: 'Record the approved workflow only.',
+          authorizationConfirmed: true,
+        },
+      }],
+      sourceLedger: acquisitionSourceLedger,
       decidedBy: 'user_1',
       decidedAt: new Date('2026-08-22T00:00:00.000Z'),
     });
@@ -367,7 +506,7 @@ describe('semantic V3 capture projection', () => {
     });
   });
 
-  it('keeps a semantic capture brief in the document-bound approval snapshot', () => {
+  it('rejects a semantic capture brief at the executable approval boundary', () => {
     const treatment = structuredClone(mixedPresenterCutawayTreatment);
     treatment.captureRequirements[0]!.unresolvedCapabilityQuestions = [];
     const capturePlan = buildTreatmentCapturePlan({
@@ -375,7 +514,7 @@ describe('semantic V3 capture projection', () => {
       treatment,
       profile: confirmedProfile(),
     });
-    const snapshot = createApprovedShootKitSnapshot({
+    expect(() => createApprovedShootKitSnapshot({
       sessionId: 'session_1',
       scriptId: 'script_1',
       sourceDocument: {
@@ -388,17 +527,7 @@ describe('semantic V3 capture projection', () => {
       plan: capturePlan,
       approvedBy: 'user_1',
       approvedAt: new Date('2026-08-22T00:00:00.000Z'),
-    });
-
-    expect(snapshot.plan).toMatchObject({ kind: 'treatment-capture-plan', status: 'capture-brief-ready' });
-    expect(verifyApprovedShootKitSnapshot({
-      snapshot,
-      sessionId: 'session_1',
-      scriptId: 'script_1',
-      documentVersion: 1,
-      documentHash: 'a'.repeat(64),
-      sidecarHash: 'b'.repeat(64),
-    })).toMatchObject({ current: true });
+    })).toThrow();
   });
 
   it('carries only confirmed long-form chapter ownership into a recurring capture requirement', () => {

@@ -1,4 +1,4 @@
-import { Audio, OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
+import { Audio, Img, OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
 import { useMemo } from "react";
 import { ClipOverlay } from "../../../types";
 import { computeSpeedSegments, evaluateAllTracks } from "../../../utils/keyframe-evaluator";
@@ -7,12 +7,11 @@ import { toAbsoluteUrl } from "../../../utils/url-helper";
 import {
   useAllOverlays,
   useIsRendering,
+  useNativeMediaTimestampPreviewFrame,
   useRenderMediaMode,
 } from "../../../contexts/rendering-context";
-import { createDuckingVolume } from "../../../utils/audio-ducking";
-
-const CANONICAL_VOICEOVER_ROW = 3;
-const LEGACY_VOICEOVER_ROW = 4;
+import { createVideoNativeAudioMixV1 } from "../../../utils/video-native-audio-mix-v1";
+import { nativeMediaTimestampPreviewRoutePathV1 } from "../../../remotion/native-media-timestamp-preview-hydration-v1";
 
 function clampFocalPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
@@ -51,57 +50,19 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   const isRendering = useIsRendering();
   const renderMediaMode = useRenderMediaMode();
   const allOverlays = useAllOverlays();
+  const timestampPreviewSelection = useNativeMediaTimestampPreviewFrame({
+    overlayId: overlay.id,
+    overlayFromFrame: overlay.from,
+    overlayDurationInFrames: overlay.durationInFrames,
+    localFrame: frame,
+  });
   const fps = 30; // Matches sound-layer-content.tsx
 
-  // Native Audio Ducking
-  // When a video has native audio (Seedance 1.5/2.0) AND voiceover overlaps,
-  // duck the video's embedded audio under the voiceover. This preserves
-  // ambient/foley sounds at a low level while keeping narration clear.
-  //
-  // OLD approach (f31e4d55, reverted): disabled generate_audio entirely when
-  // voiceover was present - killed all ambient/foley, left dead silence.
-  // NEW approach: keep native audio, duck it under VO using the same
-  // professional ducking system BGM already uses.
-  const nativeAudioVolume = useMemo(() => {
-    if (!overlay.hasNativeAudio) return undefined;
-
-    // Find voiceover overlays that might overlap with this video
-    const voiceoverOverlays = allOverlays.filter((o) => {
-      if (o.id === overlay.id) return false;
-      // Voiceover sound overlays (same detection as sound-layer-content.tsx)
-      if (o.type === 'sound') {
-        const aid = (o as any).assetId || '';
-        if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
-        if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return true;
-      }
-      return false;
-    });
-
-    if (voiceoverOverlays.length === 0) {
-      // No voiceover - play native audio at configured volume
-      return undefined;
-    }
-
-    // Convert absolute VO overlay positions to positions relative to this video's start
-    // because the volume callback receives frame numbers relative to the video overlay
-    const relativeVoOverlays = voiceoverOverlays.map((vo) => ({
-      from: vo.from - overlay.from,
-      durationInFrames: vo.durationInFrames,
-    }));
-
-    const baseVolume = overlay.styles.volume ?? 1;
-    return createDuckingVolume(baseVolume, relativeVoOverlays, fps, {
-      enabled: true,
-      duckLevel: 0.12,    // ~-18 dB - ambient bed level, audible but not competing
-      rampDownMs: 250,     // Slightly faster than BGM ducking (video ambient is less noticeable)
-      rampUpMs: 500,       // Smooth return after VO ends
-      lookAheadMs: 150,    // Start ducking just before VO begins
-    });
-  }, [overlay.hasNativeAudio, overlay.id, overlay.from, overlay.styles.volume, allOverlays, fps]);
-
-  // Resolve volume: use ducking callback for native audio videos with VO overlap,
-  // otherwise use static volume from overlay styles
-  const resolvedVolume = nativeAudioVolume ?? (overlay.styles.volume ?? 1);
+  const nativeAudioMix = useMemo(
+    () => createVideoNativeAudioMixV1({ overlay, allOverlays, fps }),
+    [allOverlays, fps, overlay],
+  );
+  const resolvedVolume = nativeAudioMix.remotionVolume;
 
   // Calculate if we're in the exit phase (last 30 frames)
   const isExitPhase = frame >= overlay.durationInFrames - 30;
@@ -149,7 +110,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
 
   // Create a container style that includes padding and background color.
   // posterUrl (storyboard image) as CSS background - shows through if video fails to load.
-  const posterUrl = (overlay as any).posterUrl;
+  const posterUrl = overlay.posterUrl;
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
@@ -178,14 +139,19 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     videoSrc = toAbsoluteUrl(videoSrc);
   }
 
+  if (timestampPreviewSelection && isRendering) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_FINAL_RENDER_FORBIDDEN');
+  }
+
   // Show placeholder if no valid source
   if (!videoSrc) {
-    console.warn('Video overlay has no src or content:', overlay);
-    return (
-      <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
-      </div>
-    );
+    if (!timestampPreviewSelection) {
+      return (
+        <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
+        </div>
+      );
+    }
   }
 
   // In the editor, use <Video> (native HTML5 decoder) for faster, smoother
@@ -199,55 +165,91 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // Speed Ramping
   // If speedCurve is present, split into segments with different playback rates.
   // Each segment is a separate <Video> in a <Sequence> with correct source offset.
-  const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
-
-  if (renderMediaMode === "audio-only") {
-    if (hasSpeedCurve) {
-      const segments = computeSpeedSegments(
-        (overlay as any).speedCurve,
+  const speedCurve = overlay.speedCurve ?? [];
+  const hasSpeedCurve = speedCurve.length > 1;
+  const sourceStartFrame = Number.isSafeInteger(overlay.sourceStartFrame)
+    ? overlay.sourceStartFrame!
+    : (overlay.videoStartTime || 0);
+  const availableSourceFrames = Number.isSafeInteger(overlay.sourceEndFrame)
+    && overlay.sourceEndFrame! > sourceStartFrame
+    ? overlay.sourceEndFrame! - sourceStartFrame
+    : overlay.durationInFrames;
+  const speedSegments = hasSpeedCurve
+    ? computeSpeedSegments(
+        speedCurve,
         overlay.durationInFrames,
-      );
+        availableSourceFrames,
+      )
+    : [];
+  const renderNativeAudio = () => {
+    if (!videoSrc) {
+      throw new Error('NATIVE_MEDIA_PREVIEW_NATIVE_AUDIO_SOURCE_MISSING');
+    }
+    if (speedSegments.length > 0) {
       return (
         <>
-          {segments.map((seg, i) => (
+          {speedSegments.map((segment, index) => (
             <Sequence
-              key={i}
-              from={seg.compositionStartFrame}
-              durationInFrames={seg.compositionEndFrame - seg.compositionStartFrame}
+              key={index}
+              from={segment.compositionStartFrame}
+              durationInFrames={segment.compositionEndFrame - segment.compositionStartFrame}
               layout="none"
             >
               <Audio
                 src={videoSrc}
-                startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+                startFrom={sourceStartFrame + segment.sourceStartFrame}
                 volume={resolvedVolume}
-                playbackRate={seg.playbackRate}
+                playbackRate={segment.playbackRate}
               />
             </Sequence>
           ))}
         </>
       );
     }
-
     return (
       <Audio
         src={videoSrc}
-        startFrom={overlay.videoStartTime || 0}
+        startFrom={sourceStartFrame}
         volume={resolvedVolume}
         playbackRate={overlay.speed ?? 1}
       />
     );
+  };
+
+  if (renderMediaMode === "audio-only") {
+    if (timestampPreviewSelection?.audioOwnership.disposition === 'NO_AUDIO_MAPPING_REQUESTED') {
+      return null;
+    }
+    return renderNativeAudio();
+  }
+
+  if (timestampPreviewSelection) {
+    const timestampPreviewFrame = timestampPreviewSelection.frame;
+    return (
+      <div style={containerStyle}>
+        <Img
+          src={nativeMediaTimestampPreviewRoutePathV1(timestampPreviewFrame.pictureHandle)}
+          style={videoStyle}
+          alt=""
+          draggable={false}
+          pauseWhenLoading={true}
+          maxRetries={2}
+          referrerPolicy="no-referrer"
+          data-editron-native-timestamp-picture={timestampPreviewFrame.decodedPictureContentSha256}
+          onError={() => {
+            throw new Error('NATIVE_MEDIA_PREVIEW_PICTURE_LOAD_FAILED');
+          }}
+        />
+      </div>
+    );
   }
 
   if (hasSpeedCurve) {
-    const segments = computeSpeedSegments(
-      (overlay as any).speedCurve,
-      overlay.durationInFrames,
-    );
     const VideoComponent = isRendering ? OffthreadVideo : Video;
 
     return (
       <div style={containerStyle}>
-        {segments.map((seg, i) => (
+        {speedSegments.map((seg, i) => (
           <Sequence
             key={i}
             from={seg.compositionStartFrame}
@@ -256,7 +258,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
           >
             <VideoComponent
               src={videoSrc}
-              startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+              startFrom={sourceStartFrame + seg.sourceStartFrame}
               style={videoStyle}
               volume={resolvedVolume}
               playbackRate={seg.playbackRate}
@@ -274,7 +276,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
       <div style={containerStyle}>
         <OffthreadVideo
           src={videoSrc}
-          startFrom={overlay.videoStartTime || 0}
+          startFrom={sourceStartFrame}
           style={videoStyle}
           volume={resolvedVolume}
           playbackRate={overlay.speed ?? 1}
@@ -288,7 +290,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     <div style={containerStyle}>
       <Video
         src={videoSrc}
-        startFrom={overlay.videoStartTime || 0}
+        startFrom={sourceStartFrame}
         style={videoStyle}
         playbackRate={overlay.speed ?? 1}
         volume={resolvedVolume}

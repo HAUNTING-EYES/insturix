@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserId } from "../utils/user-id";
 import { serializeEditorStateForSave } from "@/lib/editron/shared/project-save-payload";
 import { bindAbortToPageLifecycle } from "../utils/request-lifecycle";
@@ -102,6 +102,7 @@ export const useAutosave = (
   const loadControllerRef = useRef<AbortController | null>(null);
   const loadStateRef = useRef<() => Promise<unknown>>(async () => null);
   const revisionRef = useRef<ProjectRevisionV1 | null>(null);
+  const [projectRevision, setProjectRevision] = useState<ProjectRevisionV1 | null>(null);
   const stateRef = useRef(state);
   const pauseAutosaveRef = useRef(pauseAutosave);
   const callbacksRef = useRef({ onLoad, onSave, onAutosaveDetected });
@@ -111,11 +112,15 @@ export const useAutosave = (
   callbacksRef.current = { onLoad, onSave, onAutosaveDetected };
 
   const userId = getUserId();
+  const updateRevision = useCallback((revision: ProjectRevisionV1 | null) => {
+    revisionRef.current = revision;
+    setProjectRevision(revision);
+  }, []);
 
   useEffect(() => {
     hasLoadedRef.current = false;
     lastSavedStateRef.current = "";
-    revisionRef.current = null;
+    updateRevision(null);
     checkedAutosaveProjectRef.current = null;
     loadControllerRef.current?.abort();
     loadControllerRef.current = null;
@@ -124,7 +129,7 @@ export const useAutosave = (
       loadControllerRef.current?.abort();
       loadControllerRef.current = null;
     };
-  }, [projectId]);
+  }, [projectId, updateRevision]);
 
   // Check for an existing autosave once per project.
   useEffect(() => {
@@ -146,7 +151,7 @@ export const useAutosave = (
             ? projectRevisionFromLoadedProject(data.project)
             : null;
           if (revision) {
-            revisionRef.current = revision;
+            updateRevision(revision);
           }
           if (data.success && data.project?.lastAutosaveAt) {
             const timestamp = new Date(data.project.lastAutosaveAt).getTime();
@@ -169,7 +174,7 @@ export const useAutosave = (
       detachPageLifecycle();
       controller.abort();
     };
-  }, [projectId]);
+  }, [projectId, updateRevision]);
   // Set up autosave timer
   useEffect(() => {
     // Don't start autosave if projectId is not valid
@@ -218,7 +223,7 @@ export const useAutosave = (
                 "Autosave response omitted its ProjectRevisionV1 receipt.",
               );
             }
-            revisionRef.current = data.revision;
+            updateRevision(data.revision);
             lastSavedStateRef.current = body;
             callbacksRef.current.onSave?.();
           } else if (response.status === 409) {
@@ -245,7 +250,7 @@ export const useAutosave = (
         timerRef.current = null;
       }
     };
-  }, [projectId, userId, interval]);
+  }, [projectId, userId, interval, updateRevision]);
 
   // Function to manually save state
   const saveState = useCallback(async () => {
@@ -286,7 +291,7 @@ export const useAutosave = (
             "Manual save response omitted its ProjectRevisionV1 receipt.",
           );
         }
-        revisionRef.current = data.revision;
+        updateRevision(data.revision);
         lastSavedStateRef.current = body;
         callbacksRef.current.onSave?.();
         return true;
@@ -304,7 +309,7 @@ export const useAutosave = (
     } finally {
       detachPageLifecycle();
     }
-  }, [projectId, userId]);
+  }, [projectId, updateRevision, userId]);
 
   // Function to manually load state
   const loadState = useCallback(async () => {
@@ -334,7 +339,7 @@ export const useAutosave = (
           if (!revision) {
             throw new Error("PROJECT_LOAD_INVALID_REVISION");
           }
-          revisionRef.current = revision;
+          updateRevision(revision);
           const loadedState = {
             overlays: data.project.overlays,
             aspectRatio: data.project.aspectRatio,
@@ -377,12 +382,13 @@ export const useAutosave = (
         loadControllerRef.current = null;
       }
     }
-  }, [projectId, userId]);
+  }, [projectId, updateRevision, userId]);
 
   loadStateRef.current = loadState;
 
   return {
     saveState,
     loadState,
+    projectRevision,
   };
 };

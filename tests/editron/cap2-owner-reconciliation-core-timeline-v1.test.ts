@@ -9,9 +9,44 @@ import {
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v2';
 import {
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5,
-  getCap2CurrentTruthDomainEvidencePathsV5,
-  hashNormalizedCap2SourceSnapshotV5,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
+import {
+  assertCap2CurrentTruthSourcesMatchV7,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v7';
+import {
+  assertCap2CurrentTruthSourcesMatchV8,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v8';
+import {
+  assertCap2CurrentTruthSourcesMatchV9,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v9';
+import {
+  assertCap2CurrentTruthSourcesMatchV10,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v10';
+import {
+  assertCap2CurrentTruthSourcesMatchV11,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V11,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v11';
+import { CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V13 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v13';
+import {
+  assertCap2CurrentTruthSourcesMatchV14,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v14';
+import {
+  assertCap2CurrentTruthSourcesMatchV15,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v15';
+import {
+  assertCap2CurrentTruthSourcesMatchV16,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v16';
+import {
+  assertCap2CurrentTruthSourcesMatchV17,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V17,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v17';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -61,14 +96,80 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('binds the reconciled current core evidence over immutable v1 history', () => {
+  it('preserves historical bindings while V17 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
-    expect(hashNormalizedCap2SourceSnapshotV5(
-      getCap2CurrentTruthDomainEvidencePathsV5('CORE_PROJECT_TIMELINE_CHECKPOINT'),
-    )).toBe(binding.normalizedEvidenceHash);
     expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7.priorAuditBinding.artifactType)
+      .toBe('EditronCapabilityCurrentTruthReissueAuditV6');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV7',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV7()).toThrow(
+      'CAP-2 v7 current source coverage drift.',
+    );
+    expect(() => assertCap2CurrentTruthSourcesMatchV8()).toThrow(
+      'CAP-2 v8 current source coverage drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV8',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV9()).toThrow(
+      'CAP-2 v9 current source coverage drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV9',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV10()).toThrow(
+      'CAP-2 v10 current source coverage drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V11.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV10',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV11()).toThrow(
+      'CAP-2 v11 current source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V13.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V13.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V13.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV14()).toThrow(
+      'CAP-2 v14 live Queue 5 source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV15()).toThrow(
+      'CAP-2 v15 live Queue 5 source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV16()).toThrow(
+      'CAP-2 v16 live Queue 5 source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V17.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV17()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -110,10 +211,11 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(candidate('project.save').parityStatus).toBe('SHARED_PERSISTENCE_DIVERGENT_EXECUTION');
     expect(readSource('components/editron/editor/version-7.0.0/hooks/use-overlays.tsx'))
       .toContain('setOverlays((prevOverlays)');
-    expect(readSource('lib/editron/agent/tools.ts')).toContain('projectService.updateOverlay');
+    expect(readSource('lib/editron/agent/tools.ts'))
+      .toContain('projectService.updateOverlayAtRevisionV1');
   });
 
-  it('distinguishes a writer-issued R_after fix from the remaining before-snapshot race', () => {
+  it('preserves the frozen checkpoint row while recognizing authoritative capture', () => {
     const undo = candidate('chat.checkpoint.undo');
     expect(undo.revisionSafety.status).toBe('PROJECT_CAS');
     expect(undo.recovery.undo).toBe('PARTIAL');
@@ -121,26 +223,62 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     const runtime = readSource('lib/editron/agent/chat-ai-edit-transaction-runtime.ts');
     const checkpoints = readSource('lib/editron/services/checkpoint-service.ts');
     expect(runtime).toContain('captureRestorableProjectState(input.project)');
-    expect(checkpoints).toContain('await projectService.getProjectRevision(input.userId, input.projectId)');
+    expect(checkpoints).toContain('const snapshot = await projectService.loadProjectForMutation(');
+    expect(checkpoints).toContain('Checkpoint state does not match its authoritative project snapshot.');
     expect(checkpoints).toContain('requires a writer-issued rollback receipt');
   });
 
-  it('guards the current no-CAS and stale whole-state writer findings', () => {
+  it('disables the generic bridge while recognizing the repaired chat writers', () => {
     const projectService = readSource('lib/editron/services/project-service.ts');
     const updateStart = projectService.indexOf('async updateProject(');
-    const updateEnd = projectService.indexOf('async deleteOverlay(', updateStart);
+    const updateEnd = projectService.indexOf(
+      'async deleteOverlayAtRevisionV1(',
+      updateStart,
+    );
     const updateProjectBody = projectService.slice(updateStart, updateEnd);
-    expect(updateProjectBody).not.toContain('projectRevisionPredicate');
-    expect(updateProjectBody).not.toContain('$inc');
-    expect(updateProjectBody).not.toContain('publishMutationReceipt');
+    expect(updateProjectBody).toContain('Generic project updates are disabled');
+    expect(updateProjectBody).not.toContain('reconcileProjectDurationFromOverlaysV1');
+    expect(updateProjectBody).not.toContain('getDatabase');
+    expect(updateProjectBody).not.toContain('updateOne');
 
     const tools = readSource('lib/editron/agent/tools.ts');
+    expect(tools).toContain('projectService.reconcileProjectDurationFromOverlaysV1(userId, projectId, {');
+    expect(tools).toContain('actorKind: "AGENT"');
+    expect(tools).not.toContain('projectService.updateProject(');
     const cutStart = tools.indexOf('const cutSection = tool(');
     const cutEnd = tools.indexOf('// --- Auto-Edit from Script ---', cutStart);
-    expect(tools.slice(cutStart, cutEnd))
-      .toContain('projectService.saveProject(userId, projectId, project)');
+    const cutSource = tools.slice(cutStart, cutEnd);
+    expect(cutSource).toContain('projectService.cutTimelineRangeV1(userId, projectId, {');
+    expect(cutSource).toContain("actorKind: 'AGENT'");
+    expect(cutSource).toContain('timelineChangeReceipt');
+    expect(cutSource).toContain('e instanceof ProjectMutationConflictError');
+    expect(cutSource).toContain("nextAction: 'stop'");
+    expect(cutSource).not.toContain('projectService.saveProjectWithReceipt(');
+    // The frozen V1 candidate remains historical; V8 records the current repair.
     expect(candidate('timeline.cut-range').revisionSafety.status)
       .toBe('WHOLE_STATE_STALE_SNAPSHOT_RISK');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta).toMatchObject({
+      deltaId: 'core.chat-cut-caller-pinned-project-cas',
+      catalogPromotion: false,
+    });
+  });
+
+  it('records Director lease cleanup as a token-bound receipt writer without calling it a range lock', () => {
+    const projectService = readSource('lib/editron/services/project-service.ts');
+    const releaseStart = projectService.indexOf('async releaseDirectorMutationLease(');
+    const releaseEnd = projectService.indexOf('/**', releaseStart);
+    const releaseBody = projectService.slice(releaseStart, releaseEnd);
+
+    expect(releaseBody).toContain('findOneAndUpdate(');
+    expect(releaseBody).toContain('directorLock: true');
+    expect(releaseBody).toContain('directorLockToken: leaseId');
+    expect(releaseBody).toContain('$inc: { projectRevision: 1 }');
+    expect(releaseBody).toContain('this.publishMutationReceipt(receipt)');
+    expect(releaseBody).toContain('LEASE_NOT_OWNED_OR_PROJECT_NOT_FOUND');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.semanticDelta).toMatchObject({
+      deltaId: 'core.director-lease-release-writer-receipt',
+      catalogPromotion: false,
+    });
   });
 
   it('records receipt and coordinate-output improvements without false atomic promotion', () => {
@@ -167,6 +305,10 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       .toContain('The cut result does not expose its internal original-to-split-child mapping.');
     expect(cutResolution.remainingGaps)
       .toContain('Carry the caller-pinned expected revision through one canonical project mutation.');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta.resolvedGaps)
+      .toContain('The chat cut no longer discards the revision paired with its loaded project snapshot.');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta.remainingGaps)
+      .toContain('The operation still has no ProjectService-issued range-aware rebase or durable range-lock command.');
   });
 
   it('keeps overlay metadata receipts outside transaction authority', () => {

@@ -32,6 +32,46 @@ describe('ThinkForge VideoTreatment contract', () => {
     expect(parsed.visualEvents[0]?.captureRequirementIds).toEqual([]);
   });
 
+  it('rejects physical-camera requirements when resolved intent forbids physical capture', () => {
+    const invalid = structuredClone(mixedPresenterCutawayTreatment);
+    invalid.audiovisualIntent.physicalCapture = 'forbidden';
+
+    expect(() => parseVideoTreatment(invalid)).toThrow(/Physical capture is forbidden/);
+  });
+
+  it('rejects a treatment that omits required physical capture', () => {
+    const invalid = structuredClone(abstractExplainerTreatment);
+    invalid.audiovisualIntent.physicalCapture = 'required';
+
+    expect(() => parseVideoTreatment(invalid)).toThrow(/Physical capture is required/);
+  });
+
+  it('rejects visible-person events and performer capture when people are forbidden', () => {
+    const invalid = structuredClone(mixedPresenterCutawayTreatment);
+    invalid.audiovisualIntent.visiblePerson = 'forbidden';
+    invalid.audiovisualIntent.onCameraSpeech = 'forbidden';
+
+    expect(() => parseVideoTreatment(invalid)).toThrow(/visible people are forbidden|forbid visible people/);
+  });
+
+  it('rejects a treatment that omits a required visible person', () => {
+    const invalid = structuredClone(abstractExplainerTreatment);
+    invalid.audiovisualIntent.visiblePerson = 'required';
+
+    expect(() => parseVideoTreatment(invalid)).toThrow(/visual event must require a visible person/);
+  });
+
+  it('rejects capture requirements that are not used by any visual event', () => {
+    const invalid = structuredClone(mixedPresenterCutawayTreatment);
+    invalid.captureRequirements.push({
+      ...structuredClone(invalid.captureRequirements[0]!),
+      id: 'capture_orphan',
+      objective: 'Capture evidence that no narrative moment requests.',
+    });
+
+    expect(() => parseVideoTreatment(invalid)).toThrow(/not linked to any visual event/);
+  });
+
   it('preserves a presenter and cutaway as concurrent semantic events in one narrative moment', () => {
     const parsed = parseVideoTreatment(mixedPresenterCutawayTreatment);
     const events = parsed.visualEvents.filter((event) => event.momentId === 'moment_opening_claim');
@@ -85,13 +125,22 @@ describe('ThinkForge VideoTreatment contract', () => {
     expect(requirement.constraints.join(' ')).toMatch(/Do not estimate a lens, room depth, lighting layout, cost, or setup time/);
   });
 
-  it('keeps legacy capture records unclassified rather than inventing camera work', () => {
+  it('reads valid original V1 records without inventing audiovisual or camera decisions', () => {
     const legacy = structuredClone(mixedPresenterCutawayTreatment);
+    delete (legacy as Partial<typeof legacy>).audiovisualIntent;
+    legacy.visualEvents.forEach((event) => delete (event as Partial<typeof event>).visiblePerson);
     const requirement = legacy.captureRequirements[0]! as Record<string, unknown>;
     delete requirement.captureKind;
     delete requirement.requiredCapabilities;
 
     const parsed = parseVideoTreatment(legacy);
+    expect(parsed.audiovisualIntent).toMatchObject({
+      audibleSpeech: 'unspecified',
+      onCameraSpeech: 'unspecified',
+      visiblePerson: 'unspecified',
+      physicalCapture: 'unspecified',
+    });
+    expect(parsed.visualEvents.every((event) => event.visiblePerson === 'unspecified')).toBe(true);
     expect(parsed.captureRequirements[0]).toMatchObject({
       captureKind: 'unspecified',
       requiredCapabilities: [],

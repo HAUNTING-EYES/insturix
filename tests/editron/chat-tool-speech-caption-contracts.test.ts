@@ -78,6 +78,53 @@ function parseEnvelope(raw: string) {
   };
 }
 
+function spyOnOverlayUpdateAtRevisionV1() {
+  return vi.spyOn(projectService, 'updateOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const committedAt = new Date(
+        Date.parse(command.expectedRevision.compatibilityUpdatedAt) + 1_000,
+      ).toISOString();
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: {
+            schemaVersion: 1 as const,
+            value: command.expectedRevision.value + 1,
+            compatibilityUpdatedAt: committedAt,
+          },
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
+    },
+  );
+}
+
+function spyOnCaptionFamilyReplaceAtRevisionV1() {
+  return vi.spyOn(projectService, 'replaceCaptionFamilyAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const committedAt = new Date(
+        Date.parse(command.expectedRevision.compatibilityUpdatedAt) + 1_000,
+      ).toISOString();
+      return {
+        disposition: 'APPLIED' as const,
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: {
+            schemaVersion: 1 as const,
+            value: command.expectedRevision.value + 1,
+            compatibilityUpdatedAt: committedAt,
+          },
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
+    },
+  );
+}
+
 function loadWith(
   overlays: Array<Record<string, any>>,
   overrides: Record<string, unknown> = {},
@@ -311,7 +358,7 @@ describe('chat speech and caption tool contracts', () => {
         },
       },
     });
-    const replace = vi.spyOn(projectService, 'replaceOverlayFamilyAtomic').mockResolvedValue(true);
+    const replace = spyOnCaptionFamilyReplaceAtRevisionV1();
 
     const result = parseEnvelope(await toolNamed('add_captions').invoke({
       style: 'minimal',
@@ -327,7 +374,7 @@ describe('chat speech and caption tool contracts', () => {
       },
     });
     expect(replace).toHaveBeenCalledOnce();
-    expect(vi.mocked(replace).mock.calls[0][2].overlays).toEqual(
+    expect(vi.mocked(replace).mock.calls[0][2].candidateOverlays).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: 'caption',
@@ -363,9 +410,9 @@ describe('chat speech and caption tool contracts', () => {
         },
       },
     });
-    const replace = vi.spyOn(projectService, 'replaceOverlayFamilyAtomic').mockResolvedValue(true);
-    const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const replace = spyOnCaptionFamilyReplaceAtRevisionV1();
+    const remove = vi.spyOn(projectService, 'deleteOverlayAtRevisionV1');
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1');
 
     const result = parseEnvelope(await toolNamed('refresh_captions').invoke({
       captionOverlayId: 31,
@@ -384,11 +431,16 @@ describe('chat speech and caption tool contracts', () => {
       'user_speech_caption',
       'proj_speech_caption',
       expect.objectContaining({
-        expectedUpdatedAt: BASE_PROJECT.updatedAt,
-        overlays: expect.any(Array),
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: BASE_PROJECT.updatedAt.toISOString(),
+        },
+        actorKind: 'AGENT',
+        candidateOverlays: expect.any(Array),
       }),
     );
-    const persisted = vi.mocked(replace).mock.calls[0][2].overlays;
+    const persisted = vi.mocked(replace).mock.calls[0][2].candidateOverlays;
     expect(persisted.filter((overlay: any) => overlay.type === 'caption')).toHaveLength(1);
     expect(persisted.find((overlay: any) => overlay.type === 'caption')).toMatchObject({
       id: 31,
@@ -431,8 +483,8 @@ describe('chat speech and caption tool contracts', () => {
         pacing_tolerance: 3,
       },
     });
-    const replace = vi.spyOn(projectService, 'replaceOverlayFamilyAtomic').mockResolvedValue(true);
-    const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
+    const replace = spyOnCaptionFamilyReplaceAtRevisionV1();
+    const update = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
 
     const result = parseEnvelope(await toolNamed('batch_edit_captions').invoke({
       style: 'minimal',
@@ -461,7 +513,7 @@ describe('chat speech and caption tool contracts', () => {
         },
       },
     });
-    const persisted = vi.mocked(replace).mock.calls[0][2].overlays;
+    const persisted = vi.mocked(replace).mock.calls[0][2].candidateOverlays;
     const styled = persisted.find((overlay: any) => overlay.id === 32) as any;
     expect(styled).toBeDefined();
     expect(styled.captions).toEqual(caption.captions);
@@ -514,7 +566,7 @@ describe('chat speech and caption tool contracts', () => {
       },
     };
     loadWith([video, fancy]);
-    const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
+    const update = spyOnOverlayUpdateAtRevisionV1();
     mocks.getTranscription.mockResolvedValue({
       transcript: 'outside make this moment land outside',
       words: [
@@ -553,16 +605,19 @@ describe('chat speech and caption tool contracts', () => {
     expect(update).toHaveBeenCalledWith(
       'user_speech_caption',
       'proj_speech_caption',
-      41,
       expect.objectContaining({
-        from: 120,
-        durationInFrames: 90,
-        sourceVideoId: 40,
-        left: 40,
-        top: 20,
-        width: 1200,
-        height: 675,
-        fancyCaptionConfig: expect.objectContaining({ style: 'kinetic', intensity: 'high' }),
+        actorKind: 'AGENT',
+        overlayId: 41,
+        updates: expect.objectContaining({
+          from: 120,
+          durationInFrames: 90,
+          sourceVideoId: 40,
+          left: 40,
+          top: 20,
+          width: 1200,
+          height: 675,
+          fancyCaptionConfig: expect.objectContaining({ style: 'kinetic', intensity: 'high' }),
+        }),
       }),
     );
   });

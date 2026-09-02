@@ -184,6 +184,10 @@ function stringValues(value: unknown): string[] {
 function buildThinkForgeE2EVideoTreatmentFixture(data: Record<string, unknown>) {
   const allowedTraceEvidence = asRecord(data.allowedTraceEvidence);
   const sourceRefs = stringValues(allowedTraceEvidence?.sourceRefs);
+  if (sourceRefs.length === 0) {
+    throw new Error('ThinkForge E2E video treatment fixture requires authorised source evidence.');
+  }
+  const decisionEvidenceIds = sourceRefs;
   const eventCount = SCRIPT_SCENES.length;
 
   return {
@@ -198,11 +202,46 @@ function buildThinkForgeE2EVideoTreatmentFixture(data: Record<string, unknown>) 
     continuityStrategy: 'Return to the approval-path motif only when the narrative advances to a new decision.',
     audioVoiceStrategy: 'Sparse voiceover carries the reasoning while semantic visuals make each operational change legible.',
     userConstraints: ['Keep the treatment semantic; final editorial form remains owned by Editron.'],
+    resolvedAudiovisualDecision: {
+      version: 1,
+      audibleSpeech: {
+        presence: 'sparse' as const,
+        sources: ['voice-over'] as const,
+        rationale: 'The approved QA treatment uses sparse narration to carry reasoning that is not legible from the semantic visual events alone.',
+        evidenceIds: decisionEvidenceIds,
+      },
+      onCameraSpeech: {
+        presence: 'absent' as const,
+        rationale: 'The approved QA treatment does not require a visible synchronous speaker.',
+        evidenceIds: decisionEvidenceIds,
+      },
+      visiblePeople: {
+        presence: 'absent' as const,
+        rationale: 'The approved QA treatment communicates the workflow through semantic relationships rather than people.',
+        evidenceIds: decisionEvidenceIds,
+      },
+      physicalCapture: {
+        need: 'absent' as const,
+        rationale: 'Every approved visual moment can be executed without newly filmed physical material.',
+        evidenceIds: decisionEvidenceIds,
+      },
+      materials: {
+        graphics: 'required' as const,
+        generatedImagery: 'absent' as const,
+        suppliedFootage: 'absent' as const,
+        screenMaterial: 'absent' as const,
+        sourceMaterial: 'absent' as const,
+        rationale: 'Semantic graphics are the selected material for making the approval relationships legible.',
+        evidenceIds: decisionEvidenceIds,
+      },
+      unresolvedQuestions: [],
+    },
     visualEvents: Array.from({ length: eventCount }, (_, index) => ({
       id: `event_approval_${index + 1}`,
       momentId: `moment_approval_${index + 1}`,
       audienceJob: SCRIPT_SCENES[index]!.narrativePurpose,
       visualThesis: 'Clarify the current decision relationship without prescribing footage, graphics, layout, or camera form.',
+      visiblePerson: 'forbidden' as const,
       audioRelationship: 'complement' as const,
       timingNote: 'Appears with the narrative turn and clears once the next decision becomes the focus.',
       continuityNotes: ['Keep the approval-path relationship coherent across the full narrative.'],

@@ -162,6 +162,18 @@ export function fastIntentHeuristic(input: {
   const workspaceMode = input.context?.workspaceMode || "unknown";
   const lastAction = (input.context?.lastUserAction || "").toLowerCase();
 
+  // This action is emitted only after the server atomically claims the session's
+  // pending initial-draft intent. Its meaning is authoritative and must not be
+  // re-guessed from wording by either the heuristic or fallback classifier.
+  if (lastAction === "initial_draft_claim") {
+    return {
+      intent: "draft",
+      confidence: 1,
+      scope: "document",
+      signals: ["initial_draft_claim"],
+    };
+  }
+
   const isQuestion = textIncludesAny(text, QUESTION_PATTERNS) || textIncludesAny(text, META_PATTERNS_HEURISTIC);
   const hasEditVerb = textIncludesAny(text, EDIT_VERBS_HEURISTIC);
   const hasGenerateVerb = textIncludesAny(text, GENERATE_VERBS_HEURISTIC);

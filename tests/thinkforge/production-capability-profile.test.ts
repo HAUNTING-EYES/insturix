@@ -45,7 +45,52 @@ describe('ProductionCapabilityProfile contract', () => {
       selfShoot: false,
     });
     expect(parsed.preferences.householdSubstitutionsAllowed).toBe(false);
+    expect(parsed.spaces[0]?.preferred).toBe(false);
     expect(parsed.equipment.map((item) => item.id)).toEqual(['phone_1', 'tripod_1', 'mic_1']);
+  });
+
+  it('allows only one explicitly preferred production space', () => {
+    const base = profile();
+    const input = {
+      ...base,
+      spaces: [
+        { ...base.spaces[0], preferred: true },
+        { ...base.spaces[0], id: 'room_studio', label: 'Studio', preferred: true },
+      ],
+    };
+
+    expect(() => parseProductionCapabilityProfile(input)).toThrow(/only one production space may be preferred/);
+  });
+
+  it('accepts explicit stance measurements and rejects an empty subject calibration', () => {
+    const measured = parseProductionCapabilityProfile({
+      ...profile(),
+      people: {
+        performersAvailable: 1,
+        cameraOperatorsAvailable: 0,
+        assistantsAvailable: 0,
+        selfShoot: true,
+        subjectCalibration: {
+          source: 'user-measured',
+          eyeHeightMByStance: { seated: 1.23 },
+        },
+      },
+    });
+    expect(measured.people.subjectCalibration).toEqual({
+      source: 'user-measured',
+      eyeHeightMByStance: { seated: 1.23 },
+    });
+
+    expect(() => parseProductionCapabilityProfile({
+      ...profile(),
+      people: {
+        performersAvailable: 1,
+        cameraOperatorsAvailable: 0,
+        assistantsAvailable: 0,
+        selfShoot: true,
+        subjectCalibration: { source: 'user-measured', eyeHeightMByStance: {} },
+      },
+    })).toThrow(/at least one measured eye height/);
   });
 
   it('rejects duplicate equipment ids because later plans reference them by id', () => {

@@ -65,8 +65,14 @@ import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@
 import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/design/motion-intensity';
 // P5-1 Phase C 2/2 — the video-level DESIGN pre-pass (design-then-code producer). Dark until the flag flips.
 import { computeMgDensityBudget } from '@/lib/editron/motion-graphics/codegen/design/density-budget';
-import { buildVideoTasteContract } from '@/lib/editron/motion-graphics/codegen/taste/contract-resolver';
-import { tasteContractLiveEnabled } from '@/lib/editron/motion-graphics/codegen/taste/shadow';
+import {
+  buildVideoTasteContract,
+  type TasteContractBuildResult,
+} from '@/lib/editron/motion-graphics/codegen/taste/contract-resolver';
+import {
+  tasteContractLiveEnabled,
+  tasteContractShadowEnabled,
+} from '@/lib/editron/motion-graphics/codegen/taste/shadow';
 import { formatTasteContractForPrompt } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 import {
@@ -82,6 +88,7 @@ import {
   getGeneratedNativeVideoReceiptIssue,
   resolveAudioRightsClaim,
 } from '@/lib/editron/shared/render-request-payload';
+import type { MGDeliveryRecord } from '@/lib/editron/motion-graphics/codegen/mg-delivery-record';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -274,11 +281,9 @@ function applyAudioBoundaryTransition(
   const targetClip = kind === 'j-cut' ? boundaryMatch.clipB as any : boundaryMatch.clipA as any;
   const sourceUrl = targetClip.src || targetClip.content;
   if (!sourceUrl) {
-    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no audio source URL`);
     return null;
   }
   if (targetClip.hasNativeAudio !== true) {
-    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no native-audio evidence`);
     return null;
   }
   const sourceAssetId = typeof targetClip.assetId === 'string' && targetClip.assetId.trim()
@@ -295,7 +300,6 @@ function applyAudioBoundaryTransition(
     || nativeAudioRights.source === 'preview-only'
     || nativeAudioRights.evidence?.sourceAssetId !== sourceAssetId
   ) {
-    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no renderable native-audio rights receipt`);
     return null;
   }
   if (nativeAudioRights.source === 'generated') {
@@ -307,7 +311,6 @@ function applyAudioBoundaryTransition(
       },
     );
     if (receiptIssue) {
-      console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - generated native-audio receipt is invalid (${receiptIssue})`);
       return null;
     }
   }
@@ -319,7 +322,6 @@ function applyAudioBoundaryTransition(
     && overlay.metadata?.sourceClipId === targetClip.id
   );
   if (existing) {
-    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - native-audio boundary already exists for clip ${targetClip.id}`);
     return null;
   }
 
@@ -419,7 +421,6 @@ function applyAudioBoundaryTransition(
     },
   } as any);
 
-  console.log(`[EDL-Exec] ${kind} APPLIED: native audio clone for clip ${targetClip.id} at boundary ${boundaryMatch.boundaryFrame}`);
   return { created: 1, modified: 1 };
 }
 
@@ -480,6 +481,36 @@ export interface ExecutionResult {
     unavailableCount: number;
     reason?: string;
   };
+  projectEvidence: EdlProjectEvidenceV1;
+}
+
+export interface EdlMgKineticSfxContextV1 {
+  version: 'mg-kinetic-sfx-context-v1';
+  momentId: string;
+  policy: 'full' | 'subtle' | 'off' | null;
+  profileId: string | null;
+  policySource: 'director-effective-profile' | 'unavailable';
+  speechEnergy: number | null;
+  speechSource: 'moment-signals' | 'wav2vec-segment' | 'unavailable';
+  writtenAt: Date;
+}
+
+export interface EdlMgCodegenRunEvidenceV1 {
+  version: 'mg-codegen-run-v2';
+  queuedCount: number;
+  generatedCount: number;
+  failedCount: number;
+  outcomes: MgCodegenDecisionOutcome[];
+  truncated: boolean;
+  completedAt: Date;
+}
+
+export interface EdlProjectEvidenceV1 {
+  schemaVersion: 1;
+  mgCodegenRun?: EdlMgCodegenRunEvidenceV1;
+  mgKineticSfxContexts: EdlMgKineticSfxContextV1[];
+  mgDeliveryRecords: MGDeliveryRecord[];
+  mgTasteContract?: TasteContractBuildResult;
 }
 
 export interface ExecuteEDLOptions {
@@ -844,6 +875,11 @@ export async function executeEDL(
     decisionExecutionTraceTruncated: false,
     budgetRejectedZoomAssetIds: new Set<string>(),
     zoomedAssetIds: new Set<string>(),
+    projectEvidence: {
+      schemaVersion: 1,
+      mgKineticSfxContexts: [],
+      mgDeliveryRecords: [],
+    },
   };
 
   // ─── Budget enforcement (Director Knowledge Base) ──────────────
@@ -944,7 +980,6 @@ export async function executeEDL(
           brandSignalProfileToCreativeSignalDefaults(resolution.acceptedProfile).signals,
         );
       }
-      if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
     }
   } catch (e) {
     console.warn('[EDL] brand resolve failed (non-fatal, using DEFAULT_BRAND):', e instanceof Error ? e.message : e);
@@ -971,8 +1006,6 @@ export async function executeEDL(
       technique: (decision as any).technique,
     });
   }
-
-  console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by frame`);
 
   // Deterministic epoch for overlay IDs — stable within this Director run, unique across runs.
   // Derived from projectId hash so the same EDL on the same project always produces the same IDs.
@@ -1012,8 +1045,6 @@ export async function executeEDL(
         );
         const accepted = acceptedSfxCacheEntry(form, result, providerSearchReport);
         sfxCache.set(searchQuery, accepted);
-        const token = form.intent;
-        console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${accepted ? 'accepted' : 'null/rejected'}`);
       } catch (err: unknown) {
         sfxCache.set(searchQuery, null);
         console.warn(`[EDL-Exec] SFX pre-resolve failed for "${searchQuery}": ${err instanceof Error ? err.message : String(err)}`);
@@ -1041,7 +1072,6 @@ export async function executeEDL(
       definitions: getOverlayDefinitions(),
       scoreAllOverlays,
     };
-    console.log(`[EDL-Exec] Path E+D merge: loaded ${utilityScoringRuntime.definitions.length} utility curve definitions`);
   } catch (utilityErr) {
     console.warn('[EDL-Exec] Path E+D merge unavailable; continuing without utility scoring:', utilityErr instanceof Error ? utilityErr.message : utilityErr);
   }
@@ -1053,7 +1083,6 @@ export async function executeEDL(
   const isSingleSource = uniqueSourceAssets.size === 1 && videoOverlaysForSourceCheck.length > 1;
   const singleSourceAssetId = isSingleSource ? uniqueSourceAssets.values().next().value as string : null;
 
-  let budgetRejected = 0;
   let decisionIndex = 0;
   const deferredGraphicDecisions = new Set<EditDecision>();
   let deferredGraphicFailure: string | undefined;
@@ -1090,7 +1119,6 @@ export async function executeEDL(
           status: queued.status,
           decisionCount: graphics.length,
         };
-        console.log(`[EDL-MG-Design] deferred ${graphics.length} graphic decisions to durable job ${queued.jobId}`);
       } catch (error) {
         deferredGraphicFailure = error instanceof Error ? error.message : String(error);
         graphics.forEach((decision) => deferredGraphicDecisions.add(decision));
@@ -1109,7 +1137,19 @@ export async function executeEDL(
   // explicit authority disposition; a failed pre-pass cannot silently license free-form codegen.
   if (isLiveMgCodegenEnabled() && !options.deferMgDesign) {
     try {
-      projectSignalContext.mgDesignAuthority = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions, { shadowTarget: { projectId, userId } });
+      projectSignalContext.mgDesignAuthority = await runMgDesignPrepass(
+        actionable,
+        overlays,
+        projectSignalContext,
+        graphicsDensity,
+        canvasDimensions,
+        {
+          shadowTarget: { projectId, userId },
+          onTasteContractShadow: (shadow) => {
+            result.projectEvidence.mgTasteContract = shadow;
+          },
+        },
+      );
       const dispositions = [...projectSignalContext.mgDesignAuthority.dispositions.values()];
       result.mgDesignSummary = {
         attempts: projectSignalContext.mgDesignAuthority.attempts,
@@ -1188,7 +1228,6 @@ export async function executeEDL(
           visualEvidenceKeys: visualCoverageGate.evidenceKeys.slice(0, 8),
         },
       });
-      console.log(`[EDL-Exec] VJEPA COVERAGE REJECTED: ${decision.type} at frame ${decision.frame} - ${visualCoverageGate.reason}`);
       appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
         decision,
         currentDecisionIndex,
@@ -1202,7 +1241,6 @@ export async function executeEDL(
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
-      budgetRejected++;
       result.rejectedDecisions.push({
         type: decision.type,
         frame: decision.frame,
@@ -1210,13 +1248,6 @@ export async function executeEDL(
         ruleId: budgetResult.ruleId,
         params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
       });
-      console.log(`[EDL-Exec] BUDGET REJECTED: ${decision.type} at frame ${decision.frame} — ${budgetResult.reason} (${budgetResult.ruleId})`);
-      if (decision.type === 'graphic') {
-        const gType = decision.params?.graphicType || 'unknown';
-        const gText = (decision.params?.text || '').substring(0, 40);
-        console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → REJECTED by budget (density: ${graphicsDensity || 'default'})`);
-      }
-
       // Track budget-rejected zooms so post-processing drift-zoom doesn't re-add them
       if (decision.type === 'zoom') {
         const video = overlays.find(o =>
@@ -1245,7 +1276,20 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, graphicsDensity, projectSignalContext);
+      const applied = await applyDecision(
+        decision,
+        overlays,
+        projectId,
+        userId,
+        canvasDimensions,
+        result.projectEvidence,
+        analyses,
+        idEpoch,
+        currentDecisionIndex,
+        sfxCache,
+        graphicsDensity,
+        projectSignalContext,
+      );
       if (applied) {
         appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
           decision,
@@ -1257,12 +1301,6 @@ export async function executeEDL(
         ));
         budget.commit(decision as any);
         result.decisionsExecuted++;
-        if (decision.type === 'graphic') {
-          const gType = decision.params?.graphicType || 'unknown';
-          const gText = (decision.params?.text || '').substring(0, 40);
-          const summary = budget.getSummary();
-          console.log(`[EDL-Exec] EDITORIAL: ${gType} "${gText}" → ALLOWED (budget: ${summary.keywordGraphics || 0} used, density: ${graphicsDensity || 'default'})`);
-        }
         if (applied.created) result.overlaysCreated += applied.created;
         if (applied.modified) result.overlaysModified += applied.modified;
         // Track zoomed assets so drift-zoom post-processing skips them
@@ -1289,7 +1327,6 @@ export async function executeEDL(
           overlays,
           { reason: guardReason },
         ));
-        console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
       }
     } catch (err: any) {
       result.decisionsSkipped++;
@@ -1312,20 +1349,6 @@ export async function executeEDL(
     }
   }
 
-  const budgetSummary = budget.getSummary();
-  console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsDeferred} deferred, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
-  console.log(`[EDL-Exec] Budget: ${JSON.stringify(budgetSummary)}`);
-
-  // Surface rejection reasons grouped by type (A3.5.10 fix — no more silent drops)
-  if (result.rejectedDecisions.length > 0) {
-    const grouped: Record<string, number> = {};
-    for (const r of result.rejectedDecisions) {
-      const key = r.reason.split(':')[0] || 'UNKNOWN';
-      grouped[key] = (grouped[key] || 0) + 1;
-    }
-    console.log(`[EDL-Exec] REJECTION SUMMARY: ${result.rejectedDecisions.length} decisions rejected — ${Object.entries(grouped).map(([k, v]) => `${k}:${v}`).join(', ')}`);
-  }
-
   const mgCodegenOutcomes = actionable
     .map((decision) => decision.params?.mgCodegenOutcome)
     .filter((outcome): outcome is MgCodegenDecisionOutcome => (
@@ -1334,25 +1357,16 @@ export async function executeEDL(
       && ['queued', 'generated', 'declined', 'fallback'].includes((outcome as MgCodegenDecisionOutcome).status)
     ));
   if (mgCodegenOutcomes.length > 0) {
-    try {
-      const { getDatabase } = await import('@/lib/editron/db/mongodb');
-      await (await getDatabase()).collection('projects').updateOne(
-        { projectId, userId },
-        {
-          $set: {
-            'intelligence.mgCodegenRun.version': 'mg-codegen-run-v2',
-            'intelligence.mgCodegenRun.queuedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'queued').length,
-            'intelligence.mgCodegenRun.generatedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
-            'intelligence.mgCodegenRun.failedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'declined' || outcome.status === 'fallback').length,
-            'intelligence.mgCodegenRun.outcomes': mgCodegenOutcomes.slice(0, 100),
-            'intelligence.mgCodegenRun.truncated': mgCodegenOutcomes.length > 100,
-            'intelligence.mgCodegenRun.completedAt': new Date(),
-          },
-        },
-      );
-    } catch (error) {
-      console.error('[EDL-MG-Codegen] failed to persist run evidence:', error);
-    }
+    const runEvidence: EdlMgCodegenRunEvidenceV1 = {
+      version: 'mg-codegen-run-v2',
+      queuedCount: mgCodegenOutcomes.filter((outcome) => outcome.status === 'queued').length,
+      generatedCount: mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
+      failedCount: mgCodegenOutcomes.filter((outcome) => outcome.status === 'declined' || outcome.status === 'fallback').length,
+      outcomes: mgCodegenOutcomes.slice(0, 100),
+      truncated: mgCodegenOutcomes.length > 100,
+      completedAt: new Date(),
+    };
+    result.projectEvidence.mgCodegenRun = runEvidence;
   }
   return result;
 }
@@ -2698,6 +2712,7 @@ async function applyDecision(
   projectId: string,
   userId: string,
   canvas: { width: number; height: number },
+  projectEvidence: EdlProjectEvidenceV1,
   analyses?: Map<string, any>,
   idEpoch: number = 0,
   decisionIndex: number = 0,
@@ -2720,7 +2735,19 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicsDensity, analyses, projectSignalContext);
+      return await applyGraphic(
+        decision,
+        overlays,
+        projectId,
+        userId,
+        canvas,
+        projectEvidence,
+        idEpoch,
+        decisionIndex,
+        graphicsDensity,
+        analyses,
+        projectSignalContext,
+      );
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -2741,7 +2768,6 @@ async function applyDecision(
       const captionApplied = applyCaptionLayerEmphasis(decision, overlays);
       if (captionApplied) return captionApplied;
       if (!hasStandaloneGraphicStructure((decision as any).params ?? {})) {
-        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: no matching caption word; not promoted to standalone MG`);
         return null;
       }
       if (isLiveMgCodegenEnabled()) {
@@ -2753,7 +2779,6 @@ async function applyDecision(
           factKind: 'caption-emphasis',
           reason,
         } satisfies MgCodegenDecisionOutcome;
-        console.log(`[EDL-MG-Codegen] Caption emphasis at frame ${decision.frame}: ${reason}`);
         return null;
       }
       const emphasisDecision = {
@@ -2761,7 +2786,19 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'atomic-graphic' },
         durationFrames: 60, // 2s pop
       };
-      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicsDensity, analyses, projectSignalContext);
+      return await applyGraphic(
+        emphasisDecision as any,
+        overlays,
+        projectId,
+        userId,
+        canvas,
+        projectEvidence,
+        idEpoch,
+        decisionIndex,
+        graphicsDensity,
+        analyses,
+        projectSignalContext,
+      );
     }
     case 'sfx':
     case 'sfx-trigger': {
@@ -2891,7 +2928,6 @@ async function applyDecision(
         },
       } as any);
 
-      console.log(`[EDL-Exec] sfx-trigger: placed "${sfxType}" intent="${atomicSfxForm.intent}" at frame ${sfxStartFrame}`);
       return { created: 1, modified: 0 };
     }
 
@@ -3116,11 +3152,7 @@ function applyTransition(
   // reference frames for the same boundary).
   const boundaryMatch = snapToClipBoundary(decision.frame, overlays, 45);
   if (!boundaryMatch) {
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — no clip boundary found within 45 frames`);
     return null;
-  }
-  if (boundaryMatch.drift > 0) {
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: snapped to boundary ${boundaryMatch.boundaryFrame} (drift: ${boundaryMatch.drift} frames)`);
   }
   const clipA = boundaryMatch.clipA;
   const clipB = boundaryMatch.clipB;
@@ -3168,19 +3200,11 @@ function applyTransition(
     return false;
   });
   if (existingTransition) {
-    const reason = ((existingTransition as any).clipAId === clipA.id && (existingTransition as any).clipBId === clipB.id)
-      ? `clipA=${clipA.id}/clipB=${clipB.id} pair match (source: ${(existingTransition as any).metadata?.source || 'unknown'})`
-      : `legacy overlay within 15 frames`;
-    console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — ${reason}`);
     return null;
   }
 
   const repetitionPolicy = resolveTransitionRepetitionPolicy(transType, overlays, decision);
   if (!repetitionPolicy.allowed) {
-    console.log(
-      `[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — ${repetitionPolicy.reason}; ` +
-      'leaving boundary clean unless montage_mode licenses uniformity',
-    );
     return null;
   }
 
@@ -3305,7 +3329,6 @@ function applyTransition(
     }
   }
 
-  console.log(`[EDL-Exec] Transition APPLIED: ${transType} tile at frame ${anchorFrame} (clipA=${clipA.id}, clipB=${clipB.id}, drift=${boundaryMatch.drift})`);
   return { created: 1, modified: 0 };
 }
 
@@ -3468,11 +3491,7 @@ function applyZoom(
   // Find the video overlay at this frame (with tolerance for pacing drift)
   const clipMatch = findClipAtFrame(decision.frame, overlays, 15);
   if (!clipMatch) {
-    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: SKIPPED — no video clip found within 15 frames`);
     return null;
-  }
-  if (clipMatch.drift > 0) {
-    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: snapped to clip at ${clipMatch.clip.from} (drift: ${clipMatch.drift} frames)`);
   }
   const videoOverlay = clipMatch.clip;
   decision.params = decision.params || {};
@@ -3501,10 +3520,8 @@ function applyZoom(
     const analysis = videoOverlay.assetId ? analyses?.get(videoOverlay.assetId) : undefined;
     const peaks = (analysis as any)?.motionPeaks || [];
     if (peaks.length > 0 && peaks[0] > 30) {
-      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — shifted to first motion peak at frame ${videoOverlay.from + peaks[0]}`);
       decision.frame = videoOverlay.from + peaks[0];
     } else {
-      console.log(`[EDL-Exec] Zoom at frame ${decision.frame} in hook zone — SKIPPED (no suitable motion peak)`);
       return null;
     }
   }
@@ -3532,11 +3549,7 @@ function applyZoom(
         if (!nearSignificantFrame && !hasEmphasisAnchor && allSignificantFrames.length > 0) {
           decision.params.zoomType = 'slow-push';
           decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
-          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak or emphasis anchor — downgraded to slow-push (analysis quality: ${quality})`);
         }
-      } else {
-        // Low/fallback quality — trust Gemini's anchor-based placement, don't validate against fake peaks
-        console.log(`[EDL-Exec] Zoom at frame ${decision.frame} — skipping motion peak validation (analysis quality: ${quality})`);
       }
     }
   }
@@ -3554,7 +3567,6 @@ function applyZoom(
 
   const zoomMemory = resolveZoomMemoryPolicy(zoomForm, overlays, videoOverlay);
   if (!zoomMemory.allowed) {
-    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: SKIPPED — ${zoomMemory.reason}`);
     return null;
   }
 
@@ -3682,7 +3694,6 @@ function applySpeedChange(
   const validated = Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
 
   if (validated.length < 2) {
-    console.log(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED — after clamping, <2 distinct keyframes for clipDuration=${clipDuration}`);
     return null;
   }
 
@@ -4278,7 +4289,10 @@ async function runMgDesignPrepass(
   projectSignalContext: EDLSignalContext,
   graphicsDensity: 'heavy' | 'moderate' | 'minimal' | undefined,
   canvas: { width: number; height: number },
-  options: { shadowTarget?: { projectId: string; userId: string } } = {},
+  options: {
+    shadowTarget?: { projectId: string; userId: string };
+    onTasteContractShadow?: (result: TasteContractBuildResult) => void;
+  } = {},
 ): Promise<MgDesignPrepassResult<EditDecision>> {
   const { brandToKit } = await import('@/lib/editron/motion-graphics/codegen/brand-mapper');
   const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
@@ -4380,15 +4394,22 @@ async function runMgDesignPrepass(
     brandMotionEnergy: mappedBrand.brand.motion.energy,
     preference: projectSignalContext.motionGraphicsPref,
   });
-  // Phase 2 (brief cycle-1 #3): VideoTasteContract in SHADOW — flag-gated, non-fatal, never changes live behavior.
-  if (options.shadowTarget) {
-    const { maybePersistTasteContractShadow } = await import('@/lib/editron/motion-graphics/codegen/taste/shadow');
-    await maybePersistTasteContractShadow(options.shadowTarget.projectId, options.shadowTarget.userId, {
-      brand: mappedBrand.isDefault ? null : mappedBrand.brand,
-      hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
-      intent: projectSignalContext.intent,
-      videoSignals: projectSignalContext.videoSignals,
-    }).catch(() => undefined);
+  // Build the flag-gated taste evidence without mutating the project. The
+  // durable MG worker returns it to ProjectService with the rest of this run.
+  if (
+    options.shadowTarget
+    && (tasteContractShadowEnabled() || tasteContractLiveEnabled())
+  ) {
+    try {
+      options.onTasteContractShadow?.(buildVideoTasteContract({
+        brand: mappedBrand.isDefault ? null : mappedBrand.brand,
+        hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
+        intent: projectSignalContext.intent,
+        videoSignals: projectSignalContext.videoSignals,
+      }));
+    } catch {
+      // Shadow evidence is optional and never authorizes an edit.
+    }
   }
   if (budget.maxMoments === 0) {
     return uniformMgDesignAuthority(
@@ -4442,10 +4463,6 @@ async function runMgDesignPrepass(
     { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget, images, tasteContract },
     { generate },
   );
-  const approvedCount = [...result.dispositions.values()].filter((entry) => entry.status === 'approved').length;
-  const declinedCount = [...result.dispositions.values()].filter((entry) => entry.status === 'declined').length;
-  const unavailableCount = [...result.dispositions.values()].filter((entry) => entry.status === 'unavailable').length;
-  console.log(`[EDL-MG-Design] pre-pass: ${beats.length} beats offered, budget ${budget.maxMoments}, approved=${approvedCount}, declined=${declinedCount}, unavailable=${unavailableCount}${result.reason ? ` (session: ${result.reason})` : ''}`);
   return result;
 }
 
@@ -4455,6 +4472,7 @@ async function applyGraphic(
   projectId: string,
   userId: string,
   canvas: { width: number; height: number },
+  projectEvidence: EdlProjectEvidenceV1,
   idEpoch: number = 0,
   decisionIndex: number = 0,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
@@ -4505,7 +4523,6 @@ async function applyGraphic(
 
   if (!hasRenderableGraphicContent(contentMap)) return null;
   if (isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
-    console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }
 
@@ -4523,7 +4540,6 @@ async function applyGraphic(
     ]);
     const normalizedText = String(text).toLowerCase().trim();
     if (BANNED_KEYWORDS.has(normalizedText) || normalizedText.length < 3) {
-      console.log(`[EDL-Exec] KEYWORD FILTER: skipped "${text}" — filler/vague word or too short`);
       return null;
     }
   }
@@ -4541,7 +4557,6 @@ async function applyGraphic(
     ]);
     const normalizedName = String(contentMap.name).toLowerCase().trim();
     if (HALLUCINATION_NAMES.has(normalizedName) || normalizedName.length < 2) {
-      console.log(`[EDL-Exec] HALLUCINATION GUARD: skipped lower-third for "${contentMap.name}" — likely hallucinated placeholder`);
       return null;
     }
   }
@@ -4555,16 +4570,11 @@ async function applyGraphic(
     && (o.type === OverlayType.MG_SEQUENCE || graphicDedupeKeyFromOverlay(o) === currentGraphicKey)
   );
   if (existingGraphic) {
-    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingGraphic.from}`);
     return null;
   }
 
   const semanticMgLedgerGate = resolveSemanticMgLedgerGate(normalizedGraphicContent.semanticMgCandidateLedger);
   if (!semanticMgLedgerGate.allow) {
-    console.log(
-      `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by semantic MG ledger gate - ` +
-      semanticMgLedgerGate.reasons.join(', '),
-    );
     return null;
   }
   const semanticMgCandidateSelection = selectSemanticMgCandidate(normalizedGraphicContent.semanticMgCandidateLedger);
@@ -4594,11 +4604,6 @@ async function applyGraphic(
     return null;
   }
   if (narrativeBeat && !isLiveMgCodegenEnabled()) {
-    console.log(
-      `[EDL-MG] Narrative beat at frame ${decision.frame}: SKIPPED — ` +
-      'MG codegen disabled' +
-      '; narrative renders ONLY via a designer-approved plan (P3.5), never free-form',
-    );
     return null;
   }
 
@@ -4676,10 +4681,6 @@ async function applyGraphic(
     // P3.5: authority is a DATA-relevance gate; a narrative beat that reaches here carries a designer-approved
     // plan (the discipline check above) — the designer's license stands, authority still shapes duration/scores.
     if (!mgExpressionAuthority.allowMotionGraphic && !narrativeBeat) {
-      console.log(
-        `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by MG expression authority - ` +
-        mgExpressionAuthority.reasons.join(', '),
-      );
       return null;
     }
     mgScores = applyMgExpressionAuthorityToScores(mgScores, mgExpressionAuthority);
@@ -4819,7 +4820,7 @@ async function applyGraphic(
         const signalSpeechEnergy = readNumber(rawSignals, 'speech_energy', 'speech.energy');
         const segmentSpeechEnergy = mgWav2vec ? readNumber(mgWav2vec, 'energy', 'speech_energy') : undefined;
         const speechEnergy = signalSpeechEnergy ?? segmentSpeechEnergy;
-        const kineticSfxContext = {
+        const kineticSfxContext: EdlMgKineticSfxContextV1 = {
           version: 'mg-kinetic-sfx-context-v1',
           momentId,
           policy: projectSignalContext.kineticSfxPolicy?.policy ?? null,
@@ -4833,42 +4834,10 @@ async function applyGraphic(
               : 'unavailable',
           writtenAt: new Date(),
         };
-        try {
-          const { getDatabase } = await import('@/lib/editron/db/mongodb');
-          const projects = (await getDatabase()).collection('projects');
-          const replaced = await projects.updateOne(
-            {
-              projectId,
-              'intelligence.mgKineticSfxContexts.momentId': momentId,
-            },
-            {
-              $set: {
-                'intelligence.mgKineticSfxContexts.$': kineticSfxContext,
-              },
-            },
-          );
-          if (replaced.matchedCount === 0) {
-            await projects.updateOne(
-              {
-                projectId,
-                'intelligence.mgKineticSfxContexts.momentId': { $ne: momentId },
-              },
-              {
-                $push: {
-                  'intelligence.mgKineticSfxContexts': {
-                    $each: [kineticSfxContext],
-                    $slice: -100,
-                  } as never,
-                },
-              },
-            );
-          }
-        } catch (error) {
-          console.warn(
-            `[EDL] MG kinetic SFX context persistence failed for ${momentId}; async SFX will suppress:`,
-            error instanceof Error ? error.message : error,
-          );
-        }
+        projectEvidence.mgKineticSfxContexts = [
+          ...projectEvidence.mgKineticSfxContexts.filter((context) => context.momentId !== momentId),
+          kineticSfxContext,
+        ].slice(-100);
         const enqueued = await enqueueDurableMgRenderJob({
           projectId,
           userId,
@@ -4879,11 +4848,11 @@ async function applyGraphic(
           sequenceNamespace: userId,
         });
 
-        // Phase 8 (§6.8/§16.2): durable per-moment delivery record so a lapsed/stale worker delivery can never
-        // silently mutate the project. Best-effort, non-blocking.
+        // Phase 8 (§6.8/§16.2): return the per-moment delivery record so the
+        // durable MG-design completion can land it atomically with the job.
         try {
-          const { computeDeliveryRecord, persistMGDeliveryRecord } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery-record');
-          await persistMGDeliveryRecord(projectId, userId, computeDeliveryRecord({
+          const { computeDeliveryRecord } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery-record');
+          const deliveryRecord = computeDeliveryRecord({
             videoId: projectId,
             momentId,
             status: 'enqueued',
@@ -4892,9 +4861,13 @@ async function applyGraphic(
             tasteContractHash: projectSignalContext.tasteContractForJudge?.hash,
             expectedTimelineRange: { startFrame: snappedFrame, endFrame: snappedFrame + compositionDuration },
             idempotencyKey: `${projectId}:${momentId}:${enqueued.jobId}`,
-          }));
+          });
+          projectEvidence.mgDeliveryRecords = [
+            ...projectEvidence.mgDeliveryRecords.filter((record) => record.momentId !== momentId),
+            deliveryRecord,
+          ].slice(-200);
         } catch (deliveryRecordErr) {
-          console.warn('[EDL] MG delivery record persist failed (non-fatal):', deliveryRecordErr instanceof Error ? deliveryRecordErr.message : deliveryRecordErr);
+          console.warn('[EDL] MG delivery record construction failed (non-fatal):', deliveryRecordErr instanceof Error ? deliveryRecordErr.message : deliveryRecordErr);
         }
 
         if (enqueued.status !== 'completed') {
@@ -4908,7 +4881,6 @@ async function applyGraphic(
               : 'MG render job queued for the isolated worker',
           };
           decision.params.mgCodegenOutcome = outcome;
-          console.log(`[EDL-MG-Codegen] QUEUED ${selectedCandidate.id} @${snappedFrame}: ${enqueued.jobId}`);
           return { created: 0, modified: 0 };
         }
 
@@ -5024,10 +4996,6 @@ async function applyGraphic(
     };
 
     overlays.push(motionOverlay as any);
-    console.log(
-      `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: COMPOSITION_ENGINE → ` +
-      `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
-    );
     return { created: 1, modified: 0 };
   }}
 
@@ -5058,8 +5026,7 @@ function applyAudioDuck(
 }
 
 function applyPacingNoop(
-  decision: EditDecision,
+  _decision: EditDecision,
 ): { created: number; modified: number } {
-  console.log('[EDL-Exec] Pacing at frame ' + decision.frame + ': accepted as informational no-op');
   return { created: 0, modified: 0 };
 }

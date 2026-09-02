@@ -8,7 +8,14 @@ import {
   resolveLongFormChapterSceneOwnership,
   type LongFormChapterSceneOwnership,
 } from '../long-form/chapter-scene-ownership';
-import { resolveCaptureAcquisitionDecisions } from './capture-acquisition-decisions';
+import {
+  CaptureAcquisitionDecisionSchema,
+  resolveCaptureAcquisitionDecisions,
+} from './capture-acquisition-decisions';
+import {
+  parseSourceLedger,
+  type SourceLedger,
+} from '../provenance/source-ledger';
 import {
   CaptureRequirementCapabilitySchema,
   CaptureRequirementKindSchema,
@@ -21,6 +28,10 @@ import {
   parseProductionCapabilityProfile,
   type ProductionCapabilityProfile,
 } from './production-capability-profile';
+import {
+  createUnresolvedAudiovisualDecision,
+  ResolvedAudiovisualDecisionSchema,
+} from '../schemas/resolved-audiovisual-decision';
 
 export const TREATMENT_CAPTURE_PROJECTION_VERSION = 1 as const;
 
@@ -41,6 +52,21 @@ const CapabilityEvidenceSchema = z.object({
   status: CapabilityEvidenceStatusSchema,
   detail: NonEmptyTextSchema,
   evidenceIds: z.array(IdentifierSchema).default([]),
+}).strict();
+
+const AcquisitionSourceCandidateSchema = z.object({
+  referenceId: IdentifierSchema,
+  title: NonEmptyTextSchema,
+  ledgerKind: z.enum(['upload', 'research_source']),
+  sourceId: NonEmptyTextSchema.optional(),
+  sourceUrl: z.string().url().optional(),
+}).strict();
+
+const AcquisitionDecisionRequestSchema = z.object({
+  requirementId: IdentifierSchema,
+  prompt: NonEmptyTextSchema,
+  allowedAcquisitionKinds: z.array(CaptureRequirementKindSchema.exclude(['unspecified'])).min(1),
+  sourceCandidates: z.array(AcquisitionSourceCandidateSchema).default([]),
 }).strict();
 
 const LinkedNarrativeMomentSchema = z.object({
@@ -84,6 +110,8 @@ const TreatmentCaptureRequirementProjectionSchema = z.object({
   requiredCapabilities: z.array(CaptureRequirementCapabilitySchema).default([]),
   unresolvedCapabilityQuestions: z.array(NonEmptyTextSchema).default([]),
   capabilityEvidence: z.array(CapabilityEvidenceSchema).default([]),
+  availableSourceMaterial: z.array(AcquisitionSourceCandidateSchema).default([]),
+  acquisitionDecision: CaptureAcquisitionDecisionSchema.optional(),
   linkedNarrativeMoments: z.array(LinkedNarrativeMomentSchema).min(1),
   continuity: CaptureRequirementContinuitySchema,
 }).strict();
@@ -96,7 +124,9 @@ const VoiceRecordingGuideSchema = z.object({
     languageCodes: z.array(NonEmptyTextSchema).default([]),
     deliveries: z.array(NonEmptyTextSchema).min(1),
     onCameraLineCount: z.number().int().nonnegative(),
+    synchronousDialogueLineCount: z.number().int().nonnegative().default(0),
     voiceoverLineCount: z.number().int().nonnegative(),
+    diegeticSpeechLineCount: z.number().int().nonnegative().default(0),
   }).strict()).default([]),
 }).strict();
 
@@ -105,10 +135,14 @@ const TreatmentCapturePlanObjectSchema = z.object({
   kind: z.literal('treatment-capture-plan'),
   status: CaptureProjectionStatusSchema,
   treatment: VideoTreatmentSidecarBindingSchema,
+  resolvedAudiovisualDecision: ResolvedAudiovisualDecisionSchema.default(
+    createUnresolvedAudiovisualDecision,
+  ),
   voiceRecording: VoiceRecordingGuideSchema,
   physicalCaptureRequirements: z.array(TreatmentCaptureRequirementProjectionSchema).default([]),
   nonPhysicalAcquisitionRequirements: z.array(TreatmentCaptureRequirementProjectionSchema).default([]),
   unclassifiedRequirements: z.array(TreatmentCaptureRequirementProjectionSchema).default([]),
+  decisionRequests: z.array(AcquisitionDecisionRequestSchema).default([]),
   calibrationQuestions: z.array(NonEmptyTextSchema).default([]),
 }).strict();
 
@@ -134,6 +168,37 @@ export const TreatmentCapturePlanSchema = TreatmentCapturePlanObjectSchema.super
       message: 'A capture brief cannot be ready while calibration questions remain.',
     });
   }
+  const decision = plan.resolvedAudiovisualDecision;
+  if (decision.origin !== 'model') return;
+
+  const spokenLineCount = plan.voiceRecording.speakers.reduce((total, speaker) => (
+    total
+    + speaker.synchronousDialogueLineCount
+    + speaker.voiceoverLineCount
+    + speaker.diegeticSpeechLineCount
+  ), 0);
+  const speechIsPresent = ['sparse', 'present', 'mixed'].includes(decision.audibleSpeech.presence);
+  if (!speechIsPresent && spokenLineCount > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['voiceRecording'],
+      message: 'The resolved treatment forbids spoken audio, but the capture plan contains spoken lines.',
+    });
+  }
+  if (speechIsPresent && spokenLineCount === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['voiceRecording'],
+      message: 'The resolved treatment requires spoken audio, but the capture plan contains no spoken lines.',
+    });
+  }
+  if (decision.physicalCapture.need === 'absent' && plan.physicalCaptureRequirements.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['physicalCaptureRequirements'],
+      message: 'The resolved treatment forbids physical capture, but the plan contains physical capture requirements.',
+    });
+  }
 });
 
 export type TreatmentCapturePlan = z.infer<typeof TreatmentCapturePlanSchema>;
@@ -148,6 +213,8 @@ export interface BuildTreatmentCapturePlanInput {
   acquisitionDecisions?: unknown;
   /** Exact source document identity required to verify acquisition decisions. */
   acquisitionDecisionSourceDocument?: unknown;
+  /** Persisted writer Source Ledger used only to expose selectable, authorized source material. */
+  sourceLedger?: unknown;
 }
 
 type CapabilityEvidence = z.infer<typeof CapabilityEvidenceSchema>;
@@ -245,6 +312,15 @@ function capabilityEvidence(
         };
   }
   if (capability === 'space') {
+    const preferred = profile.spaces.filter((space) => space.preferred);
+    if (preferred.length === 1) {
+      return {
+        capability,
+        status: 'confirmed',
+        detail: `The confirmed preferred production space is ${preferred[0]!.label}.`,
+        evidenceIds: [preferred[0]!.id],
+      };
+    }
     if (profile.spaces.length === 1) {
       return {
         capability,
@@ -355,7 +431,9 @@ function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceReco
     languageCodes: string[];
     deliveries: string[];
     onCameraLineCount: number;
+    synchronousDialogueLineCount: number;
     voiceoverLineCount: number;
+    diegeticSpeechLineCount: number;
   }>();
 
   sidecar.acts.forEach((act) => act.narrativeScenes.forEach((scene) => scene.beats.forEach((beat) => {
@@ -369,12 +447,16 @@ function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceReco
         languageCodes: [],
         deliveries: [],
         onCameraLineCount: 0,
+        synchronousDialogueLineCount: 0,
         voiceoverLineCount: 0,
+        diegeticSpeechLineCount: 0,
       };
       if (line.languageCode) current.languageCodes.push(line.languageCode);
       current.deliveries.push(line.delivery);
       if (line.onCamera) current.onCameraLineCount += 1;
+      if (line.delivery === 'sync-dialogue') current.synchronousDialogueLineCount += 1;
       if (line.delivery === 'voiceover') current.voiceoverLineCount += 1;
+      if (line.delivery === 'diegetic-speech') current.diegeticSpeechLineCount += 1;
       speakers.set(character.id, current);
     });
   })));
@@ -389,6 +471,54 @@ function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceReco
   });
 }
 
+function selectableSourceMaterial(
+  sourceLedger: SourceLedger | null,
+  sourceRefs: readonly string[],
+): z.infer<typeof AcquisitionSourceCandidateSchema>[] {
+  if (!sourceLedger || sourceRefs.length === 0) return [];
+  const declared = new Set(sourceRefs);
+  return sourceLedger.entries.flatMap((entry) => {
+    if (!declared.has(entry.referenceId)) return [];
+    if (entry.kind !== 'upload' && entry.kind !== 'research_source') return [];
+    if (!entry.sourceId && !entry.sourceUrl) return [];
+    return [AcquisitionSourceCandidateSchema.parse({
+      referenceId: entry.referenceId,
+      title: entry.title,
+      ledgerKind: entry.kind,
+      ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
+      ...(entry.sourceUrl ? { sourceUrl: entry.sourceUrl } : {}),
+    })];
+  });
+}
+
+function decisionPrompt(
+  requirement: VideoTreatment['captureRequirements'][number],
+): string {
+  if (requirement.captureKind === 'screen-recording') {
+    return `Confirm the authorized screen target and exact capture scope for "${requirement.objective}".`;
+  }
+  if (requirement.captureKind === 'source-asset') {
+    return `Select the authorized source material that will satisfy "${requirement.objective}".`;
+  }
+  return `Choose how the required evidence for "${requirement.objective}" will be acquired.`;
+}
+
+function allowedUnspecifiedAcquisitionKinds(
+  treatment: VideoTreatment,
+): Array<'physical-camera' | 'screen-recording' | 'source-asset'> {
+  const kinds: Array<'physical-camera' | 'screen-recording' | 'source-asset'> = [
+    'physical-camera',
+    'screen-recording',
+    'source-asset',
+  ];
+  const physicalCaptureForbidden = treatment.resolvedAudiovisualDecision.origin === 'model'
+    ? treatment.resolvedAudiovisualDecision.physicalCapture.need === 'absent'
+    : treatment.audiovisualIntent.physicalCapture === 'forbidden';
+  return physicalCaptureForbidden
+    ? kinds.filter((kind) => kind !== 'physical-camera')
+    : kinds;
+}
+
 export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput): TreatmentCapturePlan {
   const treatment = parseVideoTreatment(input.treatment);
   const sidecar = assertMaterializedScriptSidecarV3Treatment({
@@ -398,6 +528,9 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
   const profile = input.profile === undefined || input.profile === null
     ? null
     : parseProductionCapabilityProfile(input.profile);
+  const sourceLedger = input.sourceLedger === undefined || input.sourceLedger === null
+    ? null
+    : parseSourceLedger(input.sourceLedger);
   const chapterOwnership = resolveLongFormChapterSceneOwnership({
     chapterPlan: input.chapterPlan,
     acts: sidecar.acts,
@@ -411,6 +544,7 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
   const physicalCaptureRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const nonPhysicalAcquisitionRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const unclassifiedRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
+  const decisionRequests: z.infer<typeof AcquisitionDecisionRequestSchema>[] = [];
   const calibrationQuestions: string[] = [];
 
   treatment.captureRequirements.forEach((declaredRequirement) => {
@@ -420,16 +554,25 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
           ...declaredRequirement,
           captureKind: acquisitionDecision.acquisitionKind,
           requiredCapabilities: acquisitionDecision.requiredCapabilities,
+          unresolvedCapabilityQuestions: [],
         }
       : declaredRequirement;
     const linkedNarrativeMoments = momentsByRequirementId.get(requirement.id) ?? [];
-    if (linkedNarrativeMoments.length === 0) return;
+    if (linkedNarrativeMoments.length === 0) {
+      throw new Error(`Capture requirement "${requirement.id}" is not linked to any narrative visual moment.`);
+    }
     const evidence = requirement.captureKind === 'physical-camera'
       ? requirement.requiredCapabilities.map((capability) => capabilityEvidence(profile, capability))
       : [];
+    const availableSourceMaterial = selectableSourceMaterial(
+      sourceLedger,
+      declaredRequirement.sourceRefs,
+    );
     const projection = TreatmentCaptureRequirementProjectionSchema.parse({
       ...requirement,
       capabilityEvidence: evidence,
+      availableSourceMaterial,
+      ...(acquisitionDecision ? { acquisitionDecision } : {}),
       linkedNarrativeMoments,
       continuity: captureRequirementContinuity(linkedNarrativeMoments),
     });
@@ -444,18 +587,27 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
     }
     if (requirement.captureKind === 'unspecified') {
       unclassifiedRequirements.push(projection);
-      calibrationQuestions.push(...requirement.unresolvedCapabilityQuestions);
-      calibrationQuestions.push(`Choose how to acquire the evidence for "${requirement.objective}".`);
+      decisionRequests.push(AcquisitionDecisionRequestSchema.parse({
+        requirementId: requirement.id,
+        prompt: decisionPrompt(requirement),
+        allowedAcquisitionKinds: allowedUnspecifiedAcquisitionKinds(treatment),
+        sourceCandidates: availableSourceMaterial,
+      }));
       return;
     }
     nonPhysicalAcquisitionRequirements.push(projection);
-    calibrationQuestions.push(...requirement.unresolvedCapabilityQuestions);
+    if (!acquisitionDecision) {
+      decisionRequests.push(AcquisitionDecisionRequestSchema.parse({
+        requirementId: requirement.id,
+        prompt: decisionPrompt(requirement),
+        allowedAcquisitionKinds: [requirement.captureKind],
+        sourceCandidates: availableSourceMaterial,
+      }));
+    }
   });
 
   const questions = uniqueStrings(calibrationQuestions);
-  const hasUnresolvedAcquisition = unclassifiedRequirements.length > 0
-    || nonPhysicalAcquisitionRequirements.some((requirement) => requirement.unresolvedCapabilityQuestions.length > 0);
-  const status = hasUnresolvedAcquisition
+  const status = decisionRequests.length > 0
     ? 'needs-acquisition-decision'
     : physicalCaptureRequirements.length === 0
       ? 'no-physical-capture'
@@ -468,10 +620,12 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
     kind: 'treatment-capture-plan',
     status,
     treatment: sidecar.treatment,
+    resolvedAudiovisualDecision: treatment.resolvedAudiovisualDecision,
     voiceRecording: voiceRecordingGuide(sidecar),
     physicalCaptureRequirements,
     nonPhysicalAcquisitionRequirements,
     unclassifiedRequirements,
+    decisionRequests,
     calibrationQuestions: questions,
   });
 }

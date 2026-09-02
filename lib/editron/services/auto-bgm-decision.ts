@@ -1,6 +1,6 @@
-import { getDatabase } from '@/lib/editron/db/mongodb';
 import type { MusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import type { AudioDispatchResult } from './audio-worker-dispatch';
+import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
 import type { EditorialDecisionPolicy } from './editorial-decision-policy';
 
 export type AutoBgmDecisionStatus =
@@ -135,21 +135,81 @@ export function buildAutoBgmDecisionEvidence(input: {
   };
 }
 
-export async function persistAutoBgmDecisionEvidence(
-  projectId: string,
+export function assertAutoBgmDecisionEvidenceV1(
   evidence: AutoBgmDecisionEvidence,
-): Promise<void> {
-  const db = await getDatabase();
-  await db.collection('projects').updateOne(
-    { projectId },
-    {
-      $set: {
-        'intelligence.autoBgmDecision': evidence,
-        'intelligence.audio.autoBgmDecision': evidence,
-      },
-    },
+): void {
+  const stringFields = [
+    evidence.reason,
+    evidence.recommendationReason,
+    evidence.mood,
+    evidence.pacing,
+    evidence.musicPrompt,
+    evidence.error,
+  ].filter((value): value is string => value !== undefined);
+  const validDispatch = evidence.dispatch === undefined || (
+    evidence.dispatch.version === 'audio-dispatch-result-v1'
+    && typeof evidence.dispatch.label === 'string'
+    && evidence.dispatch.label.length > 0
+    && evidence.dispatch.label.length <= 500
+    && typeof evidence.dispatch.url === 'string'
+    && evidence.dispatch.url.length > 0
+    && evidence.dispatch.url.length <= 2_000
+    && typeof evidence.dispatch.dispatched === 'boolean'
+    && ['qstash', 'fetch', 'none'].includes(evidence.dispatch.method)
   );
+  const dispatchStateMatches = evidence.status !== 'dispatched'
+    ? evidence.status !== 'dispatch-failed'
+      || (evidence.dispatch?.dispatched === false && typeof evidence.error === 'string')
+    : evidence.shouldAddBgm === true
+      && evidence.dispatch?.dispatched === true
+      && evidence.dispatch.method !== 'none';
+  const disabledStateMatches = !['user-disabled', 'not-recommended'].includes(evidence.status)
+    || evidence.shouldAddBgm === false;
+  const numericFields = [evidence.durationSec, evidence.totalFrames, evidence.fps]
+    .filter((value): value is number => value !== undefined);
+  const evaluatedAtMs = Date.parse(evidence.evaluatedAt);
+  const canonicalByteLength = Buffer.byteLength(JSON.stringify(evidence), 'utf8');
+
+  if (
+    evidence.version !== 'auto-bgm-decision-v1'
+    || !AUTO_BGM_DECISION_STATUSES.has(evidence.status)
+    || (evidence.shouldAddBgm !== null && typeof evidence.shouldAddBgm !== 'boolean')
+    || (evidence.signalShouldAddBgm !== null && typeof evidence.signalShouldAddBgm !== 'boolean')
+    || typeof evidence.storyboardOwned !== 'boolean'
+    || stringFields.some((value) => value.length === 0 || value.length > 8_000)
+    || numericFields.some((value) => !Number.isFinite(value) || value < 0)
+    || (evidence.fps !== undefined && evidence.fps < 1)
+    || !Number.isFinite(evaluatedAtMs)
+    || new Date(evaluatedAtMs).toISOString() !== evidence.evaluatedAt
+    || !validDispatch
+    || !dispatchStateMatches
+    || !disabledStateMatches
+    || canonicalByteLength > 64 * 1_024
+  ) {
+    throw new Error('AUTO_BGM_DECISION_EVIDENCE_INVALID');
+  }
+
+  hashEditronCanonicalJsonV1(evidence);
 }
+
+export function autoBgmDecisionEvidenceHashV1(
+  evidence: AutoBgmDecisionEvidence,
+): string {
+  assertAutoBgmDecisionEvidenceV1(evidence);
+  return hashEditronCanonicalJsonV1(evidence);
+}
+
+const AUTO_BGM_DECISION_STATUSES = new Set<AutoBgmDecisionStatus>([
+  'missing-recommendation',
+  'user-disabled',
+  'not-recommended',
+  'storyboard-owned',
+  'provider-unavailable',
+  'too-short',
+  'dispatched',
+  'dispatch-failed',
+  'eligible-not-dispatched',
+]);
 
 function finitePositiveNumber(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;

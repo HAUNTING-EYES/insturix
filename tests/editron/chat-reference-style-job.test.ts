@@ -228,7 +228,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -432,7 +432,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'ckpt-interrupted',
       'user-1',
-      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -593,7 +593,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-style-1')?.status).toBe('rolled_back');
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
@@ -670,7 +670,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
   });
@@ -934,6 +934,8 @@ function project(content: 'before' | 'after') {
   return {
     projectId: 'project-1',
     userId: 'user-1',
+    projectRevision: content === 'before' ? 4 : 5,
+    updatedAt: new Date(ROLLBACK_RECEIPT.expectedRevision.compatibilityUpdatedAt),
     fps: 30,
     durationInFrames: 300,
     overlays: [{
@@ -971,7 +973,7 @@ function installCheckpointSpies(order: string[]) {
     userId: string,
     projectId: string,
     receiptId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ) => {
     const value = checkpoints.get(checkpointId);
     if (!value || value.userId !== userId || value.projectId !== projectId) {

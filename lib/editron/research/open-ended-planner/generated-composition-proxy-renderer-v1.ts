@@ -17,7 +17,11 @@ import {
   type GeneratedCompositionProgramV1,
   type GeneratedCompositionSourceBundleV1,
 } from './generated-composition-program-v1';
-import { verifyGeneratedCompositionProgramV1 } from './generated-composition-program-verifier-v1';
+import {
+  resolveGeneratedCompositionVisualSourceKindV1,
+  verifyGeneratedCompositionProgramV1,
+  type GeneratedCompositionVisualSourceKindV1,
+} from './generated-composition-program-verifier-v1';
 
 const COMPOSITION_ID = 'GeneratedCompositionProxyV1';
 const ENTRY_SOURCE = `import { registerRoot } from 'remotion';\nimport { Root } from './Root';\nregisterRoot(Root);\n`;
@@ -143,7 +147,7 @@ async function renderVerifiedGeneratedCompositionProxyV1(
   await fs.rm(workspaceDir, { recursive: true, force: true });
   await Promise.all([fs.mkdir(publicDir, { recursive: true }), fs.mkdir(stillDir, { recursive: true })]);
 
-  const sourceManifest = await materializeSources(input.program, input.materializedInputs, publicDir);
+  const sourceManifest = await materializeSources(input.program, input.evidencePack, input.materializedInputs, publicDir);
   const fontManifest = await materializeFonts(input.program, input.materializedInputs, publicDir);
   const inputBytes = [...sourceManifest, ...fontManifest].reduce((sum, item) => sum + item.bytes, 0);
   if (inputBytes > input.program.resourceBudget.maxInputBytes) throw new Error(`Generated composition materialized inputs exceed budget: ${inputBytes}`);
@@ -227,7 +231,7 @@ function buildRootSource(program: GeneratedCompositionProgramV1, sources: Materi
   const manifest = {
     canvas: program.canvas,
     parameters: Object.fromEntries(program.exposedParameters.map(({ parameterId, defaultValue }) => [parameterId, defaultValue])),
-    sources: sources.map(({ slotId, publicFileName, startFrame, endExclusiveFrame }) => ({ slotId, publicFileName, startFrame, endExclusiveFrame })),
+    sources: sources.map(({ slotId, publicFileName, mediaKind, startFrame, endExclusiveFrame }) => ({ slotId, publicFileName, mediaKind, startFrame, endExclusiveFrame })),
     fonts: fonts.map(({ slotId, publicFileName, family, weight }) => ({ slotId, publicFileName, family, weight })),
     textSlots: program.textSlots,
     layers: program.declaredLayers.map(({ layerId, kind, zIndex }) => ({ layerId, kind, zIndex })),
@@ -235,19 +239,51 @@ function buildRootSource(program: GeneratedCompositionProgramV1, sources: Materi
   return `import React from 'react';\nimport { Composition } from 'remotion';\nimport { GeneratedComposition } from './GeneratedComposition';\nimport { GeneratedCompositionProvider } from '${GENERATED_COMPOSITION_API_ID_V1}';\nconst manifest=${JSON.stringify(manifest)};\nconst Scene=()=> <GeneratedCompositionProvider manifest={manifest}><GeneratedComposition /></GeneratedCompositionProvider>;\nexport const Root=()=> <Composition id="${COMPOSITION_ID}" component={Scene} durationInFrames={${duration}} fps={${fps}} width={${program.canvas.width}} height={${program.canvas.height}} />;\n`;
 }
 
-interface MaterializedSource { slotId: string; publicFileName: string; startFrame: number; endExclusiveFrame: number; bytes: number }
+interface MaterializedSource { slotId: string; publicFileName: string; mediaKind: GeneratedCompositionVisualSourceKindV1; startFrame: number; endExclusiveFrame: number; bytes: number }
 interface MaterializedFont { slotId: string; publicFileName: string; family: string; weight: number; bytes: number }
 
-async function materializeSources(program: GeneratedCompositionProgramV1, inputs: MaterializedInputsV1, publicDir: string): Promise<MaterializedSource[]> {
+async function materializeSources(program: GeneratedCompositionProgramV1, evidencePack: unknown, inputs: MaterializedInputsV1, publicDir: string): Promise<MaterializedSource[]> {
+  const identities = sourceMediaIdentities(evidencePack);
   return Promise.all(program.sourceSlots.map(async (slot) => {
+    const identity = identities.find((candidate) => candidate.assetId === slot.assetId);
+    const mediaKind = resolveGeneratedCompositionVisualSourceKindV1(identity, slot.sourceRange);
+    if (!mediaKind) throw new Error(`Generated composition visual source kind is unsupported: ${slot.assetId}`);
     const sourcePath = inputs.assetPaths[slot.assetId];
     if (!sourcePath) throw new Error(`Generated composition materialized asset is missing: ${slot.assetId}`);
     const { bytes, sha256 } = await verifiedInput(sourcePath);
     if (`sha256:${sha256}` !== slot.assetVersion) throw new Error(`Generated composition asset hash drift: ${slot.assetId}`);
-    const publicFileName = `asset-${slot.slotId}${safeExtension(sourcePath, ['.mp4'])}`;
+    const startFrame = positiveOrZeroInteger(slot.sourceRange.start, 'source start');
+    const endExclusiveFrame = positiveInteger(slot.sourceRange.endExclusive, 'source end');
+    if (mediaKind === 'STILL_IMAGE' && (startFrame !== 0 || endExclusiveFrame !== 1)) {
+      throw new Error(`Generated composition still image range must be [0,1): ${slot.assetId}`);
+    }
+    const extension = safeExtension(sourcePath, mediaKind === 'STILL_IMAGE' ? ['.png', '.jpg', '.jpeg', '.webp'] : ['.mp4']);
+    if (mediaKind === 'STILL_IMAGE') await assertStaticImageInput(sourcePath, extension);
+    const publicFileName = `asset-${slot.slotId}${extension}`;
     await fs.copyFile(sourcePath, path.join(publicDir, publicFileName));
-    return { slotId: slot.slotId, publicFileName, startFrame: positiveOrZeroInteger(slot.sourceRange.start, 'source start'), endExclusiveFrame: positiveInteger(slot.sourceRange.endExclusive, 'source end'), bytes };
+    return { slotId: slot.slotId, publicFileName, mediaKind, startFrame, endExclusiveFrame, bytes };
   }));
+}
+
+function sourceMediaIdentities(evidencePack: unknown): Record<string, unknown>[] {
+  if (!evidencePack || typeof evidencePack !== 'object' || Array.isArray(evidencePack)) return [];
+  const facts = (evidencePack as { facts?: unknown }).facts;
+  return Array.isArray(facts)
+    ? facts.filter((fact): fact is Record<string, unknown> => Boolean(fact) && typeof fact === 'object' && !Array.isArray(fact) && fact.kind === 'SOURCE_MEDIA_IDENTITY')
+    : [];
+}
+
+async function assertStaticImageInput(filePath: string, extension: string): Promise<void> {
+  let metadata: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
+  try {
+    metadata = await sharp(filePath, { animated: true }).metadata();
+  } catch {
+    throw new Error(`Generated composition still image cannot be decoded: ${filePath}`);
+  }
+  const expectedFormat = extension === '.png' ? 'png' : extension === '.webp' ? 'webp' : 'jpeg';
+  if (metadata.format !== expectedFormat || !metadata.width || !metadata.height || (metadata.pages ?? 1) !== 1) {
+    throw new Error(`Generated composition still image format or frame count is invalid: ${filePath}`);
+  }
 }
 
 async function materializeFonts(program: GeneratedCompositionProgramV1, inputs: MaterializedInputsV1, publicDir: string): Promise<MaterializedFont[]> {

@@ -31,31 +31,34 @@ export async function POST(request: NextRequest) {
     const numericTotalParts = Number(totalParts);
     const numericPartSize = Number(partSize);
 
-    if (!filename || !contentType || !numericTotalSize || !numericTotalParts) {
+    if (!filename || !contentType
+      || !Number.isSafeInteger(numericTotalSize) || numericTotalSize < 1
+      || !Number.isSafeInteger(numericTotalParts) || numericTotalParts < 1
+      || !Number.isSafeInteger(numericPartSize) || numericPartSize < 1) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: filename, contentType, totalSize, totalParts' },
+        { success: false, error: 'Valid filename, contentType, totalSize, totalParts and partSize are required' },
         { status: 400 },
       );
     }
 
-    // R2 hard cap (multipart): 5 TiB max object, 10,000 parts, 5 MiB – 5 GiB per part.
+    // R2 hard cap: 4.995 TiB, 10,000 parts, 5 MiB–4.995 GiB per part.
     // The server recomputes the authoritative plan from the size rather than trusting the client.
     if (numericTotalSize > R2_MAX_OBJECT_BYTES) {
       return NextResponse.json(
-        { success: false, error: 'File too large. Maximum size is 5TB.' },
+        { success: false, error: 'File too large. Maximum size is 4.995 TiB.' },
         { status: 413 },
       );
     }
-    if (numericPartSize && !isValidPartSize(numericPartSize)) {
+    if (!isValidPartSize(numericPartSize)) {
       return NextResponse.json(
         {
           success: false,
-          error: `Part size must be between ${Math.round(R2_MIN_PART_BYTES / 1024 / 1024)}MB and ${Math.round(R2_MAX_PART_BYTES / 1024 / 1024 / 1024 / 1024)}GB per part.`,
+          error: `Part size must be between ${Math.round(R2_MIN_PART_BYTES / 1024 / 1024)} MiB and ${(R2_MAX_PART_BYTES / 1024 / 1024 / 1024).toFixed(3)} GiB per part.`,
         },
         { status: 400 },
       );
     }
-    const resolvedParts = Math.ceil(numericTotalSize / (numericPartSize || 1));
+    const resolvedParts = Math.ceil(numericTotalSize / numericPartSize);
     if (numericTotalParts !== resolvedParts || resolvedParts > R2_MAX_PARTS) {
       return NextResponse.json(
         {

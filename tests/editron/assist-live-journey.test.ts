@@ -18,8 +18,8 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
   assetResolver: { resolveAssetUrl: vi.fn(async (id: string) => `https://cdn.test/${id}`) },
 }));
 vi.mock('@/lib/editron/services/r2-service', () => ({ isR2Available: () => false, getR2PublicUrl: (id: string) => `https://r2/${id}` }));
-const refundCredits = vi.fn(async () => ({ success: true }));
-vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundCredits } }));
+const refundForWallet = vi.fn(async () => ({ success: true }));
+vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundForWallet } }));
 // The canonical builder's shape validity is unit-tested elsewhere; here we prove
 // real-DB state transitions, so hydration is deterministic.
 vi.mock('@/lib/editron/services/multi-asset-director-context', () => ({
@@ -102,10 +102,11 @@ suite('DIRECTOR MODE live journey (real preview Mongo, zero money)', () => {
   it('FAIL + REDELIVERY: settle transitions once; a re-delivered failure moves no money', async () => {
     const id = `${PREFIX}fail`;
     await db.collection('projects').insertOne({ projectId: id, editMode: 'assist', autoEditStatus: 'analyzing_deep', assistCreditTransactionId: 'dm_tx', assistChargedCredits: 10, userId: 'dm_user' });
-    refundCredits.mockClear();
-    expect(await settleAssistScanFailure(db as never, id, 'live fail')).toBe('refunded');
-    expect(await settleAssistScanFailure(db as never, id, 'live redelivery')).toBe('transition-lost');
-    expect(refundCredits).toHaveBeenCalledOnce();
+    refundForWallet.mockClear();
+    const run = { projectId: id, userId: 'dm_user', creditTransactionId: 'dm_tx' };
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'live fail' })).toBe('refunded');
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'live redelivery' })).toBe('unverifiable-run');
+    expect(refundForWallet).toHaveBeenCalledOnce();
     const doc = await db.collection('projects').findOne({ projectId: id });
     expect(doc?.autoEditStatus).toBe('scan_failed');
     expect(doc?.assistCreditTransactionId).toBeUndefined();

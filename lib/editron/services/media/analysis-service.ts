@@ -28,7 +28,6 @@ import { nanoid } from "nanoid";
 
 import { assetResolver } from "../asset-resolver";
 import { assertRemotionSiteFresh } from "../remotion-site-version";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 export { getFFmpegPath } from "./ffmpeg-runtime";
 import { getFFmpegPath } from "./ffmpeg-runtime";
 
@@ -377,12 +376,6 @@ async function sendAudioToGemini(params: {
   const audioBuffer = await fs.readFile(params.audioFilePath);
   const base64Audio = audioBuffer.toString("base64");
 
-  console.log(
-    "[GEMINI-AUDIO] Sending audio, size:",
-    audioBuffer.length,
-    "bytes",
-  );
-
   const prompt =
     params.prompt ||
     `<role>You are a professional audio editor analyzing this audio clip for editing purposes.</role>
@@ -429,8 +422,6 @@ RULE 9 — If nothing found, return empty arrays but always provide a summary.
     const response = await result.response;
     const text = response.text();
 
-    console.log("[GEMINI-AUDIO] Raw response:", text.substring(0, 500));
-
     // Parse JSON response (handle markdown fences)
     let cleanText = text.trim();
     if (cleanText.startsWith("```json")) {
@@ -440,10 +431,6 @@ RULE 9 — If nothing found, return empty arrays but always provide a summary.
     }
 
     const parsed = JSON.parse(cleanText);
-    console.log(
-      "[GEMINI-AUDIO] Parsed response:",
-      JSON.stringify(parsed, null, 2),
-    );
 
     return {
       silences: Array.isArray(parsed.silences) ? parsed.silences : [],
@@ -561,6 +548,7 @@ export async function analyzeClipAudioService(params: {
   userId: string;
   source: "timeline" | "asset";
   assetId?: string;
+  assetUrl?: string;
   timelineStartFrame?: number;
   startFrame: number;
   endFrame: number;
@@ -579,27 +567,22 @@ export async function analyzeClipAudioService(params: {
     description: string;
   }>;
 }> {
-  console.log("[ANALYZE-CLIP-AUDIO] Params:", params);
-
   // 1) Sample audio
   const audioFilePath = await sampleAudioClip({
     projectId: params.projectId,
     source: params.source,
     assetId: params.assetId,
+    assetUrl: params.assetUrl,
     startFrame: params.startFrame,
     endFrame: params.endFrame,
     fps: params.fps,
     userId: params.userId,
   });
 
-  console.log("[ANALYZE-CLIP-AUDIO] Sampled audio:", audioFilePath);
-
   // 2) Send to Gemini with proper prompt
   const geminiResult = await sendAudioToGemini({
     audioFilePath,
   });
-
-  console.log("[ANALYZE-CLIP-AUDIO] Gemini result:", geminiResult);
 
   // 3) Convert seconds to timeline frames
   const outputStartFrame = params.timelineStartFrame ?? params.startFrame;

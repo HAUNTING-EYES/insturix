@@ -15,6 +15,8 @@ import {
 } from './generated-composition-program-v1';
 
 type JsonRecord = Record<string, unknown>;
+export type GeneratedCompositionVisualSourceKindV1 = 'VIDEO' | 'STILL_IMAGE';
+
 interface SourceReferencesV1 {
   sourceSlots: Set<string>;
   textSlots: Set<string>;
@@ -108,10 +110,39 @@ function validateSources(program: GeneratedCompositionProgramV1, facts: JsonReco
     if (!identity || !allowed.has(slot.assetId) || slot.assetVersion !== identity.assetVersion) diagnostics.push(`SOURCE_IDENTITY_OR_RIGHTS_DRIFT:${slot.slotId}`);
     if (identity && (!sameRate(slot.timebase.rate, record(record(identity.timebase).rate)) || slot.timebase.timebaseId !== record(identity.timebase).timebaseId)) diagnostics.push(`SOURCE_TIMEBASE_DRIFT:${slot.slotId}`);
     const start = integer(slot.sourceRange.start); const end = integer(slot.sourceRange.endExclusive);
+    const mediaKind = resolveGeneratedCompositionVisualSourceKindV1(identity, slot.sourceRange);
+    if (!mediaKind) diagnostics.push(`SOURCE_MEDIA_KIND_UNSUPPORTED:${slot.slotId}`);
+    if (mediaKind === 'STILL_IMAGE' && (start !== 0 || end !== 1)) diagnostics.push(`STILL_IMAGE_SOURCE_RANGE_INVALID:${slot.slotId}`);
     const windows = records(windowFact.windows).find((entry) => entry.assetId === slot.assetId);
     const legal = records(windows?.ranges).some((range) => start >= integer(range.start) && end <= integer(range.endExclusive) && end > start);
     if (!legal) diagnostics.push(`SOURCE_RANGE_UNAUTHORISED:${slot.slotId}`);
   }
+}
+
+/**
+ * SOURCE_MEDIA_IDENTITY owns media kind; programs bind only its asset/version.
+ * Legacy generated-composition evidence predates mediaKind and can only mean
+ * video because V1 previously exposed a muted-video source owner. A one-frame
+ * source never receives that compatibility inference and must declare
+ * STILL_IMAGE.
+ */
+export function resolveGeneratedCompositionVisualSourceKindV1(
+  value: unknown,
+  sourceRange?: { start?: unknown; endExclusive?: unknown },
+): GeneratedCompositionVisualSourceKindV1 | null {
+  const identity = record(value);
+  const mediaKind = text(identity.mediaKind);
+  if (mediaKind === 'STILL_IMAGE') return 'STILL_IMAGE';
+  if (mediaKind === 'VIDEO' || mediaKind.startsWith('VIDEO_')) return 'VIDEO';
+  if (mediaKind) return null;
+  const extent = record(identity.extent);
+  const start = integer(extent.start ?? sourceRange?.start);
+  const end = integer(extent.endExclusive ?? sourceRange?.endExclusive);
+  return Number.isSafeInteger(start)
+    && Number.isSafeInteger(end)
+    && end - start > 1
+    ? 'VIDEO'
+    : null;
 }
 
 function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: JsonRecord[], diagnostics: string[]): void {
@@ -126,7 +157,10 @@ function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: Json
   for (const font of program.fontSlots) {
     const identity = facts.find((entry) => entry.kind === 'FONT_IDENTITY' && entry.fontAssetId === font.fontAssetId);
     if (!identity || !['INTERNAL_OWNED_FIXTURE', 'BUNDLED_DEPENDENCY_LICENSED_FIXTURE'].includes(text(identity.rightsStatus)) || identity.fontAssetVersion !== font.fontAssetVersion
-      || identity.fileSha256 !== font.fileSha256 || identity.licenseId !== font.licenseId) diagnostics.push(`FONT_IDENTITY_OR_RIGHTS_DRIFT:${font.slotId}`);
+      || identity.fileSha256 !== font.fileSha256 || identity.licenseId !== font.licenseId
+      || declaredValueDrifts(identity, 'family', font.family)
+      || declaredValueDrifts(identity, 'face', font.face)
+      || declaredValueDrifts(identity, 'weight', font.weight)) diagnostics.push(`FONT_IDENTITY_OR_RIGHTS_DRIFT:${font.slotId}`);
   }
   if (!uniqueIds(program.declaredLayers.map(({ layerId }) => layerId)) || !uniqueNumbers(program.declaredLayers.map(({ zIndex }) => zIndex))) diagnostics.push('DECLARED_LAYER_ID_OR_ORDER_INVALID');
   for (const layer of program.declaredLayers) {
@@ -238,6 +272,7 @@ function strings(value: unknown): string[] { return Array.isArray(value) ? value
 function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function declaredValueDrifts(recordValue: JsonRecord, key: string, actual: unknown): boolean { return Object.hasOwn(recordValue, key) && recordValue[key] !== actual; }
 function uniqueIds(values: string[]): boolean { return values.every(Boolean) && new Set(values).size === values.length; }
 function uniqueNumbers(values: number[]): boolean { return values.every(Number.isSafeInteger) && new Set(values).size === values.length; }
 function sameSet(left: string[], right: string[]): boolean { return left.length === right.length && right.every((value) => left.includes(value)); }

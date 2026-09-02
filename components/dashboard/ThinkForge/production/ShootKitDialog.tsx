@@ -3,8 +3,8 @@
 /**
  * ShootKitDialog — the Shoot Kit entry surface.
  *
- * Owns ONLY the network round-trips and view routing. The backend returns either a
- * legacy physical ShotPlan or a semantic V3 capture brief. This dialog edits only
+ * Owns ONLY the network round-trips and view routing. The backend returns a
+ * semantic V3 capture brief. This dialog edits only
  * explicit capability inputs and never infers camera geometry or creative form.
  *
  * Robustness: every request is abortable and aborted on close / session / script
@@ -15,11 +15,12 @@
 import React from "react";
 import {
   AlertCircle,
-  CheckCircle2,
   Clapperboard,
   Loader2,
   RefreshCw,
+  WandSparkles,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -31,25 +32,39 @@ import type { ProductionCapabilityProfile } from "@/lib/thinkforge/production/pr
 import type { ScriptShotPlanIssue } from "@/lib/thinkforge/production/build-script-shot-plan";
 import type { CaptureAcquisitionDecisionInput } from "@/lib/thinkforge/production/capture-acquisition-decisions";
 import type { TreatmentCapturePlan } from "@/lib/thinkforge/production/semantic-capture-plan";
-import type { ShotPlan } from "@/lib/thinkforge/production/shot-plan";
+import type { PhysicalCaptureDesign } from "@/lib/thinkforge/schemas/physical-capture-design";
+import type { TechnicalCapturePlan } from "@/lib/thinkforge/schemas/technical-capture-plan";
+import type {
+  ApprovedTechnicalCaptureSnapshot,
+  CaptureCalibrationConfirmationSchema,
+} from "@/lib/thinkforge/schemas/capture-calibration-approval";
+import type { z } from "zod";
 import { ShootKitProfileForm, type ShootKitSettings } from "./ShootKitProfileForm";
-import { ShootKitResult } from "./ShootKitResult";
 import { CaptureAcquisitionDecisionForm } from "./CaptureAcquisitionDecisionForm";
 import { TreatmentCapturePlanResult } from "./TreatmentCapturePlanResult";
+import { TechnicalCapturePlanResult } from "./TechnicalCapturePlanResult";
 
 const ENDPOINT = "/api/services/thinkforge/production/shot-plan";
+
+type TechnicalCaptureState =
+  | { status: "not-required" }
+  | { status: "needs-profile" }
+  | { status: "not-generated"; design?: PhysicalCaptureDesign; staleReason?: string }
+  | { status: "needs-calibration"; design: PhysicalCaptureDesign; plan: TechnicalCapturePlan; staleReason?: string }
+  | { status: "approved"; design: PhysicalCaptureDesign; plan: TechnicalCapturePlan; approval: ApprovedTechnicalCaptureSnapshot };
 
 type ShotPlanResponse = (
   | { status: "needs-profile"; profile: null; settings: ShootKitSettings | null; plan: null; issues: [] }
   | { status: "needs-user-input"; profile: ProductionCapabilityProfile | null; settings: ShootKitSettings | null; plan: null; issues: ScriptShotPlanIssue[] }
-  | { status: "ready"; profile: ProductionCapabilityProfile; settings: ShootKitSettings; plan: ShotPlan; issues: [] }
   | { status: "capture-projection"; profile: ProductionCapabilityProfile | null; settings: ShootKitSettings | null; plan: null; capturePlan: TreatmentCapturePlan; issues: [] }
 ) & {
   documentVersion: number;
-  approval:
-    | { status: "preview"; reason: string }
-    | { status: "approved"; snapshotHash: string; approvedAt: string; approvedBy: string };
+  acquisitionDecisionSetHash: string | null;
+  approval: { status: "preview"; reason: string };
+  technicalCapture?: TechnicalCaptureState;
 };
+
+type CalibrationConfirmation = z.infer<typeof CaptureCalibrationConfirmationSchema>;
 
 interface HttpError {
   message: string;
@@ -150,7 +165,7 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
     if (submitLockRef.current || !sessionId) return;
     const current = dataRef.current;
     if (!current || !Number.isInteger(current.documentVersion) || current.documentVersion < 1) {
-      setError({ message: "Reload the Shoot Kit before approving this plan." });
+      setError({ message: "Reload the Shoot Kit before updating this capture brief." });
       return;
     }
     submitLockRef.current = true;
@@ -168,7 +183,7 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
           settings,
         }),
       });
-      if (result.ok && (result.body.status === "ready" || result.body.status === "capture-projection")) {
+      if (result.ok && result.body.status === "capture-projection") {
         setEditing(false);
       }
     } finally {
@@ -185,7 +200,7 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
     if (
       !current
       || current.status !== "capture-projection"
-      || current.capturePlan.unclassifiedRequirements.length === 0
+      || current.capturePlan.decisionRequests.length === 0
       || !Number.isInteger(current.documentVersion)
       || current.documentVersion < 1
     ) {
@@ -204,7 +219,73 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
           sessionId,
           scriptId,
           expectedDocumentVersion: current.documentVersion,
+          expectedAcquisitionDecisionSetHash: current.acquisitionDecisionSetHash,
           decisions,
+        }),
+      });
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }, [request, scriptId, sessionId]);
+
+  const submitTechnicalCapture = React.useCallback(async () => {
+    if (submitLockRef.current || !sessionId || !scriptId) return;
+    const current = dataRef.current;
+    if (
+      !current
+      || current.status !== "capture-projection"
+      || current.capturePlan.status !== "capture-brief-ready"
+    ) {
+      setError({ message: "Resolve the listed acquisition and calibration inputs before building a technical setup." });
+      return;
+    }
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await request({
+        url: ENDPOINT,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate-technical-capture",
+          sessionId,
+          scriptId,
+          expectedDocumentVersion: current.documentVersion,
+        }),
+      });
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }, [request, scriptId, sessionId]);
+
+  const submitCalibration = React.useCallback(async (
+    confirmations: CalibrationConfirmation[],
+  ) => {
+    if (submitLockRef.current || !sessionId || !scriptId) return;
+    const current = dataRef.current;
+    if (
+      !current
+      || current.status !== "capture-projection"
+      || current.capturePlan.status !== "capture-brief-ready"
+    ) {
+      setError({ message: "Resolve the listed acquisition and calibration inputs before approving a technical setup." });
+      return;
+    }
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await request({
+        url: ENDPOINT,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "approve-technical-capture",
+          sessionId,
+          scriptId,
+          expectedDocumentVersion: current.documentVersion,
+          confirmations,
         }),
       });
     } finally {
@@ -232,7 +313,16 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
     setSubmitting(false);
   }, [open]);
 
-  const showResult = (data?.status === "ready" || data?.status === "capture-projection") && !editing;
+  const showResult = data?.status === "capture-projection" && !editing;
+  const technicalCapture: TechnicalCaptureState | null = data?.status === "capture-projection"
+    ? data.technicalCapture ?? (
+        data.capturePlan.physicalCaptureRequirements.length === 0
+          ? { status: "not-required" }
+          : data.profile && data.settings
+            ? { status: "not-generated" }
+            : { status: "needs-profile" }
+      )
+    : null;
   const formIssues: ScriptShotPlanIssue[] = data?.status === "needs-user-input"
     ? data.issues
     : data?.status === "capture-projection"
@@ -242,13 +332,6 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
           questions: [],
         }))
       : [];
-  const captureApprovalInput = data?.status === "capture-projection"
-    && data.capturePlan.status === "capture-brief-ready"
-    && data.profile !== null
-    && data.settings !== null
-    ? { profile: data.profile, settings: data.settings }
-    : null;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -302,80 +385,71 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
                 <RefreshCw className="h-3.5 w-3.5" /> Retry
               </button>
             </div>
-          ) : showResult && data.status === "ready" ? (
-            <>
-              <div
-                className="mb-3 flex items-center justify-between gap-3 border-y px-3 py-2"
-                style={{ borderColor: "#282724", background: data.approval.status === "approved" ? "#5FA36A12" : "#D4A65210" }}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  {data.approval.status === "approved" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[#5FA36A]" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 shrink-0 text-[#D4A652]" />
-                  )}
-                  <span className="text-[11px] text-[#B5B2A8]">
-                    {data.approval.status === "approved"
-                      ? `Approved for document v${data.documentVersion}`
-                      : `Preview for document v${data.documentVersion}`}
-                  </span>
-                </div>
-                {data.approval.status !== "approved" && (
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => void submitPlan(data.profile, data.settings)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-[7px] border border-[#D4A65255] px-3 py-1.5 text-[11px] text-[#D4A652] transition-colors duration-[250ms] hover:bg-[#D4A65212] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    Approve plan
-                  </button>
-                )}
-              </div>
-              <ShootKitResult plan={data.plan} onEditInputs={() => setEditing(true)} refreshing={refreshing} />
-            </>
           ) : showResult && data.status === "capture-projection" ? (
             <>
-              {captureApprovalInput && (
-                <div
-                  className="mb-3 flex items-center justify-between gap-3 border-y px-3 py-2"
-                  style={{ borderColor: "#282724", background: data.approval.status === "approved" ? "#5FA36A12" : "#D4A65210" }}
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    {data.approval.status === "approved" ? (
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#5FA36A]" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 shrink-0 text-[#D4A652]" />
-                    )}
-                    <span className="text-[11px] text-[#B5B2A8]">
-                      {data.approval.status === "approved"
-                        ? `Approved for document v${data.documentVersion}`
-                        : `Capture brief for document v${data.documentVersion}`}
-                    </span>
-                  </div>
-                  {data.approval.status !== "approved" && (
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => void submitPlan(captureApprovalInput.profile, captureApprovalInput.settings)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-[7px] border border-[#D4A65255] px-3 py-1.5 text-[11px] text-[#D4A652] transition-colors duration-[250ms] hover:bg-[#D4A65212] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      Approve brief
-                    </button>
-                  )}
-                </div>
-              )}
+              <div
+                className="mb-3 flex items-start gap-2 border-y px-3 py-2"
+                style={{ borderColor: "#282724", background: "#D4A65210" }}
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#D4A652]" />
+                <span className="text-[11px] leading-relaxed text-[#B5B2A8]">
+                  {data.capturePlan.status === "capture-brief-ready"
+                    ? `Capture requirements confirmed for document v${data.documentVersion}. Technical setup is not approved until measured camera, subject, space, light, and audio evidence is resolved.`
+                    : `Capture planning preview for document v${data.documentVersion}. Resolve the listed decisions or calibration inputs before technical planning.`}
+                </span>
+              </div>
               <TreatmentCapturePlanResult
                 plan={data.capturePlan}
                 onEditInputs={data.capturePlan.physicalCaptureRequirements.length > 0 ? () => setEditing(true) : undefined}
                 refreshing={refreshing}
               />
               <CaptureAcquisitionDecisionForm
-                requirements={data.capturePlan.unclassifiedRequirements}
+                requests={data.capturePlan.decisionRequests}
                 submitting={submitting}
                 onSubmit={(decisions) => void submitCaptureAcquisition(decisions)}
               />
+              {technicalCapture?.status === "not-generated"
+                && data.capturePlan.status === "capture-brief-ready"
+                && (
+                  <section className="flex flex-wrap items-center justify-between gap-3 border-t border-[#1C1B19] pt-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium text-[#ECE9E1]">Build the real setup from confirmed resources</p>
+                      <p className="mt-1 text-[10px] leading-relaxed text-[#7A776E]">
+                        This explicit action creates a document-bound technical plan. Opening Shoot Kit never starts generation.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="gold"
+                      size="sm"
+                      disabled={submitting || refreshing}
+                      onClick={() => void submitTechnicalCapture()}
+                    >
+                      {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <WandSparkles className="h-3 w-3" />}
+                      Build technical setup
+                    </Button>
+                  </section>
+                )}
+              {technicalCapture?.status === "needs-profile" && (
+                <section className="flex justify-end border-t border-[#1C1B19] pt-3">
+                  <Button type="button" variant="neutral" size="sm" onClick={() => setEditing(true)}>
+                    Confirm available resources
+                  </Button>
+                </section>
+              )}
+              {(technicalCapture?.status === "needs-calibration" || technicalCapture?.status === "approved")
+                && data.profile
+                && (
+                  <TechnicalCapturePlanResult
+                    design={technicalCapture.design}
+                    plan={technicalCapture.plan}
+                    profile={data.profile}
+                    approval={technicalCapture.status === "approved" ? technicalCapture.approval : undefined}
+                    submitting={submitting}
+                    onEditInputs={() => setEditing(true)}
+                    onApprove={(confirmations) => void submitCalibration(confirmations)}
+                  />
+                )}
             </>
           ) : (
             <ShootKitProfileForm

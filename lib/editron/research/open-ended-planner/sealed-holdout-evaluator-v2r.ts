@@ -42,6 +42,8 @@ const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_2' as const;
 const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_CURRENT_PROOF_ELIGIBILITY_1' as const;
+export const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V4R =
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V4R_FINAL_STATE_EQUIVALENCE_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
@@ -116,6 +118,12 @@ export type BudgetedSealedHoldoutEvaluationReceiptV3R2 = Readonly<
       'runtimeBudgetAssessment'
     ];
     receiptSha256: string;
+  }
+>;
+
+export type BudgetedSealedHoldoutEvaluationReceiptV4R = Readonly<
+  Omit<BudgetedSealedHoldoutEvaluationReceiptV3R2, 'version'> & {
+    version: typeof BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V4R;
   }
 >;
 
@@ -297,6 +305,54 @@ export function evaluateBudgetedSealedHoldoutTraceV3R2(input: {
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
+/** Current proof-eligibility policy. HOLD-04 topology is deliberately left to
+ * the native owner replay; the evaluator only requires one-or-more successful
+ * cuts and a final read bound to the last successful writer. Failed mutation
+ * attempts remain explicit diagnostics and cannot be hidden by a later pass. */
+export function evaluateBudgetedSealedHoldoutTraceV4R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
+}): Readonly<BudgetedSealedHoldoutEvaluationReceiptV4R> {
+  const manifest = assertSealedHoldoutCohortManifestV3R2(input.manifest);
+  const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV3R2(input.trace);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V4R,
+    structuralPolicy:
+      'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V4_FINAL_WRITER_STATE_EQUIVALENCE',
+    resourceGuardBound: true,
+    requirePostMutationStateRead: true,
+    h04FinalStateEquivalence: true,
+  });
+  const currentDiagnostics = currentExecutableProofDiagnostics(
+    input.caseId,
+    trace.nodes,
+    evaluated.assessment,
+  );
+  const diagnostics = [...new Set([
+    ...evaluated.diagnostics,
+    ...currentDiagnostics,
+  ])].sort(compareUtf16);
+  const assessment = evaluated.assessment === 'READY_FOR_PROOF'
+    && currentDiagnostics.length > 0
+    ? 'FAIL' as const
+    : evaluated.assessment;
+  const material = {
+    version: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V4R,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+    diagnostics,
+    assessment,
+    proofRequired: assessment === 'READY_FOR_PROOF',
+    runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
+    runtimeBudgetAssessment: trace.runtimeBudgetAssessment,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
 function currentExecutableProofDiagnostics(
   caseId: string,
   nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[],
@@ -333,6 +389,7 @@ function evaluateTrace(input: Readonly<{
   structuralPolicy: string;
   resourceGuardBound: boolean;
   requirePostMutationStateRead: boolean;
+  h04FinalStateEquivalence?: boolean;
 }>): Omit<SealedHoldoutEvaluationReceiptV2R,
   'version' | 'authority' | 'receiptSha256'> {
   const { manifest, trace } = input;
@@ -401,9 +458,12 @@ function evaluateTrace(input: Readonly<{
       }
       diagnostics.push(...structuralDiagnostics(
         taskId,
-        successfulNodes,
+        input.h04FinalStateEquivalence && taskId === 'HOLD-04'
+          ? trace.nodes
+          : successfulNodes,
         record(taskCase.ownerOnly),
         input.requirePostMutationStateRead,
+        input.h04FinalStateEquivalence === true,
       ));
     }
   }
@@ -436,6 +496,7 @@ function structuralDiagnostics(
   nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[],
   ownerOnly: JsonRecord,
   requirePostMutationStateRead: boolean,
+  h04FinalStateEquivalence = false,
 ): string[] {
   const ids = nodes.map(({ selectedOperatorId }) => selectedOperatorId);
   const diagnostics: string[] = [];
@@ -453,23 +514,33 @@ function structuralDiagnostics(
   } else if (taskId === 'HOLD-03') {
     if (!ids.includes('generated_composition_program')) diagnostics.push('EVAL_H03_GENERATED_COMPOSITION_MISSING');
   } else if (taskId === 'HOLD-04') {
-    if (!ids.some((id) => ['get_video_transcription', 'find_transcript_moment'].includes(id))) diagnostics.push('EVAL_H04_TRANSCRIPT_RETRIEVAL_MISSING');
-    const cut = nodes.find(({ selectedOperatorId }) => selectedOperatorId === 'cut_section');
+    const successful = nodes.filter(({ executionDisposition }) => executionDisposition === 'OK');
+    const successfulIds = successful.map(({ selectedOperatorId }) => selectedOperatorId);
+    if (!successfulIds.some((id) => ['get_video_transcription', 'find_transcript_moment'].includes(id))) diagnostics.push('EVAL_H04_TRANSCRIPT_RETRIEVAL_MISSING');
+    const cuts = successful.filter(({ selectedOperatorId }) => selectedOperatorId === 'cut_section');
+    const cut = cuts[0];
     if (!cut) diagnostics.push('EVAL_H04_CUT_MISSING');
+    if (h04FinalStateEquivalence) {
+      diagnostics.push(...nodes.filter((node) => node.executionDisposition !== 'OK'
+        && ['MUTATION', 'MUTATION_LEGACY', 'GENERATED_COMPOSITION']
+          .includes(node.operatorKind))
+        .map((node) => `EVAL_H04_UNAPPLIED_OUTCOME_ATTEMPT_VISIBLE:${node.selectedOperatorId}:${node.executionDisposition}`));
+    }
     const transcript = records(ownerOnly.evidence).find(({ kind }) => kind === 'TRANSCRIPT');
     const value = record(transcript?.value);
     const first = numbers(value.firstOccurrence);
     const pause = numbers(value.pause);
-    if (cut && first.length === 2 && pause.length === 2
+    if (!h04FinalStateEquivalence && cut && first.length === 2 && pause.length === 2
       && hashCanonicalJsonV1(cut.normalizedArguments.targetRange)
         !== hashCanonicalJsonV1({ startFrame: first[0], endFrame: pause[1] })) {
       diagnostics.push('EVAL_H04_BASELINE_CUT_RANGE_DRIFT');
     }
-    const postMutationRead = cut?.writerIssuedProjectRevision
-      ? nodes.some((node) => node.turn > cut.turn
+    const lastCut = h04FinalStateEquivalence ? cuts.at(-1) : cut;
+    const postMutationRead = lastCut?.writerIssuedProjectRevision
+      ? successful.some((node) => node.turn > lastCut.turn
         && node.selectedOperatorId === 'get_timeline_view'
         && node.normalizedArguments.expectedProjectRevision
-          === cut.writerIssuedProjectRevision)
+          === lastCut.writerIssuedProjectRevision)
       : false;
     if (requirePostMutationStateRead && !postMutationRead) {
       diagnostics.push('EVAL_H04_POST_MUTATION_STATE_READ_MISSING');

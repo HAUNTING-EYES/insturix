@@ -18,6 +18,8 @@ import {
   buildNativeVideoAudioRights,
 } from '@/lib/editron/services/native-video-audio-rights';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import { createMediaSourceQualificationV1 } from '@/lib/editron/services/media-source-qualification-v1';
+import { dispatchMediaSourceQualificationV1 } from '@/lib/editron/services/media-source-qualification-runtime-v1';
 
 export const runtime = 'nodejs';
 
@@ -336,6 +338,15 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+    const sourceQualification = createMediaSourceQualificationV1({
+      asset: {
+        assetId,
+        source: 'user-upload',
+        r2Key: gcsPath ? null : assetId,
+        gcsPath: typeof gcsPath === 'string' ? gcsPath : null,
+      },
+      now,
+    });
     const mediaAsset: MediaAsset & ThumbnailStorageFields & {
       audioRights?: AudioRightsContract;
     } = {
@@ -371,10 +382,40 @@ export async function POST(request: NextRequest) {
       ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
+      ...(sourceQualification.disposition === 'CREATED'
+        ? { sourceQualificationV1: sourceQualification.record }
+        : {}),
     };
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
     mediaAssetInserted = true;
+    if (sourceQualification.disposition === 'CREATED') {
+      try {
+        const qualificationDispatch = await dispatchMediaSourceQualificationV1({
+          assetId,
+          userId,
+          sourceBindingSha256: sourceQualification.record.sourceBindingSha256,
+        });
+        if (!qualificationDispatch.dispatched) {
+          const qualificationDiagnostic = qualificationDispatch.error ?? 'MEDIA_SOURCE_PROBE_DISPATCH_FAILED';
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            {
+              assetId,
+              userId,
+              'sourceQualificationV1.sourceBindingSha256': sourceQualification.record.sourceBindingSha256,
+              'sourceQualificationV1.status': 'PENDING',
+            },
+            { $set: { 'sourceQualificationV1.diagnostic': qualificationDiagnostic } },
+          );
+          console.error(`[Upload] Source qualification was not dispatched for ${assetId}: ${qualificationDiagnostic}`);
+        }
+      } catch (qualificationDispatchError: unknown) {
+        console.error(
+          `[Upload] Source qualification scheduling failed for ${assetId}:`,
+          qualificationDispatchError instanceof Error ? qualificationDispatchError.name : 'unknown',
+        );
+      }
+    }
     if (cleanUploadBatchId) {
       try {
         await persistMediaUploadBatchAsset(db, {

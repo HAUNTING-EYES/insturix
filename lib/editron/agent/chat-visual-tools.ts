@@ -17,6 +17,15 @@ import {
   buildSubjectAwareReframePlan,
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
+import type {
+  ProjectOverlayIdentityV1,
+  ProjectRevisionV1,
+  ProjectService,
+} from "../services/project-service";
+import {
+  readProjectRevisionV1,
+  type ProjectRevisionDocumentV1,
+} from "../services/project-revision-v1";
 import { resolveAtomicZoomForm } from "../services/zoom-form";
 import { evaluateAllTracks } from "../utils/keyframe-math";
 
@@ -91,11 +100,19 @@ interface CreateChatVisualToolsOptions {
 }
 
 export interface SubjectReframeDependencies {
-  loadProject(userId: string, projectId: string): Promise<Record<string, any> | null>;
+  loadProjectForMutation(userId: string, projectId: string): Promise<{
+    project: Record<string, any>;
+    revision: ProjectRevisionV1;
+  } | null>;
   loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
   loadSourceRasters(userId: string, assetIds: string[]): Promise<Record<string, { width: number; height: number }>>;
-  saveProject(userId: string, projectId: string, project: Record<string, any>): Promise<void>;
-  updateProject(userId: string, projectId: string, updates: Record<string, unknown>): Promise<void>;
+  saveProjectWithReceipt(input: {
+    userId: string;
+    projectId: string;
+    project: Record<string, any>;
+    expectedRevision: ProjectRevisionV1;
+    projectUpdates: Record<string, unknown>;
+  }): Promise<unknown>;
 }
 
 interface VisualMomentOptions {
@@ -435,9 +452,9 @@ const speedRampSchema = z.object({
   durationFrames: z.coerce.number().int().min(3).default(30).describe("Ramp window when only targetFrame is supplied. 30 frames matches the existing speed-change default."),
   videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional video overlay id. If omitted, the active video overlay at the ramp start is used."),
   targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the ramp range when explicit frames are not supplied."),
-  targetSpeed: z.coerce.number().min(0.01).max(4).default(0.5).describe("Middle speed multiplier before config clamping. 0.5 matches the existing EDL default."),
-  replaceExistingSpeedCurve: z.boolean().default(false).describe("Allow replacing an existing speed curve or speed keyframe track."),
-  allowDialogueSpeedRamp: z.boolean().default(false).describe("Allow retiming over caption/dialogue evidence. Keep false unless the user explicitly accepts speech sync risk."),
+  targetSpeed: z.coerce.number().min(0.01).max(4).default(2).describe("Requested source-range playback rate. The current public writer supports only rates above 1x through 4x; slower or partial forms safe-stop."),
+  replaceExistingSpeedCurve: z.boolean().default(false).describe("Legacy compatibility input. The atomic source-range owner never replaces an existing speed curve or speed track."),
+  allowDialogueSpeedRamp: z.boolean().default(false).describe("Legacy compatibility input. The atomic source-range owner always refuses dependent dialogue or overlay overlap."),
 });
 
 const fadeSchema = z.object({
@@ -693,6 +710,35 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
+async function applyVisualOverlayUpdatesAtRevisionV1(input: {
+  projectService: Pick<ProjectService, "updateOverlayAtRevisionV1">;
+  userId: string;
+  projectId: string;
+  project: ProjectRevisionDocumentV1;
+  updates: readonly {
+    overlayId: ProjectOverlayIdentityV1;
+    updates: Record<string, unknown>;
+  }[];
+}): Promise<void> {
+  let expectedRevision = readProjectRevisionV1(input.project);
+  if (!expectedRevision) {
+    throw new Error("The project revision is unavailable; reload before applying visual changes.");
+  }
+  for (const update of input.updates) {
+    const result = await input.projectService.updateOverlayAtRevisionV1(
+      input.userId,
+      input.projectId,
+      {
+        expectedRevision,
+        actorKind: "AGENT",
+        overlayId: update.overlayId,
+        updates: update.updates as any,
+      },
+    );
+    expectedRevision = result.mutationReceipt.revision;
+  }
+}
+
 export function createChatVisualTools({
   userId,
   projectId,
@@ -914,11 +960,16 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
           "apply_camera_shake",
         );
 
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { keyframeTracks: update.nextKeyframeTracks },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -938,28 +989,81 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
     async (input: z.infer<typeof speedRampSchema>) => {
       try {
         const { projectService } = await import("../services/project-service");
-        const project = await projectService.loadProject(userId, projectId);
-        if (!project) {
-          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+        const project = snapshot.project;
+        const range = resolveSpeedRampFrameRange(project, input);
+        if (!range.ok) {
+          return JSON.stringify({ status: "error", message: range.message, data: {
+            disposition: "SAFE_STOP",
+            reason: "TARGET_RANGE_UNRESOLVED",
+            warnings: range.warnings,
+          } });
+        }
+        const target = resolveSpeedRampVideoOverlay(
+          Array.isArray(project.overlays) ? project.overlays : [],
+          range.range,
+          input.videoOverlayId,
+        );
+        if (!target) {
+          return JSON.stringify({ status: "error", message: "No single video overlay owns the requested retime range.", data: {
+            disposition: "SAFE_STOP",
+            reason: "TARGET_VIDEO_NOT_FOUND",
+          } });
+        }
+        const overlayId = Number(target.id);
+        const overlayStartFrame = frame(target.from);
+        const overlayEndFrame = overlayStartFrame + duration(target.durationInFrames);
+        const targetSpeed = round3(input.targetSpeed ?? 2);
+        if (!Number.isSafeInteger(overlayId)
+          || range.range.startFrame !== overlayStartFrame
+          || range.range.endFrame !== overlayEndFrame
+          || targetSpeed <= 1
+          || targetSpeed > 4) {
+          return JSON.stringify({
+            status: "error",
+            message: "The current public speed-ramp owner supports only a complete isolated video source range at a constant rate above 1x through 4x.",
+            data: {
+              disposition: "SAFE_STOP",
+              reason: "UNSUPPORTED_PUBLIC_RETIME_FORM",
+              supportedForm: "ISOLATED_WHOLE_SOURCE_RANGE_CFR_FAST_RETIME_V1",
+              requestedRange: range.range,
+              targetOverlayRange: { startFrame: overlayStartFrame, endFrame: overlayEndFrame },
+              targetSpeed,
+            },
+          });
         }
 
-        const plan = applySpeedRampToProject(project, input);
-        if (plan.status !== "changed") {
-          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        const result = await projectService.applyVideoSourceRangeRetimeV1(
+          userId,
+          projectId,
+          {
+            expectedRevision: snapshot.revision,
+            actorKind: "AGENT",
+            overlayId,
+            playbackRate: targetSpeed,
+          },
+        );
+        if (result.disposition !== "APPLIED") {
+          return JSON.stringify({
+            status: "error",
+            message: `Source-range retime stopped without writing: ${result.reason}.`,
+            data: result,
+          });
         }
         const resultData = withAffectedFrameRanges(
-          plan,
-          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          {
+            disposition: result.disposition,
+            targetOverlayId: overlayId,
+            sourceRangeRetimeEffect: result.sourceRangeRetimeEffect,
+            sourceTimeTransform: result.sourceTimeTransform,
+            mutationReceipt: result.mutationReceipt,
+            timelineChangeReceipt: result.timelineChangeReceipt,
+            warnings: range.warnings,
+            message: `Retimed isolated video overlay ${overlayId} and issued its downstream source-time transform.`,
+          },
+          [...result.timelineChangeReceipt.affectedFrameRangesAfter],
           "apply_speed_ramp",
         );
-
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            speedCurve: update.nextSpeedCurve,
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
-
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply speed ramp." });
@@ -967,9 +1071,9 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
     },
     {
       name: "apply_speed_ramp",
-      description: `Apply a bounded speed ramp to the active video overlay over a resolved frame range.
-Use for "slow this moment down", "speed ramp on this action", or "return to normal speed after emphasis" after a selected range, target frame, find_audio_moment, or find_visual_moment.
-Writes speedCurve plus matching speed keyframes into the existing video speed path. Refuses dialogue/caption overlap and existing speed curves unless explicitly allowed.`,
+      description: `Atomically retime one complete isolated video source range faster than real time and return the writer-issued source-time transform.
+The resolved startFrame/endFrame must equal the target overlay bounds and targetSpeed must be above 1x through 4x. The ProjectService owner preserves the complete source range, ripples only non-overlapping later state, and refuses dialogue/overlay dependencies, VFR, stale revisions, insufficient handles, existing retime or local keyframes.
+Partial curves, slow motion, mixed-track reconform and arbitrary ramps are explicit capability gaps; this tool never falls back to piecemeal updateOverlay writes.`,
       schema: speedRampSchema,
     },
   );
@@ -993,11 +1097,16 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
           "apply_fade",
         );
 
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { keyframeTracks: update.nextKeyframeTracks },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1033,16 +1142,19 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
           "reorder_layer",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
-            row: update.nextRow,
-            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: {
+              row: update.nextRow,
+              ...(update.nextStyles ? { styles: update.nextStyles } : {}),
+            },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1086,13 +1198,16 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
           "move_retime_overlay",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, update.nextUpdates as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: update.nextUpdates,
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1127,15 +1242,16 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
           "apply_filter",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
-            styles: update.nextStyles,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { styles: update.nextStyles },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1155,10 +1271,11 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     async (input: z.infer<typeof subjectReframeSchema>) => {
       try {
         const dependencies = subjectReframeDependencies ?? await createSubjectReframeDependencies();
-        const project = await dependencies.loadProject(userId, projectId);
-        if (!project) {
+        const snapshot = await dependencies.loadProjectForMutation(userId, projectId);
+        if (!snapshot) {
           return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
         }
+        const project = snapshot.project;
 
         const assetIds = Array.from(new Set(
           (Array.isArray(project.overlays) ? project.overlays : [])
@@ -1174,6 +1291,7 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
           userId,
           projectId,
           project,
+          expectedRevision: snapshot.revision,
           analyses,
           sourceRastersByAssetId,
           targetAspectRatio: input.targetAspectRatio,
@@ -1212,6 +1330,7 @@ export async function applySubjectReframeMutation(
     userId: string;
     projectId: string;
     project: Record<string, any>;
+    expectedRevision: ProjectRevisionV1;
     analyses: unknown[];
     sourceRastersByAssetId: Record<string, { width: number; height: number }>;
     targetAspectRatio: "16:9" | "9:16" | "1:1" | "4:5";
@@ -1232,17 +1351,20 @@ export async function applySubjectReframeMutation(
     return updates ? { ...overlay, ...updates } : overlay;
   });
   const auditReceipt = plan.projectUpdates["intelligence.lastSubjectReframe"];
-  await dependencies.saveProject(input.userId, input.projectId, {
-    ...input.project,
-    overlays,
-    aspectRatio: plan.projectUpdates.aspectRatio,
-    playerDimensions: plan.projectUpdates.playerDimensions,
+  await dependencies.saveProjectWithReceipt({
+    userId: input.userId,
+    projectId: input.projectId,
+    project: {
+      ...input.project,
+      overlays,
+      aspectRatio: plan.projectUpdates.aspectRatio,
+      playerDimensions: plan.projectUpdates.playerDimensions,
+    },
+    expectedRevision: input.expectedRevision,
+    projectUpdates: auditReceipt
+      ? { "intelligence.lastSubjectReframe": auditReceipt }
+      : {},
   });
-  if (auditReceipt) {
-    await dependencies.updateProject(input.userId, input.projectId, {
-      "intelligence.lastSubjectReframe": auditReceipt,
-    });
-  }
   return plan;
 }
 
@@ -1253,7 +1375,10 @@ async function createSubjectReframeDependencies(): Promise<SubjectReframeDepende
   ]);
   const db = await getDatabase();
   return {
-    loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<Record<string, any> | null>,
+    loadProjectForMutation: async (userId, projectId) => {
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      return { project: snapshot.project as unknown as Record<string, any>, revision: snapshot.revision };
+    },
     loadAnalyses: async (projectId, assetIds) => {
       if (assetIds.length === 0) return [];
       return db.collection(PROJECT_ASSET_ANALYSES_COLLECTION).find({
@@ -1276,8 +1401,13 @@ async function createSubjectReframeDependencies(): Promise<SubjectReframeDepende
           : [];
       }));
     },
-    saveProject: (userId, projectId, project) => projectService.saveProject(userId, projectId, project as any),
-    updateProject: (userId, projectId, updates) => projectService.updateProject(userId, projectId, updates),
+    saveProjectWithReceipt: ({ userId, projectId, project, expectedRevision, projectUpdates }) => (
+      projectService.saveProjectWithReceipt(userId, projectId, project as any, {
+        expectedRevision,
+        projectUpdates,
+        overlayAuthority: "server",
+      })
+    ),
   };
 }
 

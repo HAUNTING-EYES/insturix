@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, a production-shaped canonical-media binding/adapter contract, concrete read-side Mongo/R2/GCS/policy-grant ports, a store-neutral issuance policy/identity owner and concrete existing-client Mongo transaction adapter, plus a product-budget reservation/settlement contract, runtime-guard owner port, atomic-ledger policy coordinator, concrete same-database CreditsService/Mongo adapter, current-route OpenAI/Google product input-token counters and crash-safe terminal-settlement redrive; zero inference; no product composition root, live route, live Atlas transaction exercise or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts and exported signed route, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, an exact Finance-owned customer-pricing locator/charge owner, and a development-Atlas/official-local-QStash cancellation-redelivery proof; zero inference; no hosted-QStash deployment proof, seeded pricing row, provider-attempt recovery proof, actual-use customer charge, broader operator certification or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -116,7 +116,8 @@ record-insert failure and precision rejection. Commit `9931ae77a` separately
 updates the stale source assertion for the existing split-refund behavior. The
 combined wallet/durable suite passes 153/153 with full typecheck and quiet
 ESLint. This is `CONCRETE_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: no real Atlas
-wallet was touched and no product root or route invokes the factory yet.
+wallet was touched. Commit `f5b192f2c` later composes the adapter/guard behind
+the product root, but no route or live execution invokes it yet.
 
 Commits `2683002e7` and `9a2a8d9ad` extract the shared runtime-accounting
 mechanics and construct the product guard only from an exact CreditsService
@@ -126,8 +127,9 @@ Commit `b8f8a439d` implements the current Google stateless-Interactions-to-
 multimodal-`countTokens` translator and conservative counter. The final focused
 cluster passes 21/21 with repository typecheck and quiet ESLint. No provider
 count or inference call occurred. This is
-`CURRENT_ROUTE_TOKEN_COUNTERS_IMPLEMENTED_NOT_LIVE_PROVEN`; durable terminal
-wallet settlement and product-root invocation remain absent.
+`CURRENT_ROUTE_TOKEN_COUNTERS_IMPLEMENTED_NOT_LIVE_PROVEN`; commits
+`ce3e988a4`, `98b663f2b` and `f5b192f2c` later add terminal settlement and
+compose both counters, but live product-root invocation remains absent.
 
 Commit `ce3e988a4` derives actual, conservative-maximum or proven pre-dispatch-
 cancellation settlement from one terminal durable-job snapshot plus its exact
@@ -146,8 +148,63 @@ after job completion returns 503; the next signed delivery settles the terminal
 snapshot while the execution owner remains at one call. The focused lifecycle
 and provider-native Plan cluster passes 32/32 with repository typecheck and
 quiet ESLint. This is
-`TERMINAL_SETTLEMENT_REDRIVE_WIRED_NOT_LIVE_WALLET_PROVEN`: the real product
-root, route and non-production Atlas/QStash/CreditsService exercise remain open.
+`TERMINAL_SETTLEMENT_REDRIVE_WIRED_NOT_LIVE_WALLET_PROVEN`: commit
+`f5b192f2c` later composes the real product root; the route and non-production
+Atlas/QStash/CreditsService exercise remain open.
+
+Commit `2e030edfd` closes the missing customer-pricing implementation without
+inventing a product rate. One immutable Finance policy binds exact owner,
+version, SHA-256, approval coverage, `main` credit pool and a rational integer
+conversion from provider nano-USD to customer centicredits. The owner performs
+one episode-total ceiling operation, rejects actual provider spend beyond the
+reservation and rejects a resulting charge beyond reserved centicredits. The
+read-only Mongo locator requires an exact owner/version/hash row. It cannot
+change a wallet or project; CreditsService remains the sole settlement writer.
+Six focused adversarial pricing cases and 27 dependent pricing/settlement/root
+tests pass with repository typecheck and quiet ESLint. No policy row was
+seeded, no live database was queried and no customer was charged, so this is
+`FINANCE_PRICING_OWNER_IMPLEMENTED_NOT_LIVE_PROVEN`, not product rollout.
+
+Commit `c5c49a593` exports the dispatcher's fixed worker path through the
+existing authenticated product-worker factory and the concrete product root.
+The Next module exposes only `runtime` and `POST`. Route composition validates
+both exact provider credential families and a required, bounded
+`EDITRON_PROVIDER_NATIVE_STORAGE_READ_TIMEOUT_MS`; any failure leaves the
+signature wrapper present but supplies no execution owner, so a signed request
+returns 503 before body parsing or job claim. Lazy ProjectService and
+CreditsService ports prevent module import from opening a database or creating
+a shadow owner; their first real call delegates to the canonical singleton/
+factory. The 40/40 route, worker, dispatch, root, pricing and auth battery passes
+with repository typecheck and quiet ESLint. This is
+`SIGNED_ROUTE_EXPORTED_NOT_DEPLOYED_OR_LIVE_PROVEN`: no QStash delivery, Atlas
+transaction, storage read, provider call, wallet movement or project mutation
+occurred.
+
+Commit `a481f4d32` supersedes only that checkpoint's no-delivery/no-wallet-
+transaction clause for the cancellation path. An explicit development-only
+probe uses the real Atlas durable-job and CreditsService records, the official
+local QStash emulator, and the signed route. It injects a crash after atomic
+cancellation settlement, redelivers the same terminal job, and proves exactly
+one reserve and one settle ledger entry, a released reservation, a cancelled
+zero-attempt job and no project record. The signed route returns 200 and the
+local QStash log reaches `DELIVERED`; receipt SHA-256 is
+`120ab844e39130f7cad1538ed6ac51aa663de98841c7abb11c96d8f556ce4f96`.
+This is `DEVELOPMENT_CANCELLATION_RECOVERY_PROVEN`. It does not exercise a
+provider attempt, `ACTUAL_USAGE`, Finance-policy lookup, customer charge,
+canonical mutation, remote hosted QStash or deployment. The checked-in/local
+development configuration's port 8080 is occupied by EnterpriseDB Apache, so
+the proof used a process-only isolated emulator override; that configuration
+debt remains fail-loud and must be corrected independently.
+
+Commit `3703c0815` then reissues the separate CAP-2A research census as V7
+before any further provider dispatch. Fresh extraction adds the signed
+editorial-plan route and eight durable worker/job modules and reconciles eleven
+changed paths. V7 binds 231 paths and 486 observed identifiers under manifest
+`939ec670b175b7dd8144afd7f065e2a5619315e3c98f191334a2c6dd4155f770`;
+the catalog remains 37 declared and zero certified/product-eligible operations.
+The prior V3R4 cohort is therefore non-dispatchable: it binds V6 and rebuilds
+historical base identity from mutable current builders. A new V7-bound cohort
+must pin the historical base snapshot rather than editing V3R4.
 
 Commit `d42c1af5b` adds the exact reference-media registration owner over the
 existing `mediaAssets` collection. It create-or-compares source or derived-frame
@@ -271,7 +328,8 @@ Native video, ordered R2/GCS images, USER/ORG ownership, replay, conflict,
 rollback, non-commit and corrupt/missing media pass 29/29 focused tests with
 repository typecheck and quiet ESLint. This is
 `CONCRETE_TRANSACTION_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: no live Atlas
-transaction, migration or product-root invocation occurred.
+transaction or migration occurred. Commit `f5b192f2c` later composes the media
+ports into the root, but no live root invocation occurred.
 
 ## Current code evidence
 
@@ -282,12 +340,12 @@ transaction, migration or product-root invocation occurred.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope; `454fb721a` extracts one store-neutral resumed execution core plus durable outcome finalizer; `e1a8e4a3f` binds proposal recovery into the Plan envelope; `31fcb279e` shares the exact checkpoint codec; `cd1829223` connects the Plan lifecycle to that resume-only core through the existing scoped artifact owners; `2e2471adc` adds a backward-compatible V2 outcome-proof subject; `f3b6ad44d` adds its strict finalizer; and `d17ba67c1` wires the product Plan resumed path through the existing clone and cut/focal proof owner. Commits `f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` add hash-chained provider-attempt receipts, conservative unknown-result settlement, attempt-bound runtime restart and an opt-in episode callback. Commits `7cc90f161`, `da252954b` and `9cf3cde0f` add the immutable pre-dispatch intent, pending checkpoint and actual write-ahead episode boundary with conservative recovery. Commit `8a2f4d535` requires and persists both phases through the existing Plan lifecycle CAS. Commits `bfecfb314`, `c6c416592` and `898c3ba63` add a real fresh clone/core/Plan path whose first checkpoint is caused only by real work. Commits `62fcc6c25` and `5e0dd3b65` prove the full accepted-Plan-to-real-cut receipt plus crash/redelivery/cancellation without implicit provider retry. Commit `434563cd6` derives the immutable bound-episode owner from each revalidated accepted definition instead of requiring a static per-episode owner. Canonical-media/product-budget composition, authenticated review ingress and live Atlas/QStash proof remain absent. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope; `454fb721a` extracts one store-neutral resumed execution core plus durable outcome finalizer; `e1a8e4a3f` binds proposal recovery into the Plan envelope; `31fcb279e` shares the exact checkpoint codec; `cd1829223` connects the Plan lifecycle to that resume-only core through the existing scoped artifact owners; `2e2471adc` adds a backward-compatible V2 outcome-proof subject; `f3b6ad44d` adds its strict finalizer; and `d17ba67c1` wires the product Plan resumed path through the existing clone and cut/focal proof owner. Commits `f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` add hash-chained provider-attempt receipts, conservative unknown-result settlement, attempt-bound runtime restart and an opt-in episode callback. Commits `7cc90f161`, `da252954b` and `9cf3cde0f` add the immutable pre-dispatch intent, pending checkpoint and actual write-ahead episode boundary with conservative recovery. Commit `8a2f4d535` requires and persists both phases through the existing Plan lifecycle CAS. Commits `bfecfb314`, `c6c416592` and `898c3ba63` add a real fresh clone/core/Plan path whose first checkpoint is caused only by real work. Commits `62fcc6c25` and `5e0dd3b65` prove the full accepted-Plan-to-real-cut receipt plus crash/redelivery/cancellation without implicit provider retry. Commit `434563cd6` derives the immutable bound-episode owner from each revalidated accepted definition instead of requiring a static per-episode owner. Commit `f5b192f2c` composes those Plan semantics with canonical-media, budget, transport, clone, proof and settlement owners for two isolated writers. Authenticated route ingress and live Atlas/QStash proof remain absent. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. `be8e12871` proves serialized fresh-process cut replay plus focal-only suffix execution through the same revision origin while preserving canonical state. `ee650e18b` makes the clone independently recompute and validate every admitted writer revision from exact receipt/call/state material. Live rendering and live-store recovery remain below. |
-| Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity as an immutable research value. `498e018e6` adds the production-shaped canonical-media binding and adapter: no inline bytes, exact source/policy/route/artifact identity and strict resolution for both arms. `607212e02` implements its read-side locator, byte-reader and policy-grant ports over immutable Mongo metadata plus the existing `mediaAssets`-selected R2/GCS object; `8bf1d766e` qualifies reusable artifact metadata by USER/ORG media owner outside the byte row; `9251945e4` adds the store-neutral authorization/issuance owner and atomic-ledger port; `07c59690b` supplies its concrete existing-client Mongo transaction; `d42c1af5b` supplies exact create-or-compare source/frame registration in that same byte authority; `eaef92685` wires remote-URL sources plus derived frames with content-addressed object identities; `7fa11669b` makes the main worker consume that identity; `32d9a91d2` promotes all source kinds resolved by that worker; `7a584535c` converges SaaS intake; `bde34941a` converges ThinkForge trend analysis; `1e18e6d0e` converges legacy Match Edit analysis; `e22cee1c4` converges standalone/chat/main-worker legacy style observation; `cf47083c3` binds the experimental visual observer to canonical identity; `c9137a489` fail-closes unsafe Match Edit generation; `219c0e7ab` adds a tested file-stream R2/GCS upload boundary; `a8b7036f9` adds streamed local-file hashing plus exact derived-video/audio provenance through the same registration owner; `7855aa90e` wires the default remote canonicalizer to those owners without a full-response Buffer; `0917a6c4e` streams the existing demux owner's source/video/audio hashing and upload with cancellation; `54273324d` registers content-addressed VIDEO/AUDIO children under a stable core and V2 final receipt; `a70a37158` binds the final/core/child-registration receipt hashes into strictly validated newly issued V2 source envelopes while retaining exact legacy-V1 reads; and `849ecc8a5` streams the remote frame source plus JPEG hashing/upload/registration through one file-identity owner and rechecks returned receipts. Safe Match Edit activation, the visual observer's canonical byte-reader/product caller/evaluation, request-body streaming, upload/registration reconciliation, live receipt/object proof, root composition and live retrieval remain absent. |
-| Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It is benchmark accounting, not product authority. `de472b32b` adds the separate product authorization/reservation/settlement contract and adapts an exact unexpired CreditsService-owned reservation to the existing runtime-guard owner port; `6d8fdf1ea` binds it to the main pool under revision-2 identities; `582c927d0` adds a tested policy coordinator and atomic-ledger port; `5f7428248` implements that port behind CreditsService on the same configured Mongo database. `2683002e7` extracts the shared runtime-accounting mechanics, and `9a2a8d9ad` constructs them only from an exact CreditsService authorization/reservation plus a route/request-bound input-token-count receipt. `133a15596` and `b8f8a439d` implement the current OpenAI and Google product counter owners without a live call. Durable terminal wallet settlement, non-production Atlas proof and product-root invocation remain unproven. |
+| Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity as an immutable research value. `498e018e6` adds the production-shaped canonical-media binding and adapter: no inline bytes, exact source/policy/route/artifact identity and strict resolution for both arms. `607212e02` implements its read-side locator, byte-reader and policy-grant ports over immutable Mongo metadata plus the existing `mediaAssets`-selected R2/GCS object; `8bf1d766e` qualifies reusable artifact metadata by USER/ORG media owner outside the byte row; `9251945e4` adds the store-neutral authorization/issuance owner and atomic-ledger port; `07c59690b` supplies its concrete existing-client Mongo transaction; `d42c1af5b` supplies exact create-or-compare source/frame registration in that same byte authority; `eaef92685` wires remote-URL sources plus derived frames with content-addressed object identities; `7fa11669b` makes the main worker consume that identity; `32d9a91d2` promotes all source kinds resolved by that worker; `7a584535c` converges SaaS intake; `bde34941a` converges ThinkForge trend analysis; `1e18e6d0e` converges legacy Match Edit analysis; `e22cee1c4` converges standalone/chat/main-worker legacy style observation; `cf47083c3` binds the experimental visual observer to canonical identity; `c9137a489` fail-closes unsafe Match Edit generation; `219c0e7ab` adds a tested file-stream R2/GCS upload boundary; `a8b7036f9` adds streamed local-file hashing plus exact derived-video/audio provenance through the same registration owner; `7855aa90e` wires the default remote canonicalizer to those owners without a full-response Buffer; `0917a6c4e` streams the existing demux owner's source/video/audio hashing and upload with cancellation; `54273324d` registers content-addressed VIDEO/AUDIO children under a stable core and V2 final receipt; `a70a37158` binds the final/core/child-registration receipt hashes into strictly validated newly issued V2 source envelopes while retaining exact legacy-V1 reads; and `849ecc8a5` streams the remote frame source plus JPEG hashing/upload/registration through one file-identity owner and rechecks returned receipts. Commit `f5b192f2c` composes these product media ports into the execution root. Safe Match Edit activation, the visual observer's canonical byte-reader/product caller/evaluation, request-body streaming, upload/registration reconciliation, live receipt/object proof and live retrieval remain absent. |
+| Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It is benchmark accounting, not product authority. `de472b32b` adds the separate product authorization/reservation/settlement contract and adapts an exact unexpired CreditsService-owned reservation to the existing runtime-guard owner port; `6d8fdf1ea` binds it to the main pool under revision-2 identities; `582c927d0` adds a tested policy coordinator and atomic-ledger port; `5f7428248` implements that port behind CreditsService on the same configured Mongo database. `2683002e7` extracts the shared runtime-accounting mechanics, and `9a2a8d9ad` constructs them only from an exact CreditsService authorization/reservation plus a route/request-bound input-token-count receipt. `133a15596` and `b8f8a439d` implement the current OpenAI and Google product counter owners without a live call; `ce3e988a4` and `98b663f2b` provide crash-safe terminal settlement, and `f5b192f2c` composes both behind the execution root. Non-production Atlas proof and live product-root invocation remain unproven. |
 | Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. `2e2471adc` preserves that V1 receipt hash and adds V2 `FRESH_EPISODE_RECEIPT` / `RESUMED_EPISODE_RECEIPT` provenance; `f3b6ad44d` finalizes it without a V1 fallback; `d17ba67c1` makes the product resumed path emit V2; `93a72e756` makes the same concrete cut/focal proof policy accept a real fresh trace without a checkpoint; and `62fcc6c25` binds that proof to the complete accepted-Plan execution receipt. Live Lambda evidence and production apply remain unproven. |
-| Product workflow ingress/recovery | `0f54a0a2a` provides actor-bound, fixed-URL, message-receipt-backed QStash dispatch; `b6171bed2` provides signed strict worker ingress and refuses to claim without an explicit execution owner; `434563cd6` supplies definition-bound execution composition across accepted episodes; `498e018e6` supplies the canonical-media boundary; `607212e02` supplies its concrete read-side product ports; `9251945e4` supplies the store-neutral issuance coordinator; `07c59690b` supplies its concrete transaction adapter; `de472b32b` supplies the product-budget contract/runtime-guard boundary; `582c927d0` supplies the policy coordinator; `5f7428248` supplies the concrete CreditsService/Mongo adapter; `2683002e7` and `9a2a8d9ad` supply the shared accounting mechanics and product guard factory; `133a15596` and `b8f8a439d` supply the current product token counters; `ce3e988a4` and `98b663f2b` supply terminal settlement derivation/redrive; and `d42c1af5b`, `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4` and `cf47083c3` supply exact registration and current main/SaaS/ThinkForge/Match Edit/style/experimental-visual observation consumption. `c9137a489` disables the unsafe Match Edit provider route. These remain non-routable adapters: safe Match Edit generation, visual byte-reader/product/evaluation composition, root composition, API route export and live Atlas/QStash/CreditsService proof are absent. |
+| Product workflow ingress/recovery | `0f54a0a2a` provides actor-bound, fixed-URL, message-receipt-backed QStash dispatch; `b6171bed2` provides signed strict worker ingress; `434563cd6` supplies definition-bound execution composition across accepted episodes; the canonical-media, CreditsService, provider-counter and settlement commits listed above provide their concrete ports. Commit `f5b192f2c` now supplies the one product composition root and a fail-closed dispatcher for the two concrete isolated writers, `cut_section` and `set_keyframes`. It binds those owners without a second plan, project, media, wallet, job or proof authority and exposes no canonical ProjectService write. Safe Match Edit generation, visual byte-reader/product/evaluation composition, API route export and live Atlas/QStash/CreditsService proof remain absent. |
 
 The existing `lib/services/planService.ts` manages commercial subscription
 plans. It is not an editorial PlanService and must not be extended or renamed
@@ -989,19 +1047,63 @@ before advancing. This does not add a secret signer or second revision owner.
     passes 68/68 with repository typecheck and quiet ESLint. Multipart request
     ingress, provisional frame size/recipe policy, reconciliation, durable
     worker cancellation and live receipt/object/store proof remain open.
-54. Compose the canonical-media ports, CreditsService guard, route transport,
-    ProjectService isolated clone, existing native operator dispatcher and
-    proof owner behind the existing definition-bound execution owner. Do not
-    add a second media store, wallet writer, registry, job store, PlanService or
-    project authority.
-55. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 54 exists.
-56. Only after fresh zero-inference preflight and explicit spend approval:
-    resumed paid model inference.
+54. **Product execution-root composition complete at `f5b192f2c`:** one root
+    binds canonical-media ports, the CreditsService guard, exact route
+    transport/token counters, ProjectService isolated clone, cut/keyframe
+    dispatcher, outcome proof and terminal settlement behind the existing
+    definition-bound owner. Unsupported research-catalog operations fail
+    before resource use. The composed-owner suite passes 107/107 plus
+    repository typecheck and quiet ESLint. No route, provider call, live-store
+    claim or canonical mutation was added.
+55. **Finance-owned product customer-pricing owner complete at `2e030edfd`:**
+    exact policy lookup and integer episode-total charge derivation now exist;
+    no pricing row is seeded and no live store or wallet was touched.
+56. **Authenticated product-worker route exported at `c5c49a593`:** the fixed
+    QStash path now composes the product root and fails closed before claim on
+    missing deployment configuration; no deployment or delivery was exercised.
+57. **Development cancellation recovery complete at `a481f4d32`:** real Atlas
+    job/wallet transactions plus official local-QStash signed redelivery prove
+    the zero-attempt cancellation path. Hosted QStash, a provider-attempt crash,
+    Finance-policy lookup and `ACTUAL_USAGE` settlement remain separate gates.
+58. **CAP-2A V7 complete at `3703c0815`:** current source extraction is
+    hash-bound without promoting the catalog. Historical H03 generated-source
+    V3R4 is not pending: it ran eighteen authorised rows at `7064fe381` under
+    receipt `47a57bf2...`. Its four rendered passes, eight proof-unverifiable
+    rows, six Gemini-429 non-evaluations and `$0.21068595` spend remain bounded
+    historical evidence. The current constructor is non-dispatchable because
+    it binds V6 and rebuilds an older base from mutable builders.
+59. **Current-source replacement not yet issued:** only if another H03
+    current-source comparison is required, issue a new V7-bound identity with
+    a committed pinned historical-base input. Do not patch or rerun V3R4.
+    Paid inference under a successor still requires its own fresh
+    zero-inference preflight and explicit spend approval.
+60. **Long-form PlanService compilation holdout complete at `7319da514`:** one
+    no-inference 4.5-hour evidence directory and model-proposal contract compile
+    into the existing immutable `EditorialPlanV1` owner. Nine adversarial cases
+    reject invented scope/range/evidence/budget identities, cycles, shallow
+    decomposition, false readiness, omitted requirements/approvals and unsafe
+    post-picture ordering. This is structural planning evidence only; no model,
+    editor, renderer, project mutation or product store was exercised.
+61. **Long-form provider cohort/preflight contract complete at `30a2ed776`:**
+    the planning-only protocol exposes zero editing operators, makes every
+    dependency and coverage rule provider-visible, and freezes nine rows across
+    Luna, Terra and Gemini 3.7 Flash under three deterministic evidence orders.
+    CAP-2A V7, the canonical holdout/compiler/protocol sources, exact route
+    identities, request budgets and a `$1.5051264` absolute ceiling are bound.
+    Five adversarial preflight tests pass; a real metadata/countTokens preflight
+    and all inference remain pending and unauthorized.
+62. **Long-form live zero-inference preflight complete:** production Vercel
+    credentials verified all three exact model identities and Google's official
+    tokenizer bounded each Gemini presentation. Manifest `59a022edc...` and
+    receipt `4ae58954...` bind nine request captures, three metadata GETs, three
+    `countTokens` POSTs, zero inference calls, zero project reads/mutations and
+    `dispatchAuthorized=false`. The request-specific upper bound is
+    `$0.91800165`; the immutable absolute ceiling remains `$1.5051264`.
+    Paid dispatch still requires the sole operator's explicit authorization.
 
 ## Evidence basis
 
-- Repository code through `849ecc8a5` and orchestration-decision commit
+- Repository code through `30a2ed776` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
