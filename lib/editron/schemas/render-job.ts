@@ -19,6 +19,7 @@ import {
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
 } from '@/lib/editron/services/project-render-snapshot-binding-v1';
+import { ProjectRenderSnapshotInvalidationLinkSchemaV1 } from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
 import { ProjectRenderSourceCleanupOutboxIdSchemaV1 } from '@/lib/editron/services/project-render-source-cleanup-v1';
 
 /**
@@ -776,6 +777,8 @@ export const RenderJobSchema = z.object({
   artifactCleanup: ProjectArtifactCleanupSchema.optional(),
   projectRenderSourceCleanupOutboxId: ProjectRenderSourceCleanupOutboxIdSchemaV1.optional(),
   artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
+  projectRenderSnapshotInvalidation:
+    ProjectRenderSnapshotInvalidationLinkSchemaV1.optional(),
   artifactInvalidatedAt: z.date().optional(),
   /** Durable reserve → billing → provider dispatch ledger; absent on legacy and pre-ledger PROJECT_SNAPSHOT rows. */
   dispatch: RenderJobDispatchSchema.optional(),
@@ -797,6 +800,29 @@ export const RenderJobSchema = z.object({
       message: 'A render job cannot carry both artifact binding scopes.',
       params: { code: 'RENDER_JOB_BINDING_SCOPES_AMBIGUOUS' },
     });
+  }
+  if (job.projectRenderSnapshotInvalidation !== undefined) {
+    const invalidation = job.projectRenderSnapshotInvalidation;
+    const binding = job.projectRenderSnapshotBinding;
+    if (
+      binding === undefined
+      || job.artifactBinding !== undefined
+      || job.artifactState === undefined
+      || job.artifactState === 'ACTIVE'
+      || job.artifactCleanup === undefined
+      || job.artifactCleanup.state === 'NOT_REQUIRED'
+      || binding.projectRevision.schemaVersion !== invalidation.beforeRevision.schemaVersion
+      || binding.projectRevision.value !== invalidation.beforeRevision.value
+      || binding.projectRevision.compatibilityUpdatedAt
+        !== invalidation.beforeRevision.compatibilityUpdatedAt
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['projectRenderSnapshotInvalidation'],
+        message: 'A project-snapshot invalidation link requires its exact fenced pre-change binding.',
+        params: { code: 'PROJECT_RENDER_SNAPSHOT_INVALIDATION_SCOPE_MISMATCH' },
+      });
+    }
   }
   if (
     job.projectRenderSourceCleanupOutboxId !== undefined

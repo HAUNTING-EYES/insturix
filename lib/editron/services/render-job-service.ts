@@ -41,6 +41,11 @@ import {
   type ProjectRenderSnapshotBindingV1,
 } from './project-render-snapshot-binding-v1';
 import {
+  assertProjectRenderSnapshotInvalidationReceiptV1,
+  projectRenderSnapshotInvalidationLinkV1,
+  type ProjectRenderSnapshotInvalidationReceiptV1,
+} from './project-render-snapshot-invalidation-v1';
+import {
   createProjectRenderSourceCleanupOutboxV1,
   enqueueProjectRenderSourceCleanupOutboxV1,
   type ProjectRenderSourceCleanupOutboxV1,
@@ -2362,6 +2367,155 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
         (derivativeClass) => !unresolvedDerivativeClasses.has(derivativeClass),
       );
 
+  return {
+    fences,
+    fencedArtifactIds: fences.map((fence) => fence.binding.artifactId),
+    unresolvedArtifactIds,
+    resolvedDerivativeClasses,
+  };
+}
+
+export interface ProjectRenderSnapshotInvalidationFenceV1 {
+  schemaVersion: 1;
+  binding: ProjectRenderSnapshotBindingV1;
+  priorState: 'ACTIVE';
+  nextState: 'STALE' | 'HISTORY_ONLY';
+  cleanup: 'PENDING';
+  fencedAt: string;
+}
+
+export interface FencedRenderJobsForProjectSnapshotInvalidationV1 {
+  fences: ProjectRenderSnapshotInvalidationFenceV1[];
+  fencedArtifactIds: string[];
+  unresolvedArtifactIds: string[];
+  resolvedDerivativeClasses: ProjectArtifactInvalidationDerivativeClassV1[];
+}
+
+/**
+ * Fence complete project-snapshot renders bound to the mutation's exact
+ * pre-change revision. Single-overlay and unbound legacy rows remain explicit
+ * unresolved work; this owner never reports their derivative class complete.
+ */
+export async function fenceRenderJobsForProjectSnapshotInvalidationV1(input: {
+  receipt: ProjectRenderSnapshotInvalidationReceiptV1;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<FencedRenderJobsForProjectSnapshotInvalidationV1> {
+  assertProjectRenderSnapshotInvalidationReceiptV1(input.receipt);
+  const now = input.now ?? new Date();
+  if (Number.isNaN(now.getTime())) throw new Error('Snapshot invalidation time is invalid.');
+  const jobs = input.collection ?? await getCollection();
+  const candidates = await jobs.find({
+    userId: input.receipt.ownerId,
+    projectId: input.receipt.projectId,
+    $or: [
+      { artifactState: 'ACTIVE' },
+      {
+        artifactState: { $exists: false },
+        status: { $in: ACTIVE_PROJECT_RENDER_JOB_STATUSES },
+      },
+    ],
+  } satisfies Filter<RenderJob>).toArray();
+  const fences: ProjectRenderSnapshotInvalidationFenceV1[] = [];
+  const unresolvedArtifactIds: string[] = [];
+  const unresolvedDerivativeClasses = new Set<ProjectArtifactInvalidationDerivativeClassV1>();
+  let unresolvedUnknownDerivativeClass = false;
+  const invalidationLink = projectRenderSnapshotInvalidationLinkV1(input.receipt);
+
+  for (const candidate of candidates) {
+    const binding = candidate.projectRenderSnapshotBinding;
+    if (!binding) {
+      unresolvedArtifactIds.push(candidate._id);
+      if (candidate.artifactBinding) {
+        try {
+          assertProjectArtifactBindingV1(candidate.artifactBinding);
+          unresolvedDerivativeClasses.add(candidate.artifactBinding.artifactKind);
+        } catch {
+          unresolvedUnknownDerivativeClass = true;
+        }
+      } else {
+        unresolvedUnknownDerivativeClass = true;
+      }
+      continue;
+    }
+    try {
+      assertProjectRenderSnapshotBindingV1(binding);
+    } catch {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedUnknownDerivativeClass = true;
+      continue;
+    }
+    if (binding.ownerId !== input.receipt.ownerId
+      || binding.projectId !== input.receipt.projectId) {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedUnknownDerivativeClass = true;
+      continue;
+    }
+    if (!sameProjectArtifactRevisionV1(
+      binding.projectRevision,
+      input.receipt.beforeRevision,
+    )) {
+      continue;
+    }
+
+    const nextState = candidate.status === 'done' || candidate.status === 'error'
+      ? 'HISTORY_ONLY' as const
+      : 'STALE' as const;
+    const fence: ProjectRenderSnapshotInvalidationFenceV1 = {
+      schemaVersion: 1,
+      binding: structuredClone(binding),
+      priorState: 'ACTIVE',
+      nextState,
+      cleanup: 'PENDING',
+      fencedAt: now.toISOString(),
+    };
+    const result = await jobs.updateOne(
+      {
+        _id: candidate._id,
+        userId: input.receipt.ownerId,
+        projectId: input.receipt.projectId,
+        artifactState: 'ACTIVE',
+        artifactBinding: { $exists: false },
+        projectRenderSnapshotInvalidation: { $exists: false },
+        'projectRenderSnapshotBinding.bindingHash': binding.bindingHash,
+      },
+      {
+        $set: {
+          artifactState: nextState,
+          artifactCleanup: {
+            state: 'PENDING',
+            pendingArtifactIds: [candidate._id],
+          },
+          projectRenderSnapshotInvalidation: invalidationLink,
+          artifactInvalidatedAt: now,
+        },
+      },
+    );
+    if (result.matchedCount === 1) {
+      fences.push(fence);
+      continue;
+    }
+    const latest = await jobs.findOne({ _id: candidate._id });
+    if (
+      latest?.projectRenderSnapshotBinding?.bindingHash === binding.bindingHash
+      && latest.projectRenderSnapshotInvalidation?.invalidationId
+        === input.receipt.receiptId
+      && latest.projectRenderSnapshotInvalidation.receiptHash
+        === input.receipt.receiptHash
+      && latest.artifactState !== 'ACTIVE'
+    ) {
+      fences.push(fence);
+    } else {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedDerivativeClasses.add(binding.artifactKind);
+    }
+  }
+
+  const resolvedDerivativeClasses = unresolvedUnknownDerivativeClass
+    ? []
+    : input.receipt.affectedDerivativeClasses.filter(
+        (derivativeClass) => !unresolvedDerivativeClasses.has(derivativeClass),
+      );
   return {
     fences,
     fencedArtifactIds: fences.map((fence) => fence.binding.artifactId),

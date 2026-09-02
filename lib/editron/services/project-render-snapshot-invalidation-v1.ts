@@ -73,7 +73,15 @@ export const ProjectRenderSnapshotInvalidationLinkSchemaV1 = z.object({
   receiptHash: z.string().regex(HEX_SHA256),
   beforeRevision: ProjectArtifactProjectRevisionSchema,
   afterRevision: ProjectArtifactProjectRevisionSchema,
-}).strict();
+}).strict().superRefine((link, context) => {
+  if (link.afterRevision.value !== link.beforeRevision.value + 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["afterRevision", "value"],
+      message: "Snapshot invalidation link must advance exactly one project revision.",
+    });
+  }
+});
 export type ProjectRenderSnapshotInvalidationLinkV1 = z.infer<
   typeof ProjectRenderSnapshotInvalidationLinkSchemaV1
 >;
