@@ -67,9 +67,8 @@ export interface RestorableProjectState {
 }
 
 /**
- * The revision bound to one named rollback attempt. A supplied writer-issued
- * post-write receipt is used directly; the temporary observed-revision path
- * remains only for callers that D3 has not migrated yet.
+ * The writer-issued post-write revision bound to one named rollback attempt.
+ * Replays must supply a receipt for the same project revision.
  */
 export interface CheckpointRollbackReceiptV1 {
   schemaVersion: 1;
