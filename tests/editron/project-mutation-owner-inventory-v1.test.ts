@@ -130,4 +130,40 @@ describe('Editron project mutation owner inventory V1', () => {
 
     expect(hits).toEqual([]);
   });
+
+  it('keeps legacy-unknown actor provenance out of current mutation commands', () => {
+    const projectServiceSource = readFileSync(
+      join(process.cwd(), 'lib/editron/services/project-service.ts'),
+      'utf8',
+    );
+    const checkpointServiceSource = readFileSync(
+      join(process.cwd(), 'lib/editron/services/checkpoint-service.ts'),
+      'utf8',
+    );
+
+    expect(projectServiceSource).toContain(
+      'export type ProjectTimelineMutationActorKindV1 = Exclude<',
+    );
+    expect(projectServiceSource).toContain(
+      'actorKind: ProjectTimelineMutationActorKindV1;',
+    );
+    expect(projectServiceSource.match(
+      /actorKind: ProjectTimelineChangeActorKindV1;/g,
+    )).toHaveLength(1);
+    expect(projectServiceSource).not.toContain(
+      'actorKind?: ProjectTimelineChangeActorKindV1',
+    );
+    expect(projectServiceSource).not.toContain(
+      '?? "UNKNOWN_LEGACY_CALLER"',
+    );
+    expect(projectServiceSource).not.toContain(
+      'assertProjectTimelineChangeActorKindV1',
+    );
+    expect(checkpointServiceSource).toContain(
+      'type ProjectTimelineMutationActorKindV1,',
+    );
+    expect(checkpointServiceSource).not.toContain(
+      'type ProjectTimelineChangeActorKindV1,',
+    );
+  });
 });

@@ -352,6 +352,12 @@ export type ProjectTimelineChangeActorKindV1 =
   /** Existing direct callers have not yet supplied reliable actor provenance. */
   | "UNKNOWN_LEGACY_CALLER";
 
+/** Current mutation commands must always identify their real calling authority. */
+export type ProjectTimelineMutationActorKindV1 = Exclude<
+  ProjectTimelineChangeActorKindV1,
+  "UNKNOWN_LEGACY_CALLER"
+>;
+
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "AUTO_EDIT_ASSEMBLY"
@@ -447,7 +453,7 @@ export interface ProjectTimelineRangeCutCommandV1 {
   /** Omit only for an interactive caller that asks ProjectService to take its
       own immediate snapshot. Background/planned work must carry this token. */
   expectedRevision?: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   startFrame: number;
   endFrame: number;
   /** Optional lease identity. When present, it must cover the cut's full ripple tail. */
@@ -475,16 +481,13 @@ export interface ProjectDirectOverlayMutationResultV1 {
 
 export interface ProjectOverlayAddCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlay: Overlay;
 }
 
 export interface ProjectUploadedAudioAttachCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: Exclude<
-    ProjectTimelineChangeActorKindV1,
-    "UNKNOWN_LEGACY_CALLER"
-  >;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlay: Overlay;
 }
 
@@ -501,20 +504,20 @@ export type ProjectOverlayIdentityV1 = number | string;
 
 export interface ProjectOverlayUpdateCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlayId: ProjectOverlayIdentityV1;
   updates: Partial<Overlay>;
 }
 
 export interface ProjectOverlayDeleteCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlayId: ProjectOverlayIdentityV1;
 }
 
 export interface ProjectCaptionFamilyReplaceCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   candidateOverlays: readonly Overlay[];
 }
 
@@ -539,7 +542,7 @@ export type ProjectBackgroundMusicEvidenceV1 =
 
 export interface ProjectBackgroundMusicReplaceCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   candidateOverlays: readonly Overlay[];
   musicCoveragePlan: unknown;
   evidence: ProjectBackgroundMusicEvidenceV1;
@@ -560,7 +563,7 @@ export type ProjectBeatSyncEvidenceSourceV1 =
 
 export interface ProjectBeatSyncCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   audioOverlayId: ProjectOverlayIdentityV1;
   targetOverlayId?: ProjectOverlayIdentityV1;
   beatFilter: "all" | "downbeats" | "strong";
@@ -598,7 +601,7 @@ export interface ProjectAutoEditAssemblyCutV1 {
 
 export interface ProjectAutoEditAssemblyCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   sourceOverlayId: ProjectOverlayIdentityV1;
   cuts: readonly ProjectAutoEditAssemblyCutV1[];
 }
@@ -612,7 +615,7 @@ export interface ProjectAutoEditAssemblyResultV1
 
 export interface ProjectVideoSpeedRampCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlayId: number;
   speedCurve: readonly Keyframe[];
   keyframeTracks: readonly KeyframeTrack[];
@@ -637,7 +640,7 @@ export type ProjectVideoSpeedRampResultV1 =
 
 export interface ProjectVideoSourceRangeRetimeCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   overlayId: number;
   playbackRate: number;
 }
@@ -672,7 +675,7 @@ export type ProjectVideoSourceEventRebindResultV1 =
 
 /** A derived-duration reconciliation reads canonical overlay timing itself. */
 export interface ProjectDurationReconciliationCommandV1 {
-  actorKind: Exclude<ProjectTimelineChangeActorKindV1, "UNKNOWN_LEGACY_CALLER">;
+  actorKind: ProjectTimelineMutationActorKindV1;
 }
 
 export type ProjectDurationReconciliationNotEligibleReasonV1 =
@@ -706,7 +709,7 @@ export type ProjectDurationReconciliationResultV1 =
 export interface ProjectTimelineRangeCutLockV1 {
   schemaVersion: 1;
   lockId: string;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   frameRange: TimelineFrameRangeV1;
   acquiredAt: string;
   expiresAt: string;
@@ -714,7 +717,7 @@ export interface ProjectTimelineRangeCutLockV1 {
 
 export interface ProjectTimelineRangeCutLockAcquireCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   startFrame: number;
   endFrame: number;
   /** Bounded to keep a coordination lease from becoming a hidden project lock. */
@@ -723,7 +726,7 @@ export interface ProjectTimelineRangeCutLockAcquireCommandV1 {
 
 export interface ProjectTimelineRangeCutLockReleaseCommandV1 {
   expectedRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   lockId: string;
 }
 
@@ -1143,7 +1146,7 @@ export interface CapturedProjectMutationReceiptsV1<T> {
 
 export interface ProjectCheckpointRestoreInputV1 {
   checkpointId: string;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   expectedRevision: ProjectRevisionV1;
   setFields: Record<string, unknown>;
   unsetFields: string[];
@@ -4659,7 +4662,7 @@ export class ProjectService {
     input: ProjectTimelineRangeCutLockAcquireCommandV1,
   ): Promise<ProjectTimelineRangeCutLockResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     const frameRange = assertTimelineFrameRangeV1(
       input.startFrame,
       input.endFrame,
@@ -4748,7 +4751,7 @@ export class ProjectService {
     input: ProjectTimelineRangeCutLockReleaseCommandV1,
   ): Promise<ProjectMutationReceiptV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     assertTimelineRangeCutLockIdV1(input.lockId);
     const db = await getDatabase();
     const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
@@ -4820,7 +4823,7 @@ export class ProjectService {
     input: ProjectTimelineRangeCutCommandV1,
   ): Promise<ProjectTimelineRangeCutResultV1> {
     if (input.expectedRevision) assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     if (input.rangeCutLockId !== undefined) assertTimelineRangeCutLockIdV1(input.rangeCutLockId);
 
     const db = await getDatabase();
@@ -8394,7 +8397,7 @@ export class ProjectService {
     input: ProjectCheckpointRestoreInputV1,
   ): Promise<ProjectCheckpointRestoreReceiptV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     if (!isBoundedNonEmptyStringV1(input.checkpointId, 200)) {
       throw new ProjectMutationWriteError("Checkpoint restore requires one bounded checkpoint identity.");
     }
@@ -8951,7 +8954,7 @@ export class ProjectService {
     input: ProjectOverlayAddCommandV1,
   ): Promise<ProjectDirectOverlayMutationResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     const overlayFrameRange = overlayTimelineFrameRangeV1(input.overlay);
     if (!overlayFrameRange) {
       throw new ProjectMutationWriteError(
@@ -9085,7 +9088,7 @@ export class ProjectService {
     input: ProjectUploadedAudioAttachCommandV1,
   ): Promise<ProjectUploadedAudioAttachResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     const requestedMaterial = readUploadedAudioTimelineMaterialV1(input.overlay);
     const overlayFrameRange = overlayTimelineFrameRangeV1(input.overlay);
     if (!overlayFrameRange) {
@@ -10801,9 +10804,8 @@ export class ProjectService {
     input: ProjectVideoSpeedRampCommandV1,
   ): Promise<ProjectVideoSpeedRampResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
-    if (input.actorKind === "UNKNOWN_LEGACY_CALLER"
-      || !Number.isSafeInteger(input.overlayId)
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
+    if (!Number.isSafeInteger(input.overlayId)
       || input.overlayId < 0) {
       throw new ProjectMutationWriteError(
         "A video speed-ramp write requires an explicit actor and stable numeric overlay ID.",
@@ -10999,9 +11001,8 @@ export class ProjectService {
     input: ProjectVideoSourceRangeRetimeCommandV1,
   ): Promise<ProjectVideoSourceRangeRetimeResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
-    if (input.actorKind === "UNKNOWN_LEGACY_CALLER"
-      || !Number.isSafeInteger(input.overlayId)
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
+    if (!Number.isSafeInteger(input.overlayId)
       || input.overlayId < 0
       || !Number.isFinite(input.playbackRate)
       || input.playbackRate <= 1
@@ -11353,7 +11354,7 @@ export class ProjectService {
     input: ProjectOverlayUpdateCommandV1,
   ): Promise<ProjectDirectOverlayMutationResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     assertProjectOverlayIdentityV1(input.overlayId, "update");
     if (!isPlainRecord(input.updates)
       || Object.prototype.hasOwnProperty.call(input.updates, "id")
@@ -11497,7 +11498,7 @@ export class ProjectService {
     input: ProjectCaptionFamilyReplaceCommandV1,
   ): Promise<ProjectCaptionFamilyReplaceResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     if (
       !Array.isArray(input.candidateOverlays)
       || input.candidateOverlays.length > 100_000
@@ -11682,7 +11683,7 @@ export class ProjectService {
     input: ProjectBackgroundMusicReplaceCommandV1,
   ): Promise<ProjectBackgroundMusicReplaceResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     if (!Array.isArray(input.candidateOverlays) || input.candidateOverlays.length > 100_000) {
       throw new ProjectMutationWriteError(
         "Background-music replacement requires a bounded overlay array.",
@@ -11894,7 +11895,7 @@ export class ProjectService {
     input: ProjectBeatSyncCommandV1,
   ): Promise<ProjectBeatSyncResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     if (!["all", "downbeats", "strong"].includes(input.beatFilter)
       || typeof input.strengthThreshold !== "number"
       || !Number.isFinite(input.strengthThreshold)
@@ -12204,12 +12205,7 @@ export class ProjectService {
         "Project duration reconciliation input is invalid.",
       );
     }
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
-    if ((input.actorKind as string) === "UNKNOWN_LEGACY_CALLER") {
-      throw new ProjectMutationWriteError(
-        "Project duration reconciliation requires an explicit actor.",
-      );
-    }
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
 
     const db = await getDatabase();
     const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
@@ -12377,7 +12373,7 @@ export class ProjectService {
     input: ProjectOverlayDeleteCommandV1,
   ): Promise<ProjectDirectOverlayMutationResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     assertProjectOverlayIdentityV1(input.overlayId, "deletion");
 
     const db = await getDatabase();
@@ -12490,7 +12486,7 @@ export class ProjectService {
     input: ProjectAutoEditAssemblyCommandV1,
   ): Promise<ProjectAutoEditAssemblyResultV1> {
     assertProjectRevision(input.expectedRevision);
-    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectTimelineMutationActorKindV1(input.actorKind);
     assertProjectOverlayIdentityV1(input.sourceOverlayId, "update");
     if (!Array.isArray(input.cuts) || input.cuts.length < 1 || input.cuts.length > 10_000) {
       throw new ProjectMutationWriteError(
@@ -15935,16 +15931,17 @@ function validDimensions(
   );
 }
 
-function assertProjectTimelineChangeActorKindV1(
-  actorKind: ProjectTimelineChangeActorKindV1,
-): void {
+function assertProjectTimelineMutationActorKindV1(
+  actorKind: unknown,
+): asserts actorKind is ProjectTimelineMutationActorKindV1 {
   if (
     actorKind !== "USER"
     && actorKind !== "AGENT"
     && actorKind !== "SYSTEM"
-    && actorKind !== "UNKNOWN_LEGACY_CALLER"
   ) {
-    throw new ProjectMutationWriteError("Timeline change actor kind is invalid.");
+    throw new ProjectMutationWriteError(
+      "Current timeline mutations require an explicit USER, AGENT, or SYSTEM actor.",
+    );
   }
 }
 
@@ -16036,9 +16033,7 @@ function readTimelineRangeCutLocksV1(
       throw new ProjectMutationWriteError("Timeline cut lock state is invalid.");
     }
     assertTimelineRangeCutLockIdV1(lock.lockId);
-    assertProjectTimelineChangeActorKindV1(
-      lock.actorKind as ProjectTimelineChangeActorKindV1,
-    );
+    assertProjectTimelineMutationActorKindV1(lock.actorKind);
     if (new Date(lock.expiresAt).getTime() <= new Date(lock.acquiredAt).getTime()) {
       throw new ProjectMutationWriteError("Timeline cut lock expiry must follow acquisition.");
     }
@@ -16060,7 +16055,7 @@ function activeTimelineRangeCutLocksV1(
 function resolveTimelineRangeCutLockAuthorizationV1(input: {
   project: Pick<Project, "timelineRangeCutLocks">;
   currentRevision: ProjectRevisionV1;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   requestedLockId: string | undefined;
   cutWriteRange: TimelineFrameRangeV1;
   now: Date;
@@ -16666,7 +16661,7 @@ function projectVideoSourceStartFrameV1(overlay: Overlay): number {
 function createCaptionFamilyTimelineChangeReceiptV1(input: {
   receiptId: string;
   projectId: string;
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
   afterProjectRevision: ProjectRevisionV1;
@@ -16692,7 +16687,7 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     | "ALIGN_CUTS_TO_BEATS"
     | "REPLACE_EDITOR_STATE"
     | "RESTORE_CHECKPOINT_STATE";
-  actorKind: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
   afterProjectRevision: ProjectRevisionV1;
@@ -16748,7 +16743,7 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
     | "UPDATE_OVERLAY"
     | "APPLY_VIDEO_SPEED_RAMP"
     | "DELETE_OVERLAY";
-  actorKind?: ProjectTimelineChangeActorKindV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
   afterProjectRevision: ProjectRevisionV1;
@@ -16777,15 +16772,14 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
   const rangeObservation = unionFrameRange
     ? "EXACT" as const
     : "UNKNOWN_LEGACY_OVERLAY_TIMING" as const;
-  const actorKind = input.actorKind ?? "UNKNOWN_LEGACY_CALLER";
-  assertProjectTimelineChangeActorKindV1(actorKind);
+  assertProjectTimelineMutationActorKindV1(input.actorKind);
 
   return {
     schemaVersion: 1,
     receiptId: input.receiptId,
     projectId: input.projectId,
     operation: input.operation,
-    actorKind,
+    actorKind: input.actorKind,
     coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
     fps: input.fps,
     beforeProjectRevision: input.beforeProjectRevision,
