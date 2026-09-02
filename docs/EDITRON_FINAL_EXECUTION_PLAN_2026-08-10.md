@@ -17715,3 +17715,119 @@ execution is permitted but not required; (4) implement Queue 6 serially; and
 (5) certify agency verticals serially unless the founder explicitly
 authorizes more parallel execution. Human-only review remains deferred to the
 end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5H lifecycle and ProjectService inventory checkpoint
+
+Commits `8df2ccdb7`, `7c43eec76`, `7d0d7776f`, `fcaf4a001`,
+`17bff04f3`, `89247d50f`, `e911b37d8`, `82aae1ec9`, `c275c89d0`,
+`d45a5fd4e`, `271e17fd4`, `d1077e8b3` and `fefdd39eb` are pushed on
+`infrastructure-improvs-+Editron`. They supersede the remaining-order list in
+Phase 5G for the local ProjectService owner inventory, unreferenced
+prerequisite retention, legacy-checkpoint recapture and whole-project
+deletion.
+
+The ProjectService source inventory now classifies all 65 persistence-writing
+or explicitly persistence-delegating methods exactly once. Active timeline,
+delivery, rights and project-lifecycle writers declare revision, range/lock,
+media, rights, predecessor and project-snapshot invalidation applicability.
+The only groups that remain non-local in that inventory are the already
+declared Queue 3-4 dependencies:
+
+- proxy/master active-source cutover;
+- analysis native-audio evidence whose full production source/timestamp
+  qualification still belongs to Queues 3 and 4.
+
+Unreferenced whole-state prerequisite receipts now enter a bounded
+pending-reference lifecycle. Authentic project/checkpoint references pin them;
+unreferenced rows are quarantined and later retired; a late authentic reference
+reactivates its exact receipt. The protected recovery route runs invalidation,
+cleanup and prerequisite retention and fails the request if retention cannot
+be evaluated. Atlas indexes cover pending/quarantined scans and TTL retirement.
+
+Legacy V2 checkpoints are never retroactively granted invented evidence. They
+may be recaptured only when their exact stored state hash equals the current
+authoritative project state at the exact current revision. That path issues a
+real current prerequisite receipt and compare-and-set patches the checkpoint;
+historical mismatches remain `UNVERIFIABLE`.
+
+Whole-project deletion no longer performs independent best-effort writes. The
+two visible project lists carry the exact displayed `ProjectRevisionV1`; the
+DELETE route requires it and returns typed 400/404/409 outcomes. ProjectService
+durably enqueues whole-project render invalidation, then a snapshot/majority
+Mongo transaction deletes the exact owner/revision project plus its checkpoints
+and chat sessions, removes project links, deliberately preserves reusable
+source media and writes a deterministic hashed tombstone. Invalidation recovery
+accepts only that exact tombstone after the active project disappears; project
+absence alone cannot authorize cleanup.
+
+The current deletion/classification/recovery gate passes 24/24 focused tests.
+Targeted quiet ESLint, full 8-GB TypeScript and `git diff --check` pass. Earlier
+focused lifecycle and legacy gates passed at their listed commits. No provider
+call, storage spend, wallet mutation, customer project mutation, historical
+paid-cohort rerun or model inference occurred.
+
+This closes the **local ProjectService method-level Queue 5 implementation
+inventory**, not the aggregate Queue 5 evidence gate and not Stage 2.5. The
+following proof remains mandatory before Queue 5 can be recorded closed:
+
+1. Run the aggregate mutation-owner regression set and full-repository quiet
+   ESLint against the combined tree.
+2. Run the authorized source-qualified live Atlas mutation/outbox/deletion
+   fixture and verify exact cleanup of its temporary records.
+3. Keep deployed index/cron proof, private R2 exact PUT/GET/DELETE, live
+   provider-source deletion and genuine unbound-row reconstruction or
+   evidence-backed retirement in Queues 3-4 until the environment can prove
+   them.
+
+Queue 5 is therefore `LOCAL_IMPLEMENTATION_COVERED / AGGREGATE_LIVE_PROOF_OPEN`;
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No universal production mutation-safety,
+agency-class certification, successor readiness receipt or `GO` is claimed.
+
+The exact binding order is now: (1) run Queue 5 aggregate and authorized live
+proof serially; (2) return to unfinished Queues 3 and 4, where parallel work is
+permitted but no subagents are to be created; (3) implement Queue 6 serially;
+and (4) certify agency verticals serially unless the founder explicitly
+authorizes further parallel execution. Human-only review remains deferred to
+the end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5I aggregate local verification checkpoint
+
+Commit `986ec9b4d` is pushed on `infrastructure-improvs-+Editron`. It repairs
+the chat direct-writer integration fixture so the real `update_overlay` path
+must persist its zero-media whole-state prerequisite and render-snapshot
+invalidation outbox before the exact project compare-and-set. No production
+guard was weakened.
+
+The current Queue 5 mechanics regression set was then run serially with one
+Vitest worker. It passed 32/32 files and 201/201 tests. Full 8-GB TypeScript,
+full-repository quiet ESLint and `git diff --check` also passed against the
+combined tree.
+
+A stronger complete `tests/editron` run was also attempted. It is not green:
+995 files passed, 59 failed and two were skipped; 7,453 tests passed, 110
+failed and 14 were skipped. Observed failure families include immutable sealed
+holdout or CAP current-source identity drift after later implementation
+changes, stale source-string smoke assertions, and one suite that imports a
+live Mongo dependency without `MONGODB_URI`. These failures are not erased,
+rehashed or promoted. They require separate current-truth successor receipts
+or ordinary regression fixes according to their owner; the historical paid
+cohort remains untouched and no provider inference ran.
+
+This establishes `QUEUE_5_LOCAL_MECHANICS_GATE_PASSING`, not production Queue
+5 closure. The authorized source-qualified live Atlas mutation/outbox/deletion
+fixture and exact cleanup are still required. Deployed index/cron proof,
+private R2 exact PUT/GET/DELETE, provider-source deletion and the two
+source-qualified dependencies named in Phase 5H remain Queue 3-4 work.
+
+Queue 5 is therefore
+`LOCAL_IMPLEMENTATION_AND_MECHANICS_COVERED / LIVE_SOURCE_PROOF_OPEN`; Queues
+3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No universal production mutation-safety,
+agency-class certification, successor readiness receipt or `GO` is claimed.
+
+The next order is unchanged: run the live Atlas Queue 5 fixture if the current
+environment is source-qualified, then resume the unfinished Queue 3-4 media
+chain. Queue 3-4 work may be parallelized, but no subagents are to be created.
+Queue 6 and agency vertical certification remain serial unless the founder
+explicitly authorizes further parallel execution.
