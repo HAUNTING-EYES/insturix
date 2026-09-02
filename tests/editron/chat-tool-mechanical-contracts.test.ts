@@ -197,9 +197,58 @@ function installProjectStore(project: FixtureProject) {
       } as any;
     },
   );
-  const updateProject = vi.spyOn(projectService, 'updateProject').mockImplementation(
-    async (_userId, _projectId, patch) => {
-      Object.assign(project, structuredClone(patch));
+  const reconcileProjectDuration = vi.spyOn(
+    projectService,
+    'reconcileProjectDurationFromOverlaysV1',
+  ).mockImplementation(
+    async (_userId, projectId, command) => {
+      const durationInFrames = project.overlays.reduce(
+        (maximum, overlay) => Math.max(
+          maximum,
+          Number(overlay.from) + Number(overlay.durationInFrames),
+        ),
+        0,
+      );
+      if (durationInFrames === project.durationInFrames) {
+        return {
+          disposition: 'ALREADY_CURRENT',
+          durationInFrames,
+          currentRevision: {
+            schemaVersion: 1,
+            value: project.projectRevision ?? 0,
+            compatibilityUpdatedAt: project.updatedAt.toISOString(),
+          },
+        } as any;
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const beforeRevision = {
+        schemaVersion: 1 as const,
+        value: project.projectRevision ?? 0,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      };
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.durationInFrames = durationInFrames;
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        disposition: 'APPLIED',
+        durationInFrames,
+        mutationReceipt: {
+          schemaVersion: 1,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {
+          actorKind: command.actorKind,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+        },
+      } as any;
     },
   );
   const saveProject = vi.fn();
@@ -207,7 +256,7 @@ function installProjectStore(project: FixtureProject) {
     updateOverlay,
     addOverlay,
     deleteOverlay,
-    updateProject,
+    reconcileProjectDuration,
     saveProject,
     cutTimelineRangeV1,
   };
@@ -270,10 +319,10 @@ describe('chat mechanical tool contracts', () => {
     });
     expect(project.durationInFrames).toBe(120);
     expect(store.addOverlay).toHaveBeenCalledTimes(1);
-    expect(store.updateProject).toHaveBeenCalledWith(
+    expect(store.reconcileProjectDuration).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      { durationInFrames: 120 },
+      { actorKind: 'AGENT' },
     );
   });
 
@@ -296,7 +345,7 @@ describe('chat mechanical tool contracts', () => {
     expect(project.overlays).toHaveLength(1);
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
-    expect(store.updateProject).not.toHaveBeenCalled();
+    expect(store.reconcileProjectDuration).not.toHaveBeenCalled();
   });
 
   it('carries a visual producer mutation window through postconditions into render verification', async () => {
@@ -697,10 +746,10 @@ describe('chat mechanical tool contracts', () => {
     });
     expect(project.durationInFrames).toBe(180);
     expect(store.updateOverlay).toHaveBeenCalledTimes(5);
-    expect(store.updateProject).toHaveBeenCalledWith(
+    expect(store.reconcileProjectDuration).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      { durationInFrames: 180 },
+      { actorKind: 'AGENT' },
     );
   });
 
@@ -1073,7 +1122,7 @@ describe('chat mechanical tool contracts', () => {
     expect(project.overlays.some((overlay) => overlay.id === 6)).toBe(false);
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
-    expect(store.updateProject).not.toHaveBeenCalled();
+    expect(store.reconcileProjectDuration).not.toHaveBeenCalled();
     expect(store.saveProject).not.toHaveBeenCalled();
     expect(store.cutTimelineRangeV1).toHaveBeenCalledWith(
       'user_mechanical_tools',

@@ -670,14 +670,9 @@ export type ProjectVideoSourceEventRebindResultV1 =
         | "SOURCE_TIME_EVIDENCE_INCOMPLETE";
     }>;
 
-/**
- * A derived-duration reconciliation reads the current canonical overlay
- * timings itself. `assertedDurationInFrames` exists only for the temporary
- * legacy bridge and must exactly match the owner-derived result.
- */
+/** A derived-duration reconciliation reads canonical overlay timing itself. */
 export interface ProjectDurationReconciliationCommandV1 {
-  actorKind: ProjectTimelineChangeActorKindV1;
-  assertedDurationInFrames?: number;
+  actorKind: Exclude<ProjectTimelineChangeActorKindV1, "UNKNOWN_LEGACY_CALLER">;
 }
 
 export type ProjectDurationReconciliationNotEligibleReasonV1 =
@@ -12202,23 +12197,19 @@ export class ProjectService {
   ): Promise<ProjectDurationReconciliationResultV1> {
     if (
       !isPlainRecord(input)
-      || Object.keys(input).some((key) => (
-        key !== "actorKind" && key !== "assertedDurationInFrames"
-      ))
+      || Object.keys(input).some((key) => key !== "actorKind")
       || typeof input.actorKind !== "string"
-      || (
-        input.assertedDurationInFrames !== undefined
-        && (
-          !Number.isSafeInteger(input.assertedDurationInFrames)
-          || input.assertedDurationInFrames < 0
-        )
-      )
     ) {
       throw new ProjectMutationWriteError(
         "Project duration reconciliation input is invalid.",
       );
     }
     assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if ((input.actorKind as string) === "UNKNOWN_LEGACY_CALLER") {
+      throw new ProjectMutationWriteError(
+        "Project duration reconciliation requires an explicit actor.",
+      );
+    }
 
     const db = await getDatabase();
     const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
@@ -12271,12 +12262,6 @@ export class ProjectService {
       (maximum, range) => Math.max(maximum, range!.endFrame),
       0,
     );
-    if (input.assertedDurationInFrames !== undefined
-      && input.assertedDurationInFrames !== reconciledDurationInFrames) {
-      throw new ProjectMutationWriteError(
-        "The caller-supplied duration does not match the ProjectService-derived overlay duration.",
-      );
-    }
     if (reconciledDurationInFrames === project.durationInFrames) {
       return {
         disposition: "ALREADY_CURRENT",
@@ -12375,32 +12360,15 @@ export class ProjectService {
     };
   }
 
-  /**
-   * Compatibility bridge for the two remaining legacy duration callers. It
-   * rejects every generic field update and refuses a duration assertion that
-   * differs from the owner-derived value. New callers must use
-   * `reconcileProjectDurationFromOverlaysV1` directly.
-   */
+  /** Compatibility tombstone. Generic project updates have no write authority. */
   async updateProject(
-    userId: string,
-    projectId: string,
-    updates: Record<string, unknown>,
+    _userId: string,
+    _projectId: string,
+    _updates: Record<string, unknown>,
   ): Promise<void> {
-    if (
-      !isPlainRecord(updates)
-      || Object.keys(updates).length !== 1
-      || !Object.prototype.hasOwnProperty.call(updates, "durationInFrames")
-      || !Number.isSafeInteger(updates.durationInFrames)
-      || (updates.durationInFrames as number) < 0
-    ) {
-      throw new ProjectMutationWriteError(
-        "Generic project updates are disabled; use a ProjectService command boundary.",
-      );
-    }
-    await this.reconcileProjectDurationFromOverlaysV1(userId, projectId, {
-      actorKind: "UNKNOWN_LEGACY_CALLER",
-      assertedDurationInFrames: updates.durationInFrames as number,
-    });
+    throw new ProjectMutationWriteError(
+      "Generic project updates are disabled; use a ProjectService command boundary.",
+    );
   }
 
   async deleteOverlayAtRevisionV1(

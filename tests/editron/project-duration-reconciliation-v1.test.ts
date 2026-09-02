@@ -132,15 +132,27 @@ describe("ProjectService duration reconciliation V1", () => {
     }
   });
 
-  it("fails closed instead of trusting a caller's stale duration assertion", async () => {
-    persistenceMocks.findOne.mockResolvedValueOnce(projectFixture());
+  it("rejects a legacy actor before project access", async () => {
     const { projectService } = await import("@/lib/editron/services/project-service");
 
     await expect(projectService.reconcileProjectDurationFromOverlaysV1(
       USER_ID,
       PROJECT_ID,
-      { actorKind: "UNKNOWN_LEGACY_CALLER", assertedDurationInFrames: 120 },
+      { actorKind: "UNKNOWN_LEGACY_CALLER" } as never,
     )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects a caller-supplied duration before project access", async () => {
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.reconcileProjectDurationFromOverlaysV1(
+      USER_ID,
+      PROJECT_ID,
+      { actorKind: "AGENT", assertedDurationInFrames: 180 } as never,
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
@@ -184,7 +196,7 @@ describe("ProjectService duration reconciliation V1", () => {
     });
   });
 
-  it("keeps the legacy bridge duration-only and fail closed", async () => {
+  it("keeps the generic update tombstone fail closed", async () => {
     const { projectService } = await import("@/lib/editron/services/project-service");
 
     await expect(projectService.updateProject(USER_ID, PROJECT_ID, {
@@ -194,24 +206,13 @@ describe("ProjectService duration reconciliation V1", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it("routes a matching legacy duration assertion through the canonical receipt writer", async () => {
-    persistenceMocks.findOne.mockResolvedValueOnce(projectFixture());
-    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+  it("rejects even a matching duration through the generic update tombstone", async () => {
     const { projectService } = await import("@/lib/editron/services/project-service");
 
     await expect(projectService.updateProject(USER_ID, PROJECT_ID, {
       durationInFrames: 180,
-    })).resolves.toBeUndefined();
-
-    const [, update] = persistenceMocks.updateOne.mock.calls[0] as [
-      Record<string, unknown>,
-      Record<string, any>,
-    ];
-    expect(update.$set.durationInFrames).toBe(180);
-    expect(update.$inc).toEqual({ projectRevision: 1 });
-    expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
-      actorKind: "UNKNOWN_LEGACY_CALLER",
-      operation: "RECONCILE_PROJECT_DURATION",
-    });
+    })).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 });

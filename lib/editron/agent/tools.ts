@@ -450,12 +450,9 @@ export const createTools = (userId: string, projectId: string) => {
 
   // Helper to recalculate project duration after edits
   async function recalculateProjectDuration() {
-    const project = await loadProject();
-    if (!project || !project.overlays?.length) return;
-    const maxFrame = Math.max(...project.overlays.map((o: any) => (o.from || 0) + (o.durationInFrames || 0)));
-    if (maxFrame > 0 && maxFrame !== project.durationInFrames) {
-      await projectService.updateProject(userId, projectId, { durationInFrames: maxFrame });
-    }
+    return projectService.reconcileProjectDurationFromOverlaysV1(userId, projectId, {
+      actorKind: "AGENT",
+    });
   }
 
   type ChatMutationFrameRange = { startFrame: number; endFrame: number };
