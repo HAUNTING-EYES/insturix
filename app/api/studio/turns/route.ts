@@ -8,6 +8,7 @@ import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { runAutoEditTurn } from "@/lib/studio/orchestrator/auto-edit";
 import { appendTurnEvent, connectSpine, getOrCreateProject, spineProjectIdOrNull } from "@/lib/studio/persist/db";
+import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +69,9 @@ export async function POST(req: Request) {
       brandId: request.brandId ?? null,
       title: request.text.trim().slice(0, 80) || "Studio draft",
     });
+    /* old TF sessions: their chat history enters the log BEFORE this turn's
+     * first event, so imported and new messages stay in true order */
+    await ensureThreadBootstrapped(project.projectId);
     const firstEvent = await appendTurnEvent(project.projectId, {
       actor: "user",
       kind: "user",

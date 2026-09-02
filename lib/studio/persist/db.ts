@@ -41,6 +41,7 @@ const ProjectSchema = new mongoose.Schema(
     acceptedBrandRevision: { type: String, default: null },
     title: { type: String, required: true },
     phase: { type: String, default: "planning" },
+    tfImportedAt: { type: Date, default: null }, // set once ThinkForge history is imported (§10)
   },
   { collection: "vibe_projects", timestamps: true },
 );
@@ -158,6 +159,20 @@ export async function appendTurnEvent(
   }
   console.error(`[spine] appendTurnEvent failed for ${projectId} (${event.kind}) after ${SPINE_RETRY_BACKOFF_MS.length + 1} attempts`, lastError);
   return null;
+}
+
+/** One-shot import claim (§10 conversation migration): exactly one caller
+ *  wins the right to import a session's ThinkForge history — concurrent
+ *  requests (turns route + events route racing) cannot duplicate it. */
+export async function claimTfImport(projectId: string): Promise<boolean> {
+  const doc = await ProjectModel.findOneAndUpdate({ _id: projectId, tfImportedAt: null }, { $set: { tfImportedAt: new Date() } }, { new: true }).lean();
+  return Boolean(doc);
+}
+
+/** Release the claim when the import produced nothing (all writes failed) so
+ *  a later attempt can retry instead of a permanently-empty history. */
+export async function releaseTfImportClaim(projectId: string): Promise<void> {
+  await ProjectModel.updateOne({ _id: projectId }, { $set: { tfImportedAt: null } });
 }
 
 export async function listEvents(projectId: string, afterSeq: number, limit = 2000): Promise<SpineEvent[]> {

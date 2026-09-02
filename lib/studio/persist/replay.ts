@@ -38,6 +38,11 @@ export function replayEventsToItems(events: PersistedSpineEvent[]): StudioThread
       });
       continue;
     }
+    if (ev.kind === "prose") {
+      const p = ev.payload as { id?: string; text?: string };
+      items.push({ kind: "prose", id: p.id ?? `prose_replay_${ev.seq}`, text: p.text ?? "", createdAt: ts(ev) });
+      continue;
+    }
     const turn = ev.payload as StudioTurnEvent;
     switch (turn?.type) {
       case "turn.plan":
