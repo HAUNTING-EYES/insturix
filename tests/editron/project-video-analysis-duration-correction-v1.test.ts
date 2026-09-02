@@ -1,26 +1,68 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashEditronCanonicalJsonV1 } from "@/lib/editron/services/canonical-json-v1";
+import {
+  VIDEO_SOURCE_TIME_BINDING_KIND_V1,
+  type VerifiedVideoSourceTimeBindingV1,
+} from "@/lib/editron/services/video-source-time-transform-v1";
+
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   updateOne: vi.fn(),
+  getAsset: vi.fn(),
+  resolveSourceBinding: vi.fn(),
+  outboxFindOne: vi.fn(),
+  outboxInsertOne: vi.fn(),
+  materializeMediaPrerequisite: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "mediaAssets" },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      updateOne: persistenceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => name
+      === "editron_project_render_snapshot_invalidation_outbox_v1"
+      ? {
+          findOne: persistenceMocks.outboxFindOne,
+          insertOne: persistenceMocks.outboxInsertOne,
+        }
+      : {
+          findOne: persistenceMocks.findOne,
+          updateOne: persistenceMocks.updateOne,
+        }),
   })),
   connectToDatabase: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/services/asset-resolver", () => ({
   assetResolver: {
+    getAsset: persistenceMocks.getAsset,
     stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
     resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
   },
+}));
+
+vi.mock("@/lib/editron/services/video-source-time-transform-v1", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/editron/services/video-source-time-transform-v1")
+  >();
+  return {
+    ...actual,
+    resolveVerifiedVideoSourceTimeBindingV1: persistenceMocks.resolveSourceBinding,
+  };
+});
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  loadProjectWholeStateMediaPrerequisiteByLinkV1: vi.fn(),
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.materializeMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 vi.mock("@/lib/services/orgMemberService", () => ({ orgMemberService: {} }));
@@ -109,9 +151,23 @@ describe("ProjectService Video Analysis duration correction V1", () => {
     vi.useRealTimers();
     persistenceMocks.findOne.mockReset();
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.getAsset.mockReset().mockResolvedValue({
+      assetId: "asset-analyzed",
+      type: "video",
+    });
+    persistenceMocks.resolveSourceBinding.mockReset().mockReturnValue(sourceBinding());
+    persistenceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistenceMocks.outboxInsertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistenceMocks.materializeMediaPrerequisite.mockReset().mockImplementation(async (input) => ({
+      ...input,
+      mediaEntries: input.overlays.map((overlay: { id: number }) => ({ overlayId: overlay.id })),
+      candidateMediaSetSha256: "e".repeat(64),
+      candidateMediaContentSha256: "f".repeat(64),
+      receiptSha256: "a".repeat(64),
+    }));
   });
 
-  it("uses the project FPS and corrects only one exact initial source overlay", async () => {
+  it("uses the verified source frame count and corrects only one exact initial overlay", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-25T01:02:03.000Z"));
     try {
@@ -119,7 +175,10 @@ describe("ProjectService Video Analysis duration correction V1", () => {
       persistenceMocks.findOne.mockResolvedValueOnce(project);
       persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
       const { projectService } = await import("@/lib/editron/services/project-service");
-      const command = await durationCommand(project);
+      const command = {
+        ...await durationCommand(project),
+        observedDurationMs: 20_000,
+      };
 
       const captured = await projectService.captureMutationReceipts(() => (
         projectService.commitVideoAnalysisDurationCorrectionV1(USER_ID, PROJECT_ID, command)
@@ -132,9 +191,12 @@ describe("ProjectService Video Analysis duration correction V1", () => {
         disposition: "APPLIED",
         correctionReceipt: {
           assetId: "asset-analyzed",
-          observedDurationMs: 12_000,
+          observedDurationMs: 20_000,
           durationSource: "container",
           projectFps: 25,
+          durationDerivation: "VERIFIED_SOURCE_FRAME_COUNT",
+          sourceTimeBindingSha256: sourceBinding().bindingSha256,
+          correctedDurationInFrames: 300,
           target: { overlayId: 10, expectedDurationInFrames: 250 },
           requestedRevision: { value: 7 },
           beforeRevision: { value: 7 },
@@ -150,6 +212,13 @@ describe("ProjectService Video Analysis duration correction V1", () => {
             writeFrameRangesBefore: [{ startFrame: 0, endFrame: 300 }],
             affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 300 }],
             rangeObservation: "EXACT",
+            downstreamInvalidation: {
+              status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+            },
+            wholeStateMediaPrerequisite: {
+              status: "MATERIALIZED",
+              mediaEntryCount: 1,
+            },
           },
         },
       });
@@ -189,6 +258,15 @@ describe("ProjectService Video Analysis duration correction V1", () => {
         "target.from": 0,
         "target.durationInFrames": 250,
       }]);
+      expect(persistenceMocks.materializeMediaPrerequisite.mock.calls[0]?.[0]).toMatchObject({
+        operation: "CORRECT_VIDEO_ANALYSIS_DURATION",
+        projectRevision: { value: 7 },
+        overlays: [expect.objectContaining({ id: 10, durationInFrames: 300 })],
+      });
+      expect(persistenceMocks.materializeMediaPrerequisite.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0]);
+      expect(persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]);
     } finally {
       vi.useRealTimers();
     }
@@ -217,6 +295,113 @@ describe("ProjectService Video Analysis duration correction V1", () => {
       command,
     )).resolves.toMatchObject({ disposition: "ALREADY_APPLIED" });
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads complete legacy receipts but rejects partially upgraded receipt evidence", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+    const command = await durationCommand(project);
+    const first = await projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    );
+    if (first.disposition !== "APPLIED") throw new Error("Fixture did not apply correction.");
+
+    const legacyReceipt = structuredClone(first.correctionReceipt) as Record<string, any>;
+    delete legacyReceipt.durationDerivation;
+    delete legacyReceipt.sourceTimeBindingSha256;
+    delete legacyReceipt.correctedDurationInFrames;
+    legacyReceipt.timelineChangeReceipt.downstreamInvalidation = {
+      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+      affectedFrameRangesBefore: [{ startFrame: 0, endFrame: 300 }],
+    };
+    delete legacyReceipt.timelineChangeReceipt.wholeStateMediaPrerequisite;
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      ...project,
+      videoAnalysisDurationCorrectionReceipts: [legacyReceipt],
+    });
+    await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).resolves.toMatchObject({ disposition: "ALREADY_APPLIED" });
+
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      ...project,
+      videoAnalysisDurationCorrectionReceipts: [{
+        ...legacyReceipt,
+        durationDerivation: "VERIFIED_SOURCE_FRAME_COUNT",
+      }],
+    });
+    await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+  });
+
+  it("blocks missing source timing, locks and media evidence before project mutation", async () => {
+    const project = projectFixture();
+    const command = await durationCommand(project);
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.resolveSourceBinding.mockReturnValueOnce(null);
+    await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).resolves.toEqual({
+      disposition: "NOT_ELIGIBLE",
+      reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+    });
+
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.resolveSourceBinding.mockReturnValueOnce(sourceBinding({
+      sourceCadence: { kind: "VFR" },
+    }));
+    await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).resolves.toEqual({
+      disposition: "NOT_ELIGIBLE",
+      reason: "SOURCE_EVENT_REBIND_UNSUPPORTED",
+    });
+
+    persistenceMocks.findOne.mockResolvedValueOnce(projectFixture({
+      timelineRangeCutLocks: [{
+        schemaVersion: 1,
+        lockId: "timeline-cut-lock_durationcorrect001",
+        actorKind: "USER",
+        frameRange: { startFrame: 250, endFrame: 300 },
+        acquiredAt: "2026-08-25T00:00:00.000Z",
+        expiresAt: "2099-08-25T00:05:00.000Z",
+      }],
+    }));
+    await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).rejects.toMatchObject({ code: "PROJECT_TIMELINE_RANGE_LOCKED" });
+
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.materializeMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING"),
+    );
+    const captured = await projectService.captureMutationReceipts(async () => {
+      await expect(projectService.commitVideoAnalysisDurationCorrectionV1(
+        USER_ID,
+        PROJECT_ID,
+        command,
+      )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING");
+    });
+    expect(captured.receipts).toEqual([]);
+    expect(persistenceMocks.outboxInsertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a stale snapshot before any write", async () => {
@@ -288,3 +473,24 @@ describe("ProjectService Video Analysis duration correction V1", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 });
+
+function sourceBinding(
+  overrides: Partial<Omit<VerifiedVideoSourceTimeBindingV1, "bindingSha256">> = {},
+): VerifiedVideoSourceTimeBindingV1 {
+  const material = {
+    schemaVersion: 1 as const,
+    kind: VIDEO_SOURCE_TIME_BINDING_KIND_V1,
+    assetId: "asset-analyzed",
+    sourceVersionSha256: "a".repeat(64),
+    sourcePtsMapStateSha256: "b".repeat(64),
+    mapBindingSha256: "c".repeat(64),
+    terminalReceiptSha256: "d".repeat(64),
+    sourceTimebase: { numerator: "1", denominator: "90000" },
+    sourceCadence: { kind: "CFR" as const, durationTicks: "3600" },
+    sourceStartPresentationTimestampTicks: "0",
+    sourceEndExclusivePresentationTimestampTicks: String(300 * 3600),
+    totalSourceFrameCount: "300",
+    ...overrides,
+  };
+  return { ...material, bindingSha256: hashEditronCanonicalJsonV1(material) };
+}

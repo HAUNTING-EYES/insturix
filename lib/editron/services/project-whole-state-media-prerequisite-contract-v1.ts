@@ -79,6 +79,8 @@ const materialSchema = z.object({
     'CUT_TIMELINE_RANGE',
     'APPLY_VIDEO_SPEED_RAMP',
     'RETIME_VIDEO_SOURCE_RANGE',
+    'CORRECT_VIDEO_ANALYSIS_DURATION',
+    'RECONCILE_PROJECT_DURATION',
   ]),
   projectId: identifier,
   userId: identifier,

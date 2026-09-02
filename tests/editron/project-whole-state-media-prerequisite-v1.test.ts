@@ -87,6 +87,8 @@ describe('project whole-state media prerequisite V1', () => {
       'CUT_TIMELINE_RANGE',
       'APPLY_VIDEO_SPEED_RAMP',
       'RETIME_VIDEO_SOURCE_RANGE',
+      'CORRECT_VIDEO_ANALYSIS_DURATION',
+      'RECONCILE_PROJECT_DURATION',
     ] as const) {
       const receipt = await issueProjectWholeStateMediaPrerequisiteV1({
         ...SCOPE,

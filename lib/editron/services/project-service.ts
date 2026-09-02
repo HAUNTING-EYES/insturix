@@ -1064,7 +1064,13 @@ export type ProjectVideoAnalysisDurationCorrectionNotEligibleReasonV1 =
   | "NO_UNIQUE_INITIAL_SOURCE_OVERLAY"
   | "TARGET_EXPECTATION_MISMATCH"
   | "PROJECT_DURATION_MISMATCH"
-  | "PROJECT_FPS_INVALID";
+  | "PROJECT_FPS_INVALID"
+  | "SOURCE_ASSET_NOT_FOUND"
+  | "SOURCE_TIME_EVIDENCE_INCOMPLETE"
+  | "SOURCE_EVENT_REBIND_UNSUPPORTED"
+  | "PROJECT_RATIONAL_TIMEBASE_REQUIRED"
+  | "SOURCE_PROJECT_RATE_MISMATCH"
+  | "SOURCE_FRAME_COUNT_UNREPRESENTABLE";
 
 export interface ProjectVideoAnalysisDurationCorrectionReceiptV1 {
   schemaVersion: 1;
@@ -1074,6 +1080,10 @@ export interface ProjectVideoAnalysisDurationCorrectionReceiptV1 {
   observedDurationMs: number;
   durationSource: "container" | "transcript";
   projectFps: number;
+  /** Absent only on historical receipts written before exact source binding. */
+  durationDerivation?: "VERIFIED_SOURCE_FRAME_COUNT";
+  sourceTimeBindingSha256?: string;
+  correctedDurationInFrames?: number;
   target: Readonly<ProjectVideoAnalysisDurationCorrectionCommandV1["target"]>;
   requestedRevision: ProjectRevisionV1;
   beforeRevision: ProjectRevisionV1;
@@ -8455,7 +8465,9 @@ export class ProjectService {
       | "DELETE_OVERLAY"
       | "CUT_TIMELINE_RANGE"
       | "APPLY_VIDEO_SPEED_RAMP"
-      | "RETIME_VIDEO_SOURCE_RANGE";
+      | "RETIME_VIDEO_SOURCE_RANGE"
+      | "CORRECT_VIDEO_ANALYSIS_DURATION"
+      | "RECONCILE_PROJECT_DURATION";
     beforeRevision: ProjectRevisionV1;
     afterRevision: ProjectRevisionV1;
     committedAt: Date;
@@ -10545,6 +10557,12 @@ export class ProjectService {
         "Video Analysis duration evidence is stale. Reload before correcting the timeline.",
       );
     }
+    if (hasActiveDirectorMutationLeaseV1(current)) {
+      throw new ProjectMutationConflictError(
+        beforeRevision,
+        "The project is locked by an active Director mutation. Reload before correcting duration.",
+      );
+    }
 
     const eligibility = resolveVideoAnalysisDurationCorrectionTargetV1(
       current,
@@ -10560,13 +10578,39 @@ export class ProjectService {
       return { disposition: "NOT_ELIGIBLE", reason: "PROJECT_FPS_INVALID" };
     }
 
-    const correctedDurationInFrames = Math.round(
-      (input.observedDurationMs / 1_000) * current.fps,
-    );
-    if (!Number.isSafeInteger(correctedDurationInFrames) || correctedDurationInFrames <= 0) {
+    const asset = await assetResolver.getAsset(input.assetId, userId);
+    if (!asset) {
+      return { disposition: "NOT_ELIGIBLE", reason: "SOURCE_ASSET_NOT_FOUND" };
+    }
+    const sourceBinding = resolveVerifiedVideoSourceTimeBindingV1(asset);
+    if (!sourceBinding) {
+      return { disposition: "NOT_ELIGIBLE", reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE" };
+    }
+    if (sourceBinding.assetId !== input.assetId) {
       throw new ProjectMutationWriteError(
-        "Video Analysis duration evidence cannot be represented in this project frame coordinate.",
+        "Video Analysis duration source binding does not match the target asset.",
       );
+    }
+    const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+      sourceBinding,
+      current.fps,
+    );
+    if (rateCompatibility.disposition === "UNSUPPORTED") {
+      return {
+        disposition: "NOT_ELIGIBLE",
+        reason: rateCompatibility.reason === "VFR_INDEX_REQUIRED"
+          ? "SOURCE_EVENT_REBIND_UNSUPPORTED"
+          : rateCompatibility.reason,
+      };
+    }
+    let correctedDurationInFrames: number;
+    try {
+      correctedDurationInFrames = Number(BigInt(sourceBinding.totalSourceFrameCount));
+    } catch {
+      return { disposition: "NOT_ELIGIBLE", reason: "SOURCE_FRAME_COUNT_UNREPRESENTABLE" };
+    }
+    if (!Number.isSafeInteger(correctedDurationInFrames) || correctedDurationInFrames <= 0) {
+      return { disposition: "NOT_ELIGIBLE", reason: "SOURCE_FRAME_COUNT_UNREPRESENTABLE" };
     }
     if (correctedDurationInFrames === input.target.expectedDurationInFrames) {
       return { disposition: "ALREADY_CURRENT", correctedDurationInFrames };
@@ -10602,6 +10646,31 @@ export class ProjectService {
         "Video Analysis duration correction could not derive its exact local timeline effect.",
       );
     }
+    const activeOverlappingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(current),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      unionFrameRange,
+    ));
+    if (activeOverlappingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        beforeRevision,
+        activeOverlappingLocks.map((lock) => lock.lockId),
+        "An active timeline range lock overlaps the video duration correction.",
+      );
+    }
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "CORRECT_VIDEO_ANALYSIS_DURATION",
+        tenantId: current.orgId ?? current.userId,
+        userId,
+        projectOwnerId: current.userId,
+        orgId: current.orgId ?? null,
+        projectId,
+        projectRevision: beforeRevision,
+        overlays: [correctedOverlay],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
 
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
@@ -10615,6 +10684,16 @@ export class ProjectService {
       revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "CORRECT_VIDEO_ANALYSIS_DURATION",
+        beforeRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
     const changedPaths = [
       "durationInFrames",
@@ -10649,9 +10728,12 @@ export class ProjectService {
       splitChildren: [],
       ripple: null,
       downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
         affectedFrameRangesBefore: [unionFrameRange],
+        projectRenderSnapshotInvalidation,
       },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     };
     const correctionReceipt: ProjectVideoAnalysisDurationCorrectionReceiptV1 = {
       schemaVersion: 1,
@@ -10661,6 +10743,9 @@ export class ProjectService {
       observedDurationMs: input.observedDurationMs,
       durationSource: input.durationSource,
       projectFps: current.fps,
+      durationDerivation: "VERIFIED_SOURCE_FRAME_COUNT",
+      sourceTimeBindingSha256: sourceBinding.bindingSha256,
+      correctedDurationInFrames,
       target: structuredClone(input.target),
       requestedRevision: structuredClone(input.expectedRevision),
       beforeRevision,
@@ -12611,6 +12696,31 @@ export class ProjectService {
       readEndFrame,
       "Project duration reconciliation could not derive its changed timeline boundary.",
     );
+    const activeOverlappingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      boundaryChangeRange,
+    ));
+    if (activeOverlappingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        beforeRevision,
+        activeOverlappingLocks.map((lock) => lock.lockId),
+        "An active timeline range lock overlaps the project duration boundary correction.",
+      );
+    }
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "RECONCILE_PROJECT_DURATION",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: beforeRevision,
+        overlays: [],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
@@ -12623,6 +12733,16 @@ export class ProjectService {
       revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "RECONCILE_PROJECT_DURATION",
+        beforeRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
       schemaVersion: 1,
       receiptId: `timeline-duration-reconcile_${nanoid(18)}`,
@@ -12649,9 +12769,12 @@ export class ProjectService {
       splitChildren: [],
       ripple: null,
       downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
         affectedFrameRangesBefore: [boundaryChangeRange],
+        projectRenderSnapshotInvalidation,
       },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     };
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -13880,9 +14003,16 @@ function isProjectVideoAnalysisDurationCorrectionReceiptV1(
   projectId: string,
   correctionId: string,
 ): value is ProjectVideoAnalysisDurationCorrectionReceiptV1 {
+  if (!isPlainRecord(value)) return false;
+  const hasLegacyDurationEvidence = value.durationDerivation === undefined
+    && value.sourceTimeBindingSha256 === undefined
+    && value.correctedDurationInFrames === undefined;
+  const hasExactDurationEvidence = value.durationDerivation === "VERIFIED_SOURCE_FRAME_COUNT"
+    && /^[a-f0-9]{64}$/.test(String(value.sourceTimeBindingSha256))
+    && Number.isSafeInteger(value.correctedDurationInFrames)
+    && (value.correctedDurationInFrames as number) > 0;
   if (
-    !isPlainRecord(value)
-    || value.schemaVersion !== 1
+    value.schemaVersion !== 1
     || value.correctionId !== correctionId
     || value.correctionId !== `video-analysis-duration_${value.materialHash}`
     || !/^[a-f0-9]{64}$/.test(String(value.materialHash))
@@ -13891,6 +14021,7 @@ function isProjectVideoAnalysisDurationCorrectionReceiptV1(
     || (value.observedDurationMs as number) <= 0
     || (value.durationSource !== "container" && value.durationSource !== "transcript")
     || !isProjectTimelineFpsV1(value.projectFps)
+    || (!hasLegacyDurationEvidence && !hasExactDurationEvidence)
     || !isPlainRecord(value.target)
     || !isPlainRecord(value.requestedRevision)
     || !isPlainRecord(value.beforeRevision)
@@ -13933,6 +14064,11 @@ function isProjectVideoAnalysisDurationCorrectionReceiptV1(
         value.beforeRevision as unknown as ProjectRevisionV1,
       )
       || value.timelineChangeReceipt.operation !== "CORRECT_VIDEO_ANALYSIS_DURATION"
+      || (hasExactDurationEvidence && (
+        value.timelineChangeReceipt.affectedFrameRangesAfter.length !== 1
+        || value.timelineChangeReceipt.affectedFrameRangesAfter[0]?.endFrame
+          !== value.correctedDurationInFrames
+      ))
     ) {
       return false;
     }
