@@ -129,21 +129,35 @@ export async function getProject(projectId: string): Promise<SpineProject | null
   return toSpineProject(doc);
 }
 
+/** Transient-failure armor (same pattern the MatrAIx runner proved over a
+ *  550-cell run): 2 retries with backoff. Atlas blips are usually sub-second,
+ *  and an unsaved event is a hole in the project's story — absorb the blip.
+ *  Only a sustained outage defeats this; the turn-start gate in the turns
+ *  route then refuses to run unrecorded work rather than losing it. */
+const SPINE_RETRY_BACKOFF_MS = [2000, 8000];
+
 /** Appends one event with the next per-project sequence number. Atomic
- *  counter + insert; failure is logged, never thrown (availability rule). */
+ *  counter + insert, retried on transient errors; a sustained failure is
+ *  logged and returned as null — the caller decides (turn-start: refuse;
+ *  mid-turn: keep the running work alive, reconcile from Phase 2 receipts). */
 export async function appendTurnEvent(
   projectId: string,
   event: { turnId: string | null; actor: SpineEvent["actor"]; kind: string; payload: unknown },
 ): Promise<SpineEvent | null> {
-  try {
-    const counter = (await SeqModel.findOneAndUpdate({ projectId }, { $inc: { seq: 1 } }, { upsert: true, new: true }).lean()) as unknown as { seq?: number } | null;
-    const seq = counter?.seq ?? 1;
-    const doc = await EventModel.create({ projectId, seq, turnId: event.turnId, actor: event.actor, kind: event.kind, payload: event.payload });
-    return { seq, projectId, turnId: event.turnId, actor: event.actor, kind: event.kind, payload: event.payload, createdAt: doc.createdAt ? doc.createdAt.toISOString() : null };
-  } catch (error) {
-    console.error(`[spine] appendTurnEvent failed for ${projectId} (${event.kind}) — turn continues unlogged`, error);
-    return null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= SPINE_RETRY_BACKOFF_MS.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, SPINE_RETRY_BACKOFF_MS[attempt - 1]));
+    try {
+      const counter = (await SeqModel.findOneAndUpdate({ projectId }, { $inc: { seq: 1 } }, { upsert: true, new: true }).lean()) as unknown as { seq?: number } | null;
+      const seq = counter?.seq ?? 1;
+      const doc = await EventModel.create({ projectId, seq, turnId: event.turnId, actor: event.actor, kind: event.kind, payload: event.payload });
+      return { seq, projectId, turnId: event.turnId, actor: event.actor, kind: event.kind, payload: event.payload, createdAt: doc.createdAt ? doc.createdAt.toISOString() : null };
+    } catch (error) {
+      lastError = error;
+    }
   }
+  console.error(`[spine] appendTurnEvent failed for ${projectId} (${event.kind}) after ${SPINE_RETRY_BACKOFF_MS.length + 1} attempts`, lastError);
+  return null;
 }
 
 export async function listEvents(projectId: string, afterSeq: number, limit = 2000): Promise<SpineEvent[]> {

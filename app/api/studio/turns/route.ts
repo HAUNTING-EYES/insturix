@@ -53,8 +53,12 @@ export async function POST(req: Request) {
   /* the spine (Phase 1): resolve or mint the persisted Project for this turn,
    * save the user's message, then persist every streamed event server-side
    * before it is sent — reload reconstructs the conversation from the event
-   * log (GET /api/studio/threads/[threadId]/events). Spine failures degrade
-   * to the old behavior (turn runs, nothing logged) — never a dead turn. */
+   * log (GET /api/studio/threads/[threadId]/events). Persistence gate: if the
+   * project or the first event cannot be saved (after retries), REFUSE the
+   * turn — already-saved projects are untouched and the user sees an honest
+   * error instead of work that would vanish on reload. Mid-turn failures are
+   * the only degrade path: the running work is kept alive and Phase 2
+   * receipts reconcile what the log missed. */
   let spineProjectId: string | null = null;
   try {
     await connectSpine();
@@ -64,8 +68,7 @@ export async function POST(req: Request) {
       brandId: request.brandId ?? null,
       title: request.text.trim().slice(0, 80) || "Studio draft",
     });
-    spineProjectId = project.projectId;
-    await appendTurnEvent(spineProjectId, {
+    const firstEvent = await appendTurnEvent(project.projectId, {
       actor: "user",
       kind: "user",
       turnId: null,
@@ -78,8 +81,13 @@ export async function POST(req: Request) {
         createdAt: new Date().toISOString(),
       },
     });
+    if (!firstEvent) {
+      return NextResponse.json({ error: "spine_unavailable" }, { status: 503 });
+    }
+    spineProjectId = project.projectId;
   } catch (error) {
-    console.error("[spine] project resolution failed — turn continues unpersisted", error);
+    console.error("[spine] project resolution failed — refusing unrecorded turn", error);
+    return NextResponse.json({ error: "spine_unavailable" }, { status: 503 });
   }
 
   const scriptAttachment = request.attachments.find((a) => a.role === "script");
