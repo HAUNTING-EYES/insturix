@@ -14,7 +14,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
-import { dayBucket, deliverableState, type ProjectStatusPayload } from "@/lib/studio/client/place-helpers";
+import { dayBucket, deliverableState, publishStatusChip, type ProjectStatusPayload } from "@/lib/studio/client/place-helpers";
 import { MOCK_BRANDS, MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL } from "@/lib/studio/mock/data";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
@@ -217,18 +217,29 @@ function PlaceFrame({ crumb, title, sub, children }: { crumb: string; title: str
 /* ── Calendar place ── */
 
 type OverviewPayload = { deliverables: StudioDeliverable[]; brands?: Record<string, string> };
+type CalendarPayload = {
+  scheduled: Array<{ id: string; deliverableId: string; platform: string; status: string; publishAt: string; postUrl: string | null; lastError: string | null }>;
+};
 
 export function CalendarPlace() {
   const REAL = studioRealTurnsEnabled;
   const [data, setData] = useState<OverviewPayload | null>(null);
+  const [cal, setCal] = useState<CalendarPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!REAL) return;
-    fetch("/api/studio/overview")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: OverviewPayload) => setData(d))
-      .catch((e: Error) => setError(e.message));
+    const safe = <T,>(p: Promise<T>) => p.catch(() => null);
+    void (
+      Promise.all([
+        safe(fetch("/api/studio/overview").then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))),
+        safe(fetch("/api/studio/calendar").then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))),
+      ]) as Promise<[OverviewPayload | null, CalendarPayload | null]>
+    ).then(([o, c]) => {
+      if (o) setData(o);
+      if (c) setCal(c);
+      if (!o && !c) setError("overview and calendar both unreachable");
+    });
   }, [REAL]);
 
   const deliverables = REAL ? (data?.deliverables ?? []) : [MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL];
@@ -239,17 +250,57 @@ export function CalendarPlace() {
     buckets.get(k)!.push(d);
   }
 
+  /* Phase 4: real dated milestones from CalOS's delivery queue — past 7 days
+   * + next 45, grouped by publish day. Delivery state lives there, not on
+   * deliverables; nothing here publishes by itself. */
+  const scheduled = REAL ? (cal?.scheduled ?? []) : [];
+  const schedBuckets = new Map<string, CalendarPayload["scheduled"]>();
+  for (const r of scheduled) {
+    const k = dayBucket(r.publishAt);
+    if (!schedBuckets.has(k)) schedBuckets.set(k, []);
+    schedBuckets.get(k)!.push(r);
+  }
+  const schedTotal = scheduled.length;
+
   return (
     <PlaceFrame
       crumb="Calendar"
       title="Calendar"
-      sub="when things ship — dated milestones arrive as projects gain schedules; today it orders real work by when it last moved"
+      sub="when things ship — scheduled posts from the delivery queue, then real work by when it last moved"
     >
       {error && <p className="stu-placeerror">couldn&apos;t load real data ({error}) — showing nothing rather than faking it</p>}
       {!error && !REAL && <p className="stu-placemock">demo data — real projects appear when STUDIO_REAL_TURNS is on</p>}
+      {[...schedBuckets.entries()].map(([day, rows]) => (
+        <section key={`s_${day}`} className="stu-daygroup">
+          <div className="stu-mlabel">{day} · scheduled</div>
+          {rows.map((r) => {
+            const chip = publishStatusChip(r.status);
+            const row = (
+              <span className="stu-dayrow" style={{ cursor: r.postUrl ? "pointer" : "default" }}>
+                <span className="stu-daytitle">{r.platform}</span>
+                <span className="stu-daysub">
+                  {new Date(r.publishAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })}
+                  {r.lastError && r.status === "failed" ? ` · ${r.lastError.slice(0, 60)}` : ""}
+                </span>
+                <StateChip status={chip} />
+              </span>
+            );
+            return r.postUrl ? (
+              <a key={r.id} href={r.postUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                {row}
+              </a>
+            ) : (
+              <span key={r.id}>{row}</span>
+            );
+          })}
+        </section>
+      ))}
+      {REAL && schedTotal === 0 && !error && (
+        <p className="stu-placeempty">nothing scheduled yet — approved work lands here with its publish day; nothing ever posts without approval</p>
+      )}
       {[...buckets.entries()].map(([day, rows]) => (
         <section key={day} className="stu-daygroup">
-          <div className="stu-mlabel">{day}</div>
+          <div className="stu-mlabel">{day} · recent work</div>
           {rows.map((d) => (
             <Link key={d.id} href={`/studio/d/${d.id}`} className="stu-dayrow">
               <span className="stu-daytitle">{d.title}</span>

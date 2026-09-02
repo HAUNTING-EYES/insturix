@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayBucket, deliverableState } from "@/lib/studio/client/place-helpers";
+import { dayBucket, deliverableState, publishStatusChip } from "@/lib/studio/client/place-helpers";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 function isoDaysAgo(days: number): string {
@@ -33,6 +33,11 @@ describe("dayBucket", () => {
     expect(dayBucket(isoDaysAgo(1))).toBe("Yesterday");
   });
 
+  it("labels FUTURE dates as their own day, never Today", () => {
+    expect(dayBucket(isoDaysAgo(-3))).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
+    expect(dayBucket(isoDaysAgo(-3))).not.toBe("Today");
+  });
+
   it("labels older work as a Mon D bucket", () => {
     const label = dayBucket(isoDaysAgo(4));
     expect(label).not.toBe("Today");
@@ -56,5 +61,19 @@ describe("deliverableState — priority chain", () => {
 
   it("all-done delivers done", () => {
     expect(deliverableState(deliverable(["done", "done"]))).toEqual({ state: "done", label: "done" });
+  });
+});
+
+describe("publishStatusChip — CalOS delivery states", () => {
+  it("queue rows are post-approval: pending reads scheduled, in-flight reads publishing", () => {
+    expect(publishStatusChip("pending").label).toBe("scheduled");
+    expect(publishStatusChip("claimed").label).toBe("publishing");
+    expect(publishStatusChip("publishing").label).toBe("publishing");
+  });
+
+  it("terminal states map honestly: published, failed, replaced", () => {
+    expect(publishStatusChip("published")).toEqual({ state: "done", label: "published" });
+    expect(publishStatusChip("failed").state).toBe("error");
+    expect(publishStatusChip("superseded").label).toBe("replaced");
   });
 });

@@ -7,15 +7,36 @@ import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 export type ProjectStatusPayload = { state: string; label: string };
 
-/** Bucket an ISO timestamp into a human day label (Today / Yesterday / Mon D). */
+/** Bucket an ISO timestamp into a human day label (Today / Yesterday / Mon D).
+ *  Future dates fall through to their date label — the calendar shows
+ *  upcoming publish days, not "Today". */
 export function dayBucket(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
   const strip = (x: Date) => Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate());
   const days = Math.round((strip(today) - strip(d)) / 86_400_000);
-  if (days <= 0) return "Today";
+  if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** CalOS delivery-queue status → the row chip. Queue rows only exist AFTER
+ *  approval (the decision route creates them), so pending means "scheduled,
+ *  waiting for its time" — never "might post on its own". */
+export function publishStatusChip(status: string): ProjectStatusPayload {
+  switch (status) {
+    case "published":
+      return { state: "done", label: "published" };
+    case "failed":
+      return { state: "error", label: "failed" };
+    case "superseded":
+      return { state: "planning", label: "replaced" };
+    case "publishing":
+    case "claimed":
+      return { state: "running", label: "publishing" };
+    default:
+      return { state: "running", label: "scheduled" };
+  }
 }
 
 /** Map a deliverable's artifact statuses onto the row chip: running beats
