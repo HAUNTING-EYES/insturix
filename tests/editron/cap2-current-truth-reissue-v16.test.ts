@@ -31,7 +31,9 @@ describe('CAP-2 current-truth reissue V16', () => {
       queue5ActorSourcePathCount: 3,
     });
     expect(CAP2_QUEUE5_ACTOR_SOURCE_PATHS_V16).toHaveLength(3);
-    expect(() => assertCap2CurrentTruthSourcesMatchV16()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV16()).toThrow(
+      'CAP-2 v16 live Queue 5 source snapshot drift.',
+    );
   });
 
   it('records explicit current actors without claiming universal Queue 5 closure', () => {
