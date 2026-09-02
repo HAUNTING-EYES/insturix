@@ -178,6 +178,8 @@ export const StudioTurnEventSchema = z.discriminatedUnion("type", [
     turnId: z.string(),
     stepId: z.string(),
     kind: z.enum(["spend", "publish", "destructive"]),
+    /** server-stamped: the claim the answer resumes (reload re-arms the card) */
+    operationId: z.string().uuid().optional(),
     /** present for kind=spend */
     quote: z.string().nullable().optional(), // TurnCostQuote serialized
     /** present for kind=publish */

@@ -182,9 +182,15 @@ export async function POST(req: Request) {
                   );
         for await (const rawEvent of events) {
           /* the client adopts the spine identity from turn.received — a minted
-           * project id (first turn on "live") replaces the del_live placeholder */
-          const event =
-            spineProjectId && rawEvent.type === "turn.received" ? { ...rawEvent, deliverableId: spineProjectId } : rawEvent;
+           * project id (first turn on "live") replaces the del_live placeholder.
+           * confirm_required is stamped with the operation id so a RELOAD can
+           * re-arm the approval card and the answer resumes the same claim
+           * (plan §3: reload reconstructs the conversation exactly) */
+          let event: StudioTurnEvent = rawEvent;
+          if (spineProjectId && rawEvent.type === "turn.received") event = { ...rawEvent, deliverableId: spineProjectId };
+          if (spineOperationId && rawEvent.type === "turn.confirm_required" && !rawEvent.operationId) {
+            event = { ...rawEvent, operationId: spineOperationId };
+          }
           if (spineProjectId) {
             const appended = await appendTurnEvent(spineProjectId, {
               actor: "system",

@@ -5,9 +5,58 @@ import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
  * Pure replay of persisted spine events into thread items — the reload path.
  * This mirrors the live reducer in components/studio/session.tsx (applyEvent)
  * so a reloaded Project reconstructs the same conversation exactly (plan §3).
- * pendingConfirm is deliberately not replayed: an unanswered gate mid-turn is
- * a Phase 2 decision request, not a durable thread item.
+ * An UNANSWERED approval gate is likewise reconstructed: replayOpenConfirm
+ * derives it from the log so reload re-arms the interactive card and the
+ * answer resumes the same operation claim.
  */
+
+export interface ReplayOpenConfirm {
+  turnId: string;
+  kind: "spend" | "publish" | "destructive";
+  operationId: string | null;
+  quote: unknown | null;
+  publishTargets: Array<{ platform: string; scheduledAt: string }>;
+  originalText: string;
+  createdAt: string;
+}
+
+/** The open approval gate, if the log ends on one: the LAST confirm_required
+ *  event with no subsequent user message and no subsequent turn.received
+ *  (the resumed turn emits turn.received, which consumes the gate). */
+export function replayOpenConfirm(events: PersistedSpineEvent[]): ReplayOpenConfirm | null {
+  let open: ReplayOpenConfirm | null = null;
+  let lastUserText = "";
+  for (const ev of events) {
+    if (ev.kind === "user") {
+      const p = ev.payload as { text?: string };
+      lastUserText = p.text ?? lastUserText;
+      open = null; // a new user message supersedes any earlier open gate
+      continue;
+    }
+    if (ev.kind !== "turn.confirm_required") {
+      if (ev.kind === "turn.received") open = null; // the gate was answered and the turn resumed
+      continue;
+    }
+    const p = ev.payload as {
+      turnId?: string;
+      kind?: "spend" | "publish" | "destructive";
+      operationId?: string;
+      quote?: unknown;
+      publishTargets?: Array<{ platform: string; scheduledAt: string }>;
+    };
+    if (!p.turnId || !p.kind) continue;
+    open = {
+      turnId: p.turnId,
+      kind: p.kind,
+      operationId: p.operationId ?? null,
+      quote: p.quote ?? null,
+      publishTargets: p.publishTargets ?? [],
+      originalText: lastUserText,
+      createdAt: ts(ev),
+    };
+  }
+  return open;
+}
 
 export interface PersistedSpineEvent {
   seq: number;

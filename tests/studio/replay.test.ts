@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replayEventsToItems, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
+import { replayEventsToItems, replayOpenConfirm, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
 
 const ev = (seq: number, kind: string, payload: unknown, createdAt = `2026-09-02T10:00:${String(seq).padStart(2, "0")}Z`): PersistedSpineEvent => ({
   seq,
@@ -95,5 +95,36 @@ describe("replayEventsToItems — the reload path (plan §3: same conversation, 
       ev(1, "turn.ideas", { type: "turn.ideas", turnId: "t1", ideas: [{ id: "i1", idea: "fit check" }] }),
     ]);
     expect(items[0]?.kind).toBe("ideas");
+  });
+});
+
+describe("replayOpenConfirm — §3 reload reconstructs the approval gate", () => {
+  const user = (seq: number, text = "make visuals") => ev(seq, "user", { kind: "user", id: `u${seq}`, text, attachments: [], mentions: [], createdAt: "2026-01-01T00:00:00Z" });
+  const confirm = (seq: number, turnId = "t1", operationId?: string) =>
+    ev(seq, "turn.confirm_required", { type: "turn.confirm_required", turnId, stepId: "s1", kind: "spend", quote: null, publishTargets: [], ...(operationId ? { operationId } : {}) });
+
+  it("an unanswered gate at the end of the log is open, with its operation claim", () => {
+    const open = replayOpenConfirm([user(1), confirm(2, "t1", "11111111-1111-4111-8111-111111111111")]);
+    expect(open?.turnId).toBe("t1");
+    expect(open?.kind).toBe("spend");
+    expect(open?.operationId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(open?.originalText).toBe("make visuals");
+  });
+
+  it("a subsequent turn.received consumes the gate (the answer resumed the turn)", () => {
+    const open = replayOpenConfirm([user(1), confirm(2), ev(3, "turn.received", { type: "turn.received", turnId: "t2", deliverableId: "p" })]);
+    expect(open).toBeNull();
+  });
+
+  it("a later user message supersedes an earlier open gate", () => {
+    const open = replayOpenConfirm([user(1), confirm(2), user(3, "never mind")]);
+    expect(open).toBeNull();
+  });
+
+  it("the LAST gate wins when several exist, and a closed log yields null", () => {
+    const open = replayOpenConfirm([user(1), confirm(2, "t1"), user(3), confirm(4, "t2")]);
+    expect(open?.turnId).toBe("t2");
+    expect(replayOpenConfirm([user(1)])).toBeNull();
+    expect(replayOpenConfirm([])).toBeNull();
   });
 });

@@ -15,7 +15,7 @@ import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import { MOCK_DELIVERABLE, MOCK_THREAD, MOCK_WALLET } from "@/lib/studio/mock/data";
 import { runMockTurn, type MockTurnHandle } from "@/lib/studio/mock/orchestrator";
 import { runRealTurn, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
-import { replayEventsToItems, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
+import { replayEventsToItems, replayOpenConfirm, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
 import { useArtifactPolling } from "./use-artifact-polling";
 import { ComposerMedia, type ComposerAttachment } from "./composer-media";
 import { ThreadItems, ClarifyCard, CapabilityGapCard, ConfirmSpendCard, ConfirmPublishCard } from "./thread";
@@ -118,6 +118,20 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           if (r.ok) {
             const d = (await r.json()) as { events?: PersistedSpineEvent[]; brandId?: string | null };
             if (!cancelled && d.events?.length) setItems(replayEventsToItems(d.events));
+            /* §3: reload reconstructs the conversation EXACTLY — an unanswered
+             * approval gate re-arms its card, and the answer resumes the same
+             * operation claim via PendingConfirm.operationId */
+            const openConfirm = d.events ? replayOpenConfirm(d.events) : null;
+            if (!cancelled && openConfirm && !q) {
+              setPendingConfirm({
+                kind: openConfirm.kind,
+                quote: (openConfirm.quote as PendingConfirm["quote"]) ?? null,
+                publishTargets: openConfirm.publishTargets,
+                answered: false,
+                originalText: openConfirm.originalText,
+                operationId: openConfirm.operationId,
+              });
+            }
             if (!cancelled) resolveWsBrand(d.brandId);
           }
         } catch {
