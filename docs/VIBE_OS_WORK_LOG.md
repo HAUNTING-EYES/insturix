@@ -157,3 +157,23 @@ Phases 1/2/3/6 as below.
 Remaining queue: brand-scope checks (§19), status three-axis model (§6,
 depends on Phase 6 write-side), browser E2E gate (§20), Brands place +
 Account shell (§7 / Phase 3 completion).
+
+---
+
+## 2026-09-03 (remediation session, part 2) — queue items 4 and 6 closed
+
+4. **§19 fix `b4a366fb3`** — brand-scope gates on POST /api/studio/turns and
+   POST /api/studio/projects: a request-scoped brandId is verified against
+   the caller's accepted Brand Vault records before it is stamped onto a
+   Project; deny is a flat 403, no cross-brand fallback. Simulated-user
+   test added (unknown brand → 403).
+6. **§20 fix `32d9ed9b7`** — studio shell browser E2E gate built
+   (self-authenticating spec + standalone Playwright config, zero-credit
+   by construction). **RUN STATUS: BLOCKED on environment** — .env.local
+   pairs Clerk keys from two DIFFERENT instances (frontend pk ≠ backend
+   sk; the backend key 403s its own user list), so no browser sign-in can
+   succeed for any user. Founder action: align the two keys to one Clerk
+   instance, then `npx playwright test --config playwright.studio.config.ts`.
+
+Remaining queue: #7 Brands place + Account shell (Phase 3 completion),
+#5 status three-axis model (blocked on Phase 6 write-side).
