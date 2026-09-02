@@ -52,7 +52,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     await ensureThreadBootstrapped(projectId);
     const [events, status] = await Promise.all([listEvents(projectId, after), computeProjectStatus(projectId)]);
     const cursor = events.length ? events[events.length - 1].seq : after;
-    return NextResponse.json({ projectId, status, events, cursor });
+    /* title + brandId feed the project header and the workspace banner —
+     * brand-scoped context the session cannot infer from events alone */
+    return NextResponse.json({ projectId, title: project.title, brandId: project.brandId, status, events, cursor });
   } catch (error) {
     console.error("[spine] events read failed", error);
     return NextResponse.json({ error: "spine_unavailable" }, { status: 503 });

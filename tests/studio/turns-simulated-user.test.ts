@@ -82,8 +82,10 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     const { replayEventsToItems } = await import("@/lib/studio/persist/replay");
     const res = await GET(new Request(`http://local/api/studio/threads/${projectId}/events`), { params: Promise.resolve({ threadId: projectId }) });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { projectId: string; events: { seq: number; kind: string }[]; cursor: number };
+    const body = (await res.json()) as { projectId: string; title?: string; brandId?: string | null; events: { seq: number; kind: string }[]; cursor: number };
     expect(body.projectId).toBe(projectId);
+    expect(typeof body.title).toBe("string"); // feeds the crumb + workspace banner
+    expect(body.brandId === null || typeof body.brandId === "string").toBe(true);
     expect(body.events.map((e) => e.kind)).toEqual(["user", "turn.received", "turn.plan", "step.start", "step.done", "turn.done"]); // user message persisted FIRST
     expect(body.cursor).toBe(6);
     const items = replayEventsToItems((body as unknown as { events: Parameters<typeof replayEventsToItems>[0] }).events);

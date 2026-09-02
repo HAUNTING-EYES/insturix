@@ -49,6 +49,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [clarifyEv, setClarifyEv] = useState<Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null>(null);
   const [gapEv, setGapEv] = useState<Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null>(null);
+  const [wsBrand, setWsBrand] = useState<{ id: string; name: string } | null>(null);
+  const brandsMapRef = useRef<Record<string, string> | null>(null);
   const handleRef = useRef<MockTurnHandle | null>(null);
   const lastTextRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,24 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
     };
   }, [REAL, deliverableId]);
 
+  /* workspace banner: the events payload carries the project's brandId; the
+   * display name comes from the overview brands map, fetched once and cached */
+  const resolveWsBrand = useCallback((brandId: string | null | undefined) => {
+    if (!brandId) return;
+    const apply = (map: Record<string, string>) => setWsBrand({ id: brandId, name: map[brandId] ?? brandId });
+    if (brandsMapRef.current) {
+      apply(brandsMapRef.current);
+      return;
+    }
+    fetch("/api/studio/overview")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { brands?: Record<string, string> }) => {
+        brandsMapRef.current = d.brands ?? {};
+        apply(brandsMapRef.current);
+      })
+      .catch(() => setWsBrand({ id: brandId, name: brandId }));
+  }, []);
+
   /* spine: reload reconstructs the conversation from the persisted event log
    * (plan §3) — the same items the live reducer produced, replayed in order.
    * Boot order matters: hydrate the log FIRST, then send the ?q= prompt from
@@ -96,8 +116,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
         try {
           const r = await fetch(`/api/studio/threads/${pid}/events`);
           if (r.ok) {
-            const d = (await r.json()) as { events?: PersistedSpineEvent[] };
+            const d = (await r.json()) as { events?: PersistedSpineEvent[]; brandId?: string | null };
             if (!cancelled && d.events?.length) setItems(replayEventsToItems(d.events));
+            if (!cancelled) resolveWsBrand(d.brandId);
           }
         } catch {
           /* no history yet — the empty thread is the honest state */
@@ -109,20 +130,21 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [resolveWsBrand]);
 
   const refetchThread = useCallback(() => {
     const pid = projectIdRef.current;
     if (!pid) return;
     fetch(`/api/studio/threads/${pid}/events`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { events?: PersistedSpineEvent[] }) => {
+      .then((d: { events?: PersistedSpineEvent[]; brandId?: string | null }) => {
         if (d.events?.length) setItems(replayEventsToItems(d.events)); /* full replace — replay is canonical, so a dropped stream can't duplicate items */
+        resolveWsBrand(d.brandId);
       })
       .catch(() => {
         /* offline — the next reload retries */
       });
-  }, []);
+  }, [resolveWsBrand]);
 
   useArtifactPolling(artifacts, setArtifacts, REAL);
 
@@ -395,6 +417,11 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           <div className="stu-credits" style={{ borderRadius: 99, width: 32, height: 32, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>NJ</div>
         </div>
       </header>
+      {wsBrand && (
+        <div className="stu-wsbanner" role="note">
+          You&apos;re in <b>{wsBrand.name}&apos;s</b> workspace — its voice, settings and credits apply to everything made here
+        </div>
+      )}
       <div className="stu-main">
         <div className="stu-convo">
           <div className="stu-chead">
