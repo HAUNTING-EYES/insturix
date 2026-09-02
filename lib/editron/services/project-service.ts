@@ -122,6 +122,7 @@ import type {
   ChatEditRenderVerificationRecord,
 } from "./chat-edit-render-verification-lifecycle";
 import {
+  AUDIO_RIGHTS_ATTESTATION_VERSION,
   getAudioRightsContractIssue,
   getGeneratedNativeVideoReceiptIssue,
   type AudioRightsContract,
@@ -823,6 +824,21 @@ export interface ProjectAudioRightsAttestationCommitV1 {
   overlays: Overlay[];
   rightsByAssetId: Record<string, AudioRightsContract>;
   storyboardUpdates?: ProjectAudioRightsAttestationStoryboardUpdateV1[];
+}
+
+export interface ProjectAudioRightsAttestationReceiptV1 {
+  schemaVersion: 1;
+  receiptId: string;
+  receiptSha256: string;
+  projectId: string;
+  kind: ProjectAudioRightsAttestationKindV1;
+  assetIds: readonly string[];
+  affectedOverlayRefs: readonly string[];
+  affectedFrameRanges: readonly TimelineFrameRangeV1[];
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
+  committedAt: string;
 }
 
 /**
@@ -1842,6 +1858,7 @@ const MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1 = 2;
 const MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1 = 200;
 const PIPELINE_VIDEO_DELIVERY_INVALIDATION_ADMISSION_TTL_MS_V1 = 15 * 60 * 1000;
 const MAX_VIDEO_ANALYSIS_DURATION_CORRECTION_RECEIPTS_V1 = 200;
+const MAX_AUDIO_RIGHTS_ATTESTATION_RECEIPTS_V1 = 200;
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -1996,6 +2013,8 @@ export interface Project {
   pipelineVideoDeliveryInvalidationAdmissionsV1?: PipelineVideoDeliveryInvalidationAdmissionV1[];
   /** Bounded replay history for source-bound Video Analysis duration corrections. */
   videoAnalysisDurationCorrectionReceipts?: ProjectVideoAnalysisDurationCorrectionReceiptV1[];
+  /** Rights-only policy writes and their render/delivery invalidation basis. */
+  audioRightsAttestationReceiptsV1?: ProjectAudioRightsAttestationReceiptV1[];
   /** Exact paid source-analysis identity; worker stages may not infer or replace it. */
   autoEditAnalysisRunV1?: ProjectAnalysisRunV1;
   /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
@@ -8596,6 +8615,7 @@ export class ProjectService {
       | "FINALIZE_GENERATED_COMPOSITION"
       | "COMMIT_PIPELINE_AUDIO_DELIVERY"
       | "REPLACE_PIPELINE_VIDEO_DELIVERY"
+      | "COMMIT_AUDIO_RIGHTS_ATTESTATION"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -11406,10 +11426,15 @@ export class ProjectService {
     input: ProjectAudioRightsAttestationCommitV1,
   ): Promise<ProjectMutationReceiptV1 | null> {
     assertProjectRevision(input.expectedRevision);
+    const storyboardIds = (input.storyboardUpdates ?? []).map((update) => (
+      typeof update.storyboardId === "string" ? update.storyboardId.trim() : ""
+    ));
     if (
       !(input.updatedAt instanceof Date)
       || Number.isNaN(input.updatedAt.getTime())
       || Object.keys(input.rightsByAssetId).length === 0
+      || !Array.isArray(input.overlays)
+      || new Set(storyboardIds).size !== storyboardIds.length
       || input.storyboardUpdates?.some((update) => (
         typeof update.storyboardId !== "string"
         || !update.storyboardId.trim()
@@ -11422,6 +11447,51 @@ export class ProjectService {
     const { client, db } = await connectToDatabase();
     const session = client.startSession();
     try {
+      const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      })) as Project | null;
+      if (!current) return null;
+      const prepared = prepareProjectAudioRightsAttestationV1(
+        userId,
+        projectId,
+        current,
+        input,
+      );
+      const afterRevision: ProjectRevisionV1 = {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: input.updatedAt.toISOString(),
+      };
+      const projectRenderSnapshotInvalidation =
+        await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+          ownerId: userId,
+          projectId,
+          operation: "COMMIT_AUDIO_RIGHTS_ATTESTATION",
+          beforeRevision: input.expectedRevision,
+          afterRevision,
+          committedAt: input.updatedAt,
+          db,
+        });
+      const receiptMaterial = {
+        schemaVersion: 1 as const,
+        projectId,
+        kind: input.kind,
+        assetIds: prepared.assetIds,
+        affectedOverlayRefs: prepared.affectedOverlayRefs,
+        affectedFrameRanges: prepared.affectedFrameRanges,
+        beforeProjectRevision: structuredClone(input.expectedRevision),
+        afterProjectRevision: afterRevision,
+        projectRenderSnapshotInvalidation,
+        committedAt: input.updatedAt.toISOString(),
+      };
+      const receiptSha256 = hashEditronCanonicalJsonV1(receiptMaterial);
+      const attestationReceipt: ProjectAudioRightsAttestationReceiptV1 = {
+        ...receiptMaterial,
+        receiptId: `audio-rights-attestation_${receiptSha256}`,
+        receiptSha256,
+      };
       await session.withTransaction(async () => {
         const assetOperations = Object.entries(input.rightsByAssetId).map(
           ([assetId, audioRights]) => ({
@@ -11456,9 +11526,22 @@ export class ProjectService {
         }
 
         for (const storyboard of input.storyboardUpdates ?? []) {
+          const storedStoryboard = await db.collection("storyboards").findOne(
+            { storyboardId: storyboard.storyboardId, userId, projectId },
+            { session },
+          ) as { scenes?: unknown } | null;
+          const preparedStoryboard = prepareAudioRightsStoryboardScenesV1(
+            storedStoryboard?.scenes,
+            input.rightsByAssetId,
+          );
+          if (!storedStoryboard || !preparedStoryboard.changed) {
+            throw new ProjectMutationWriteError(
+              "A linked storyboard no longer contains the attested audio source.",
+            );
+          }
           const result = await db.collection("storyboards").updateOne(
             { storyboardId: storyboard.storyboardId, userId, projectId },
-            { $set: { scenes: storyboard.scenes, updatedAt: input.updatedAt } },
+            { $set: { scenes: preparedStoryboard.scenes, updatedAt: input.updatedAt } },
             { session },
           );
           if (result.matchedCount !== 1) {
@@ -11468,7 +11551,7 @@ export class ProjectService {
           }
         }
 
-        const cleanOverlays = assetResolver.stripUrlsForLLM(input.overlays);
+        const cleanOverlays = assetResolver.stripUrlsForLLM(prepared.overlays);
         const projectResult = await db.collection(COLLECTIONS.PROJECTS).updateOne(
           {
             projectId,
@@ -11477,6 +11560,12 @@ export class ProjectService {
           },
           {
             $set: { overlays: cleanOverlays, updatedAt: input.updatedAt },
+            $push: {
+              audioRightsAttestationReceiptsV1: {
+                $each: [attestationReceipt],
+                $slice: -MAX_AUDIO_RIGHTS_ATTESTATION_RECEIPTS_V1,
+              },
+            } as never,
             $inc: { projectRevision: 1 },
           },
           { session },
@@ -15471,6 +15560,161 @@ function assertPhase0RenderedEvidenceFacts(
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function prepareProjectAudioRightsAttestationV1(
+  userId: string,
+  projectId: string,
+  project: Project,
+  input: ProjectAudioRightsAttestationCommitV1,
+): {
+  overlays: Overlay[];
+  assetIds: string[];
+  affectedOverlayRefs: string[];
+  affectedFrameRanges: readonly TimelineFrameRangeV1[];
+} {
+  if (project.projectId !== projectId
+    || project.userId !== userId
+    || !isProjectTimelineFpsV1(project.fps)
+    || !Number.isSafeInteger(project.durationInFrames)
+    || project.durationInFrames <= 0) {
+    throw new ProjectMutationWriteError(
+      "Audio rights attestation requires one exact bounded project timeline.",
+    );
+  }
+  if (hasActiveDirectorMutationLeaseV1(project)) {
+    throw new ProjectMutationConflictError(
+      projectRevisionFor(project),
+      "The project is locked by an active Director mutation.",
+    );
+  }
+
+  const assetIds = Object.keys(input.rightsByAssetId).sort();
+  for (const assetId of assetIds) {
+    if (!isBoundedNonEmptyStringV1(assetId, 500)) {
+      throw new ProjectMutationWriteError("Audio rights asset identity is invalid.");
+    }
+    const rights = input.rightsByAssetId[assetId];
+    const rightsIssue = getAudioRightsContractIssue(rights);
+    if (rightsIssue) {
+      throw new ProjectMutationWriteError(
+        "Audio rights attestation material is invalid: " + rightsIssue,
+      );
+    }
+    if (rights?.source !== "user-upload"
+      || rights.userChoice !== "attested"
+      || rights.licensed !== true
+      || rights.evidence?.kind !== "user-attestation"
+      || rights.evidence.sourceAssetId !== assetId
+      || rights.evidence.attestationVersion !== AUDIO_RIGHTS_ATTESTATION_VERSION
+      || rights.evidence.attestedBy !== userId
+      || rights.evidence.attestedAt !== input.updatedAt.toISOString()) {
+      throw new ProjectMutationWriteError(
+        "Audio rights attestation is not bound to the current user, asset, version and time.",
+      );
+    }
+    if (input.kind === "native-video" && rights?.mediaRole !== "native-video") {
+      throw new ProjectMutationWriteError(
+        "Native-video attestation requires native-video rights material.",
+      );
+    }
+    if (input.kind === "uploaded-export-audio" && rights?.mediaRole === "native-video") {
+      throw new ProjectMutationWriteError(
+        "Uploaded export audio cannot carry native-video rights material.",
+      );
+    }
+  }
+
+  const matchedAssetIds = new Set<string>();
+  const affectedOverlayRefs: string[] = [];
+  const affectedFrameRanges: TimelineFrameRangeV1[] = [];
+  const overlays = project.overlays.map((overlay) => {
+    const assetId = typeof overlay.assetId === "string" ? overlay.assetId : null;
+    const audioRights = assetId ? input.rightsByAssetId[assetId] : undefined;
+    if (!assetId || !audioRights) return structuredClone(overlay);
+    if (
+      (input.kind === "native-video"
+        && (overlay.type !== "video" || overlay.hasNativeAudio !== true))
+      || (input.kind === "uploaded-export-audio" && overlay.type !== "sound")
+    ) {
+      throw new ProjectMutationWriteError(
+        `Audio rights asset ${assetId} is not used by the declared project media family.`,
+      );
+    }
+    const frameRange = overlayTimelineFrameRangeV1(overlay);
+    if (!frameRange || frameRange.endFrame > project.durationInFrames) {
+      throw new ProjectMutationWriteError(
+        `Audio rights asset ${assetId} has no exact in-project frame range.`,
+      );
+    }
+    matchedAssetIds.add(assetId);
+    affectedOverlayRefs.push(overlayReferenceForTimelineChangeV1(overlay));
+    affectedFrameRanges.push(frameRange);
+    return withAtomicOverlayUpdateReceipt(
+      overlay,
+      { audioRights } as Partial<Overlay>,
+      input.kind === "native-video"
+        ? {
+            source: "native-video-audio-rights-attestation",
+            intent: "confirm-native-video-audio-rights",
+            reason: "project owner explicitly confirmed source-media export rights",
+          }
+        : {
+            source: "uploaded-export-audio-rights-attestation",
+            intent: "confirm-uploaded-export-audio-rights",
+            reason: "project owner explicitly confirmed export rights for uploaded audio",
+          },
+    );
+  });
+  if (assetIds.some((assetId) => !matchedAssetIds.has(assetId))) {
+    throw new ProjectMutationWriteError(
+      "Audio rights attestation includes an asset outside the current project timeline.",
+    );
+  }
+  const blockingLocks = activeTimelineRangeCutLocksV1(
+    readTimelineRangeCutLocksV1(project),
+    input.updatedAt,
+  ).filter((lock) => affectedFrameRanges.some((frameRange) => (
+    frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+  )));
+  if (blockingLocks.length > 0) {
+    throw new ProjectTimelineRangeCutLockConflictError(
+      projectRevisionFor(project),
+      [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+      "An active timeline range lock overlaps audio rights attestation.",
+    );
+  }
+  return {
+    overlays,
+    assetIds,
+    affectedOverlayRefs: [...new Set(affectedOverlayRefs)].sort(),
+    affectedFrameRanges: canonicalTimelineFrameRangesV1(affectedFrameRanges),
+  };
+}
+
+function prepareAudioRightsStoryboardScenesV1(
+  value: unknown,
+  rightsByAssetId: Readonly<Record<string, AudioRightsContract>>,
+): { scenes: unknown[]; changed: boolean } {
+  if (!Array.isArray(value)) return { scenes: [], changed: false };
+  let changed = false;
+  const scenes = value.map((candidate) => {
+    if (!isPlainRecord(candidate) || !isPlainRecord(candidate.voiceover)) {
+      return structuredClone(candidate);
+    }
+    const assetId = candidate.voiceover.audioAssetId;
+    const audioRights = typeof assetId === "string" ? rightsByAssetId[assetId] : undefined;
+    if (!audioRights) return structuredClone(candidate);
+    changed = true;
+    return {
+      ...structuredClone(candidate),
+      voiceover: {
+        ...structuredClone(candidate.voiceover),
+        audioRights: structuredClone(audioRights),
+      },
+    };
+  });
+  return { scenes, changed };
 }
 
 function assertProjectMgDesignCompletionCommandV1(

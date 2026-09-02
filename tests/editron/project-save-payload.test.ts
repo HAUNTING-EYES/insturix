@@ -49,12 +49,18 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
       }),
     },
     db: {
-      collection: vi.fn(() => ({
-        bulkWrite: persistenceMocks.bulkWrite,
-        findOne: persistenceMocks.findOne,
-        insertOne: persistenceMocks.insertOne,
-        updateOne: persistenceMocks.updateOne,
-      })),
+      collection: vi.fn((name: string) => name
+        === "editron_project_render_snapshot_invalidation_outbox_v1"
+        ? {
+            findOne: persistenceMocks.outboxFindOne,
+            insertOne: persistenceMocks.insertOne,
+          }
+        : {
+            bulkWrite: persistenceMocks.bulkWrite,
+            findOne: persistenceMocks.findOne,
+            insertOne: persistenceMocks.insertOne,
+            updateOne: persistenceMocks.updateOne,
+          }),
     },
   })),
 }));
@@ -2925,6 +2931,37 @@ describe("Editron project save payload compaction", () => {
 
   it("commits native-video rights and the timeline at one project revision", async () => {
     const updatedAt = new Date("2026-08-11T06:02:00.000Z");
+    const rights = {
+      mediaRole: "native-video" as const,
+      source: "user-upload" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "user-attestation" as const,
+        sourceAssetId: "video_1",
+        attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+        attestedAt: updatedAt.toISOString(),
+        attestedBy: "user_1",
+      },
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 30,
+      overlays: [{
+        id: 2,
+        type: "video",
+        from: 0,
+        row: 0,
+        durationInFrames: 30,
+        assetId: "video_1",
+        hasNativeAudio: true,
+        content: "persisted-current-video",
+      }],
+      updatedAt: new Date("2026-08-11T06:01:00.000Z"),
+      projectRevision: 7,
+    });
     persistenceMocks.bulkWrite.mockResolvedValueOnce({ matchedCount: 1 });
     persistenceMocks.updateOne.mockResolvedValueOnce({
       matchedCount: 1,
@@ -2950,15 +2987,10 @@ describe("Editron project save payload compaction", () => {
           row: 0,
           durationInFrames: 30,
           assetId: "video_1",
+          content: "caller-injected-video",
         }] as any,
         rightsByAssetId: {
-          video_1: {
-            mediaRole: "native-video",
-            source: "user-upload",
-            userChoice: "attested",
-            licensed: true,
-            evidence: { kind: "user-attestation" },
-          } as any,
+          video_1: rights,
         },
       })
     ));
@@ -2988,14 +3020,74 @@ describe("Editron project save payload compaction", () => {
       },
       expect.objectContaining({
         $inc: { projectRevision: 1 },
+        $push: {
+          audioRightsAttestationReceiptsV1: {
+            $each: [expect.objectContaining({
+              kind: "native-video",
+              assetIds: ["video_1"],
+              projectRenderSnapshotInvalidation: expect.objectContaining({
+                receiptHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+              }),
+            })],
+            $slice: -200,
+          },
+        },
       }),
       expect.objectContaining({ session: expect.anything() }),
     );
+    const projectUpdate = persistenceMocks.updateOne.mock.calls[0]?.[1] as any;
+    expect(projectUpdate.$set.overlays[0]).toMatchObject({
+      assetId: "video_1",
+      content: "persisted-current-video",
+      audioRights: rights,
+    });
+    expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.bulkWrite.mock.invocationCallOrder[0]!);
     expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
   });
 
   it("commits uploaded-audio rights, storyboard copies, and timeline together", async () => {
     const updatedAt = new Date("2026-08-11T06:03:00.000Z");
+    const rights = {
+      mediaRole: "voiceover" as const,
+      source: "user-upload" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "user-attestation" as const,
+        sourceAssetId: "audio_1",
+        attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+        attestedAt: updatedAt.toISOString(),
+        attestedBy: "user_1",
+      },
+    };
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        fps: 30,
+        durationInFrames: 90,
+        overlays: [{
+          id: 4,
+          type: "sound",
+          from: 0,
+          row: 3,
+          durationInFrames: 90,
+          assetId: "audio_1",
+          content: "persisted-current-audio",
+        }],
+        updatedAt: new Date("2026-08-11T06:02:00.000Z"),
+        projectRevision: 7,
+      })
+      .mockResolvedValueOnce({
+        storyboardId: "board_1",
+        userId: "user_1",
+        projectId: "proj_1",
+        scenes: [{
+          sceneIndex: 0,
+          voiceover: { audioAssetId: "audio_1", audioUrl: "/api/assets/audio_1" },
+        }],
+      });
     persistenceMocks.bulkWrite.mockResolvedValueOnce({ matchedCount: 1 });
     persistenceMocks.updateOne
       .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
@@ -3015,15 +3107,9 @@ describe("Editron project save payload compaction", () => {
           compatibilityUpdatedAt: "2026-08-11T06:02:00.000Z",
         },
         updatedAt,
-        overlays: [] as any,
+        overlays: [{ id: "caller-injected" }] as any,
         rightsByAssetId: {
-          audio_1: {
-            mediaRole: "voiceover",
-            source: "user-upload",
-            userChoice: "attested",
-            licensed: true,
-            evidence: { kind: "user-attestation" },
-          } as any,
+          audio_1: rights,
         },
         storyboardUpdates: [{ storyboardId: "board_1", scenes: [] }],
       },
@@ -3053,6 +3139,127 @@ describe("Editron project save payload compaction", () => {
       projectRevision: 7,
       updatedAt: new Date("2026-08-11T06:02:00.000Z"),
     });
+    expect((persistenceMocks.updateOne.mock.calls[0]?.[1] as any).$set.scenes[0])
+      .toMatchObject({ voiceover: { audioAssetId: "audio_1", audioRights: rights } });
+    expect((persistenceMocks.updateOne.mock.calls[1]?.[1] as any).$set.overlays[0])
+      .toMatchObject({
+        assetId: "audio_1",
+        content: "persisted-current-audio",
+        audioRights: rights,
+      });
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
+  });
+
+  it("does not attest assets or mutate the project when snapshot invalidation is unavailable", async () => {
+    const updatedAt = new Date("2026-08-11T06:04:00.000Z");
+    const rights = {
+      mediaRole: "native-video" as const,
+      source: "user-upload" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "user-attestation" as const,
+        sourceAssetId: "video_1",
+        attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+        attestedAt: updatedAt.toISOString(),
+        attestedBy: "user_1",
+      },
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 30,
+      overlays: [{
+        id: 2,
+        type: "video",
+        from: 0,
+        row: 0,
+        durationInFrames: 30,
+        assetId: "video_1",
+        hasNativeAudio: true,
+      }],
+      updatedAt: new Date("2026-08-11T06:03:00.000Z"),
+      projectRevision: 7,
+    });
+    persistenceMocks.insertOne.mockRejectedValueOnce(new Error("OUTBOX_UNAVAILABLE"));
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitAudioRightsAttestation(
+      "user_1",
+      "proj_1",
+      {
+        kind: "native-video",
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T06:03:00.000Z",
+        },
+        updatedAt,
+        overlays: [] as any,
+        rightsByAssetId: { video_1: rights },
+      },
+    )).rejects.toThrow("OUTBOX_UNAVAILABLE");
+    expect(persistenceMocks.bulkWrite).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.withTransaction).not.toHaveBeenCalled();
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
+  });
+
+  it("rejects forged audio-rights identity before invalidation or mutation", async () => {
+    const updatedAt = new Date("2026-08-11T06:04:30.000Z");
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 30,
+      overlays: [{
+        id: 2,
+        type: "video",
+        from: 0,
+        row: 0,
+        durationInFrames: 30,
+        assetId: "video_1",
+        hasNativeAudio: true,
+      }],
+      updatedAt: new Date("2026-08-11T06:04:00.000Z"),
+      projectRevision: 7,
+    });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitAudioRightsAttestation(
+      "user_1",
+      "proj_1",
+      {
+        kind: "native-video",
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T06:04:00.000Z",
+        },
+        updatedAt,
+        overlays: [] as any,
+        rightsByAssetId: {
+          video_1: {
+            mediaRole: "native-video",
+            source: "user-upload",
+            userChoice: "attested",
+            licensed: true,
+            evidence: {
+              kind: "user-attestation",
+              sourceAssetId: "video_1",
+              attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+              attestedAt: updatedAt.toISOString(),
+              attestedBy: "different_user",
+            },
+          },
+        },
+      },
+    )).rejects.toThrow("not bound to the current user, asset, version and time");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.bulkWrite).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.withTransaction).not.toHaveBeenCalled();
     expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
   });
 
