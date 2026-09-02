@@ -24,6 +24,7 @@ export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
   collection: typeof PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1;
   receiptSha256: string;
   candidateMediaSetSha256: string;
+  candidateMediaContentSha256: string;
   mediaEntryCount: number;
 }
 
@@ -59,6 +60,7 @@ export function projectWholeStateMediaPrerequisiteLinkV1(
     collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
     receiptSha256: receipt.receiptSha256,
     candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
     mediaEntryCount: receipt.mediaEntries.length,
   });
 }

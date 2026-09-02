@@ -46,6 +46,7 @@ describe('project whole-state media prerequisite runtime V1', () => {
       collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
       receiptSha256: receipt.receiptSha256,
       candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+      candidateMediaContentSha256: receipt.candidateMediaContentSha256,
       mediaEntryCount: 0,
     });
   });

@@ -67,6 +67,7 @@ vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v
     collection: "editron_project_whole_state_media_prerequisites_v1",
     receiptSha256: receipt.receiptSha256,
     candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
     mediaEntryCount: receipt.mediaEntries.length,
   }),
 }));
@@ -254,6 +255,7 @@ describe("Editron project save payload compaction", () => {
             .includes(overlay.type))
           .map((overlay: any) => ({ overlayId: overlay.id })),
         candidateMediaSetSha256: "c".repeat(64),
+        candidateMediaContentSha256: "e".repeat(64),
         issuedAt: "2026-09-02T04:00:00.000Z",
         receiptSha256: "d".repeat(64),
       }),
@@ -534,6 +536,7 @@ describe("Editron project save payload compaction", () => {
       collection: "editron_project_whole_state_media_prerequisites_v1",
       receiptSha256: "d".repeat(64),
       candidateMediaSetSha256: "c".repeat(64),
+      candidateMediaContentSha256: "e".repeat(64),
       mediaEntryCount: 1,
     });
   });

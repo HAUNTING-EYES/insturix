@@ -82,6 +82,7 @@ const materialSchema = z.object({
   projectRevision: revision,
   mediaEntries: z.array(entry).max(100_000),
   candidateMediaSetSha256: sha256,
+  candidateMediaContentSha256: sha256,
   issuedAt: z.string().datetime(),
 }).strict();
 const receiptSchema = materialSchema.extend({ receiptSha256: sha256 }).strict();
@@ -91,7 +92,10 @@ export type ProjectWholeStateMediaPrerequisiteReceiptV1 = z.infer<typeof receipt
 export type ProjectWholeStateMediaPrerequisiteMaterialV1 = z.infer<typeof materialSchema>;
 
 export function createProjectWholeStateMediaPrerequisiteReceiptV1(
-  input: Omit<ProjectWholeStateMediaPrerequisiteMaterialV1, 'schemaVersion' | 'kind' | 'candidateMediaSetSha256'>,
+  input: Omit<
+    ProjectWholeStateMediaPrerequisiteMaterialV1,
+    'schemaVersion' | 'kind' | 'candidateMediaSetSha256' | 'candidateMediaContentSha256'
+  >,
 ): ProjectWholeStateMediaPrerequisiteReceiptV1 {
   const mediaEntries = [...input.mediaEntries].sort((left, right) => (
     overlayIdentity(left.overlayId).localeCompare(overlayIdentity(right.overlayId))
@@ -106,6 +110,9 @@ export function createProjectWholeStateMediaPrerequisiteReceiptV1(
     ...input,
     mediaEntries,
     candidateMediaSetSha256: hashEditronCanonicalJsonV1(mediaEntries),
+    candidateMediaContentSha256: hashEditronCanonicalJsonV1(
+      mediaEntries.map(mediaContentIdentity),
+    ),
   });
   return deepFreezeEditronJsonV1({
     ...material,
@@ -119,6 +126,8 @@ export function assertProjectWholeStateMediaPrerequisiteReceiptV1(
   const receipt = receiptSchema.parse(input);
   const { receiptSha256, ...material } = receipt;
   if (hashEditronCanonicalJsonV1(receipt.mediaEntries) !== receipt.candidateMediaSetSha256
+    || hashEditronCanonicalJsonV1(receipt.mediaEntries.map(mediaContentIdentity))
+      !== receipt.candidateMediaContentSha256
     || hashEditronCanonicalJsonV1(material) !== receiptSha256) {
     throw new Error('PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_HASH_MISMATCH');
   }
@@ -131,4 +140,9 @@ export function assertProjectWholeStateMediaPrerequisiteReceiptV1(
 
 function overlayIdentity(value: string | number): string {
   return String(value);
+}
+
+function mediaContentIdentity(value: ProjectWholeStateMediaPrerequisiteEntryV1) {
+  const { rights, ...content } = value;
+  return { ...content, rightsDisposition: rights.disposition };
 }
