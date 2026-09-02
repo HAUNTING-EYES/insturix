@@ -202,6 +202,7 @@ import {
   enqueueProjectRenderSnapshotInvalidationOutboxV1,
   projectRenderSnapshotInvalidationLinkV1,
   PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1,
+  ProjectRenderSnapshotInvalidationLinkSchemaV1,
   type ProjectRenderSnapshotInvalidationLinkV1,
   type ProjectRenderSnapshotInvalidationOutboxCollectionV1,
 } from "./project-render-snapshot-invalidation-v1";
@@ -1297,6 +1298,7 @@ export interface ProjectAnalysisRunV1 {
   intakeDispatch?: ProjectAnalysisIntakeDispatchV1;
   phase1EvidenceHash?: string;
   phase1EvidenceCommittedAt?: string;
+  phase1ProjectRenderSnapshotInvalidation?: ProjectRenderSnapshotInvalidationLinkV1;
   deepAnalysisDispatch?: ProjectAnalysisDeepDispatchV1;
   deepAnalysisLease?: ProjectAnalysisDeepLeaseV1;
   phase2EvidenceHash?: string;
@@ -6426,12 +6428,77 @@ export class ProjectService {
     }
 
     const committedAt = new Date();
+    let phase1ProjectRenderSnapshotInvalidation:
+      ProjectRenderSnapshotInvalidationLinkV1 | undefined;
+    if (boundNativeAudioEvidence) {
+      if (
+        !isProjectTimelineFpsV1(current.fps)
+        || !Number.isSafeInteger(current.durationInFrames)
+        || current.durationInFrames <= 0
+      ) {
+        throw new ProjectMutationWriteError(
+          "Native-audio analysis evidence requires one exact bounded project timeline.",
+        );
+      }
+      if (hasActiveDirectorMutationLeaseV1(current)) {
+        throw new ProjectMutationConflictError(
+          currentRevision,
+          "The project is locked by an active Director mutation.",
+        );
+      }
+      const affectedFrameRanges = current.overlays
+        .filter((overlay) => overlay.type === "video" && overlay.assetId === input.sourceAssetId)
+        .map((overlay) => overlayTimelineFrameRangeV1(overlay));
+      if (
+        affectedFrameRanges.length === 0
+        || affectedFrameRanges.some((range) => (
+          !range || range.endFrame > current.durationInFrames
+        ))
+      ) {
+        throw new ProjectMutationWriteError(
+          "Native-audio analysis evidence has no exact current project range.",
+        );
+      }
+      const exactAffectedFrameRanges = affectedFrameRanges.filter(
+        (range): range is TimelineFrameRangeV1 => range !== null,
+      );
+      const blockingLocks = activeTimelineRangeCutLocksV1(
+        readTimelineRangeCutLocksV1(current),
+        committedAt,
+      ).filter((lock) => exactAffectedFrameRanges.some((frameRange) => (
+        frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+      )));
+      if (blockingLocks.length > 0) {
+        throw new ProjectTimelineRangeCutLockConflictError(
+          currentRevision,
+          [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+          "An active timeline range lock overlaps native-audio analysis evidence.",
+        );
+      }
+      phase1ProjectRenderSnapshotInvalidation =
+        await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+          ownerId: userId,
+          projectId,
+          operation: "COMMIT_ANALYSIS_NATIVE_AUDIO_EVIDENCE",
+          beforeRevision: currentRevision,
+          afterRevision: {
+            schemaVersion: 1,
+            value: input.expectedRevision.value + 1,
+            compatibilityUpdatedAt: committedAt.toISOString(),
+          },
+          committedAt,
+          db,
+        });
+    }
     const nextRun: ProjectAnalysisRunV1 = {
       ...currentRun,
       state: "analysis_complete",
       updatedAt: committedAt.toISOString(),
       phase1EvidenceHash,
       phase1EvidenceCommittedAt: committedAt.toISOString(),
+      ...(phase1ProjectRenderSnapshotInvalidation
+        ? { phase1ProjectRenderSnapshotInvalidation }
+        : {}),
     };
     const evidence = input.evidence;
     const perAssetSet = buildProjectAnalysisAssetSet(input.sourceAssetId, {
@@ -8616,6 +8683,7 @@ export class ProjectService {
       | "COMMIT_PIPELINE_AUDIO_DELIVERY"
       | "REPLACE_PIPELINE_VIDEO_DELIVERY"
       | "COMMIT_AUDIO_RIGHTS_ATTESTATION"
+      | "COMMIT_ANALYSIS_NATIVE_AUDIO_EVIDENCE"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -15906,6 +15974,10 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceHash, 128))
     || (value.phase1EvidenceCommittedAt !== undefined
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceCommittedAt, 100))
+    || (value.phase1ProjectRenderSnapshotInvalidation !== undefined
+      && !ProjectRenderSnapshotInvalidationLinkSchemaV1.safeParse(
+        value.phase1ProjectRenderSnapshotInvalidation,
+      ).success)
     || (value.intakeDispatch !== undefined
       && !isProjectAnalysisIntakeDispatchV1(value.intakeDispatch))
     || (value.deepAnalysisDispatch !== undefined

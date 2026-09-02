@@ -2,16 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
+  outboxFindOne: vi.fn(),
+  insertOne: vi.fn(),
   updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: { PROJECTS: "projects" },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      updateOne: persistenceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => (
+      name === "editron_project_render_snapshot_invalidation_outbox_v1"
+        ? {
+            findOne: persistenceMocks.outboxFindOne,
+            insertOne: persistenceMocks.insertOne,
+          }
+        : {
+            findOne: persistenceMocks.findOne,
+            updateOne: persistenceMocks.updateOne,
+          }
+    )),
   })),
   connectToDatabase: vi.fn(),
 }));
@@ -55,7 +64,15 @@ function project(state = "queued", overrides: Record<string, unknown> = {}) {
   return {
     projectId: PROJECT_ID,
     userId: USER_ID,
-    overlays: [{ id: 1, type: "video", assetId: ASSET_ID }],
+    fps: 30,
+    durationInFrames: 300,
+    overlays: [{
+      id: 1,
+      type: "video",
+      assetId: ASSET_ID,
+      from: 0,
+      durationInFrames: 300,
+    }],
     autoEditStatus: state,
     autoEditAnalysisRunV1: run(state),
     projectRevision: 4,
@@ -66,6 +83,8 @@ function project(state = "queued", overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   for (const mock of Object.values(persistenceMocks)) mock.mockReset();
+  persistenceMocks.outboxFindOne.mockResolvedValue(null);
+  persistenceMocks.insertOne.mockResolvedValue({ acknowledged: true });
 });
 
 describe("ProjectService analysis-run lifecycle V1", () => {
@@ -273,6 +292,11 @@ describe("ProjectService analysis-run lifecycle V1", () => {
           state: "analysis_complete",
           phase1EvidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
           phase1EvidenceCommittedAt: "2026-09-01T12:00:04.000Z",
+          phase1ProjectRenderSnapshotInvalidation: expect.objectContaining({
+            receiptHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            beforeRevision: revision(),
+            afterRevision: revision(5, "2026-09-01T12:00:04.000Z"),
+          }),
         },
       });
       expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
@@ -298,9 +322,42 @@ describe("ProjectService analysis-run lifecycle V1", () => {
         }),
         { arrayFilters: [{ "analysisSource.type": "video", "analysisSource.assetId": ASSET_ID }] },
       );
+      expect(persistenceMocks.insertOne).toHaveBeenCalledOnce();
+      expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not publish native-audio evidence when render invalidation is unavailable", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce(project("computing_params"));
+    persistenceMocks.insertOne.mockRejectedValueOnce(new Error("OUTBOX_UNAVAILABLE"));
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitProjectAnalysisPhase1V1(USER_ID, PROJECT_ID, {
+      expectedRevision: revision(),
+      runId: RUN_ID,
+      sourceAssetId: ASSET_ID,
+      fromState: "computing_params",
+      evidence: {
+        nativeAudioEvidence: {
+          hasNativeAudio: true,
+          hasSpeech: true,
+          source: "transcription",
+          wordCount: 1,
+          speechCoverage: 0.5,
+          speechRegions: [{
+            sourceStartFrame: 0,
+            sourceEndFrame: 30,
+            startMs: 0,
+            endMs: 1000,
+          }],
+          regionCount: 1,
+        },
+      },
+    })).rejects.toThrow("Project render invalidation could not be durably enqueued");
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects malformed or oversized Phase-1 evidence before Mongo", async () => {
