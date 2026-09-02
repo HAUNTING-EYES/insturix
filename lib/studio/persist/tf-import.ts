@@ -38,9 +38,11 @@ export async function ensureThreadBootstrapped(projectId: string): Promise<void>
       const id = `tf_${String(m._id ?? `${written}_`)}`;
       const createdAt = iso(m.createdAt);
       const text = m.content ?? "";
+      /* §10: imported events are MARKED as coming from ThinkForge — ids keep
+       * the tf_ prefix and the payload carries the origin for any consumer */
       const saved = m.role === "user"
-        ? await appendTurnEvent(projectId, { actor: "user", kind: "user", turnId: null, payload: { kind: "user", id, text, attachments: [], mentions: [], createdAt } })
-        : await appendTurnEvent(projectId, { actor: "agent", kind: "prose", turnId: null, payload: { kind: "prose", id, text, createdAt } });
+        ? await appendTurnEvent(projectId, { actor: "user", kind: "user", turnId: null, payload: { kind: "user", id, text, attachments: [], mentions: [], createdAt, importedFrom: "thinkforge" } })
+        : await appendTurnEvent(projectId, { actor: "agent", kind: "prose", turnId: null, payload: { kind: "prose", id, text, createdAt, importedFrom: "thinkforge" } });
       if (saved) written++;
     }
     if (!written) {

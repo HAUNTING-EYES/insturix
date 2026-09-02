@@ -51,8 +51,8 @@ describe("replayEventsToItems — the reload path (plan §3: same conversation, 
 
   it("replays imported ThinkForge history (user + prose) in original order", () => {
     const items = replayEventsToItems([
-      ev(1, "user", { kind: "user", id: "tf_1", text: "write a launch script", attachments: [], mentions: [] }),
-      ev(2, "prose", { kind: "prose", id: "tf_2", text: "here is v1..." }),
+      ev(1, "user", { kind: "user", id: "tf_1", text: "write a launch script", attachments: [], mentions: [], importedFrom: "thinkforge" }),
+      ev(2, "prose", { kind: "prose", id: "tf_2", text: "here is v1...", importedFrom: "thinkforge" }),
       ev(3, "user", { kind: "user", id: "tf_3", text: "punch up the hook", attachments: [], mentions: [] }),
     ]);
     expect(items.map((i) => i.kind)).toEqual(["user", "prose", "user"]);
