@@ -109,11 +109,23 @@ export function StudioHome() {
           </form>
           <div className="stu-sugg">
             <button onClick={() => go("live")}>start in chat — anything</button>
-            <button onClick={() => window.open("/dashboard/editron", "_blank")}>upload footage</button>
-            <button onClick={() => window.open("/dashboard/musitron", "_blank")}>make music</button>
-            <button onClick={() => go(MOCK_DELIVERABLE.id)}>a 30s launch reel</button>
-            <button onClick={() => go(MOCK_DELIVERABLE_EMAIL.id)}>a launch email to the waitlist</button>
-            <button onClick={() => go(MOCK_DELIVERABLE.id)}>teardown a competitor&apos;s ad</button>
+            {REAL ? (
+              /* governing plan: Editron + Musitron deferred — real users only
+               * see write-family suggestions, never deferred capabilities */
+              <>
+                <button onClick={() => setPrompt("a launch email to the waitlist")}>a launch email to the waitlist</button>
+                <button onClick={() => setPrompt("a launch post for Instagram")}>a launch post for Instagram</button>
+                <button onClick={() => setPrompt("teardown a competitor's ad")}>teardown a competitor&apos;s ad</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => window.open("/dashboard/editron", "_blank")}>upload footage</button>
+                <button onClick={() => window.open("/dashboard/musitron", "_blank")}>make music</button>
+                <button onClick={() => go(MOCK_DELIVERABLE.id)}>a 30s launch reel</button>
+                <button onClick={() => go(MOCK_DELIVERABLE_EMAIL.id)}>a launch email to the waitlist</button>
+                <button onClick={() => go(MOCK_DELIVERABLE.id)}>teardown a competitor&apos;s ad</button>
+              </>
+            )}
           </div>
         </div>
 
