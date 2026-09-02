@@ -7,7 +7,7 @@ import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { runAutoEditTurn } from "@/lib/studio/orchestrator/auto-edit";
-import { appendTurnEvent, connectSpine, getOrCreateProject, spineProjectIdOrNull } from "@/lib/studio/persist/db";
+import { appendTurnEvent, claimOperation, connectSpine, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
 export const runtime = "nodejs";
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
    * the only degrade path: the running work is kept alive and Phase 2
    * receipts reconcile what the log missed. */
   let spineProjectId: string | null = null;
+  let spineOperationId: string | null = null;
   try {
     await connectSpine();
     const project = await getOrCreateProject({
@@ -72,6 +73,18 @@ export async function POST(req: Request) {
     /* old TF sessions: their chat history enters the log BEFORE this turn's
      * first event, so imported and new messages stay in true order */
     await ensureThreadBootstrapped(project.projectId);
+    /* idempotency (plan §3): one operationId per logical turn — an in-flight
+     * or completed claim is refused (409), so a retry can never charge or
+     * publish twice; the confirm answer resumes its own claim. */
+    const operationId = request.operationId || `op_${crypto.randomUUID()}`;
+    const claim = await claimOperation(project.projectId, operationId, request.text.slice(0, 200), Boolean(request.confirmAcceptedQuoteId));
+    if (!claim.ok) {
+      return NextResponse.json(
+        { error: claim.reason === "in_flight" ? "operation_in_flight" : "operation_already_done", operationId },
+        { status: 409 },
+      );
+    }
+    spineOperationId = operationId;
     const firstEvent = await appendTurnEvent(project.projectId, {
       actor: "user",
       kind: "user",
@@ -128,6 +141,7 @@ export async function POST(req: Request) {
       const send = (payload: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
+      let opFinal = false; // set when the operation reaches a non-running end state below
       try {
         const events = editProjectId
           ? runEditTurn(
@@ -172,9 +186,19 @@ export async function POST(req: Request) {
               payload: event,
             });
           }
+          if (event.type === "turn.confirm_required" && spineOperationId) {
+            opFinal = true;
+            await markOperation(spineOperationId, "awaiting_confirmation");
+          }
           send(event);
         }
       } catch (error) {
+        /* an abort after a confirm gate is the designed close (the answer
+         * resumes the claim) — never overwrite awaiting_confirmation */
+        if (spineOperationId && !opFinal) {
+          opFinal = true;
+          await markOperation(spineOperationId, "error", { error: error instanceof Error ? error.message : "orchestrator crashed" });
+        }
         send({
           type: "turn.error",
           turnId: "t_unknown",
@@ -183,6 +207,7 @@ export async function POST(req: Request) {
           refundIssued: false,
         });
       } finally {
+        if (spineOperationId && !opFinal) await markOperation(spineOperationId, "done");
         controller.close();
       }
     },

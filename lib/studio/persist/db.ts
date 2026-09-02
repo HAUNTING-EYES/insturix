@@ -61,9 +61,30 @@ EventSchema.index({ projectId: 1, seq: 1 }, { unique: true });
 
 const SeqSchema = new mongoose.Schema({ projectId: { type: String, required: true }, seq: { type: Number, default: 0 } }, { collection: "vibe_conversation_seq" });
 
+/** One Operation per logical turn (plan §3 idempotency): the SAME operationId
+ *  can never start the same job twice — an in-flight claim is rejected, a
+ *  done claim is rejected, an await-confirmation claim resumes on the answer,
+ *  and an errored claim may retry. */
+export type OperationState = "running" | "awaiting_confirmation" | "done" | "error";
+
+const OperationSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true }, // operationId
+    projectId: { type: String, required: true, index: true },
+    command: { type: String, required: true },
+    state: { type: String, required: true },
+    turnIds: { type: [String], default: [] },
+    error: { type: String, default: null },
+    startedAt: { type: Date, default: Date.now },
+    finishedAt: { type: Date, default: null },
+  },
+  { collection: "vibe_operations", timestamps: { createdAt: "startedAt", updatedAt: true } },
+);
+
 const ProjectModel = mongoose.models.VibeProject ?? mongoose.model("VibeProject", ProjectSchema);
 const EventModel = mongoose.models.VibeConversationEvent ?? mongoose.model("VibeConversationEvent", EventSchema);
 const SeqModel = mongoose.models.VibeConversationSeq ?? mongoose.model("VibeConversationSeq", SeqSchema);
+const OperationModel = mongoose.models.VibeOperation ?? mongoose.model("VibeOperation", OperationSchema);
 
 /* cached connection, clickatron-mongo pattern under our own global key */
 type Cache = { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null };
@@ -163,8 +184,7 @@ export async function appendTurnEvent(
 
 /** One-shot import claim (§10 conversation migration): exactly one caller
  *  wins the right to import a session's ThinkForge history — concurrent
- *  requests (turns route + events route racing) cannot duplicate it. */
-export async function claimTfImport(projectId: string): Promise<boolean> {
+ *  requests (turns route + events route racing) cannot duplicate it. */export async function claimTfImport(projectId: string): Promise<boolean> {
   const doc = await ProjectModel.findOneAndUpdate({ _id: projectId, tfImportedAt: null }, { $set: { tfImportedAt: new Date() } }, { new: true }).lean();
   return Boolean(doc);
 }
@@ -173,6 +193,41 @@ export async function claimTfImport(projectId: string): Promise<boolean> {
  *  a later attempt can retry instead of a permanently-empty history. */
 export async function releaseTfImportClaim(projectId: string): Promise<void> {
   await ProjectModel.updateOne({ _id: projectId }, { $set: { tfImportedAt: null } });
+}
+
+export type OperationClaim =
+  | { ok: true; resumed: boolean }
+  | { ok: false; reason: "in_flight" | "already_done"; state: OperationState };
+
+/** Atomically claim the operationId for this project. Transitions allowed:
+ *  new → running · await-confirmation (with the confirm answer) → running ·
+ *  error → running (retry). Running and done claims are refused — the same
+ *  request can never charge or publish twice. */
+export async function claimOperation(projectId: string, operationId: string, command: string, isConfirmResume: boolean): Promise<OperationClaim> {
+  const existing = (await OperationModel.findById(operationId).lean()) as unknown as { state?: OperationState; projectId?: string } | null;
+  if (existing && existing.projectId !== projectId) {
+    return { ok: false, reason: "in_flight", state: existing.state ?? "running" }; // ids are global — a cross-project reuse is refused, not restarted
+  }
+  if (!existing) {
+    await OperationModel.create({ _id: operationId, projectId, command, state: "running" });
+    return { ok: true, resumed: false };
+  }
+  const state = existing.state ?? "running";
+  if (state === "running") return { ok: false, reason: "in_flight", state };
+  if (state === "done") return { ok: false, reason: "already_done", state };
+  const resumed = await OperationModel.findByIdAndUpdate(operationId, { $set: { state: "running", error: null } }, { new: true }).lean();
+  if (!resumed) return { ok: false, reason: "in_flight", state };
+  void isConfirmResume; // both await-confirmation and error resume through the same transition
+  return { ok: true, resumed: true };
+}
+
+export async function markOperation(operationId: string, state: OperationState, detail?: { turnId?: string; error?: string }): Promise<void> {
+  const set: Record<string, unknown> = { state };
+  if (state === "done" || state === "error") set.finishedAt = new Date();
+  if (detail?.error !== undefined) set.error = detail.error;
+  const update: Record<string, unknown> = { $set: set };
+  if (detail?.turnId) update.$addToSet = { turnIds: detail.turnId };
+  await OperationModel.findByIdAndUpdate(operationId, update).catch((error) => console.error(`[spine] markOperation(${operationId}, ${state}) failed`, error));
 }
 
 export async function listEvents(projectId: string, afterSeq: number, limit = 2000): Promise<SpineEvent[]> {

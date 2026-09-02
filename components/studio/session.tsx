@@ -33,6 +33,7 @@ interface PendingConfirm {
   publishTargets: { platform: string; scheduledAt: string }[];
   answered: boolean;
   originalText: string;
+  operationId: string | null; // the answer RESUMES this claim — never a new job
 }
 
 export function StudioSession({ deliverableId }: { deliverableId?: string }) {
@@ -52,6 +53,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const lastTextRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const projectIdRef = useRef<string | null>(spineId(deliverableId));
+  const opIdRef = useRef<string | null>(null); // current logical turn's operation id
   const runTurnRef = useRef<(text: string, confirmQuoteId?: string, confirmAccepted?: boolean) => void>(() => undefined);
 
   useEffect(() => {
@@ -211,6 +213,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           publishTargets: ev.publishTargets,
           answered: false,
           originalText: lastTextRef.current ?? "",
+          operationId: opIdRef.current,
         });
         break;
       case "turn.ideas":
@@ -252,11 +255,16 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   }, []);
 
   const runTurn = useCallback(
-    async (text: string, confirmQuoteId?: string, confirmAccepted?: boolean) => {
+    async (text: string, confirmQuoteId?: string, confirmAccepted?: boolean, operationId?: string) => {
       if (busy || !text.trim()) return;
       setBusy(true);
       setInput("");
       lastTextRef.current = text.trim();
+      /* one operationId per logical turn — retries and confirm answers reuse
+       * it, so the server's claim (409 on in-flight/done) makes double charges
+       * and double publishes impossible */
+      const opId = operationId ?? `op_${crypto.randomUUID()}`;
+      opIdRef.current = opId;
       setClarifyEv(null);
       setGapEv(null);
       setPendingConfirm(null);
@@ -289,7 +297,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               attachments: [...attachment, ...composerAttachments.map((a) => ({ ref: a.ref, role: a.role }))],
               mentions: [],
               clientContext: { focusedArtifactId: focus?.artifactId ?? null },
-              operationId: crypto.randomUUID(),
+              operationId: opId,
               confirmAcceptedQuoteId: confirmQuoteId ?? null,
               confirmAccepted: confirmAccepted ?? undefined,
             },
@@ -350,8 +358,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
     (accepted: boolean) => {
       setPendingConfirm((pc) => {
         if (pc && REAL && accepted && (pc.quote || pc.kind === "publish")) {
-          /* serverless continuation: re-post the original ask with the yes */
-          void runTurn(pc.originalText, pc.quote?.quoteId, pc.kind === "publish" ? true : undefined);
+          /* serverless continuation: re-post the original ask with the yes —
+           * same operationId, so the server resumes the awaiting claim */
+          void runTurn(pc.originalText, pc.quote?.quoteId, pc.kind === "publish" ? true : undefined, pc.operationId ?? undefined);
         } else if (pc && REAL && !accepted) {
           setItems((prev) => [
             ...prev,
