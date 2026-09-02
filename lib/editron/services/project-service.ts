@@ -8414,7 +8414,12 @@ export class ProjectService {
   private async enqueueProjectRenderSnapshotInvalidationBeforeCommitV1(input: {
     ownerId: string;
     projectId: string;
-    operation: "REPLACE_EDITOR_STATE" | "RESTORE_CHECKPOINT_STATE";
+    operation:
+      | "REPLACE_EDITOR_STATE"
+      | "RESTORE_CHECKPOINT_STATE"
+      | "ADD_OVERLAY"
+      | "UPDATE_OVERLAY"
+      | "DELETE_OVERLAY";
     beforeRevision: ProjectRevisionV1;
     afterRevision: ProjectRevisionV1;
     committedAt: Date;
@@ -9171,6 +9176,16 @@ export class ProjectService {
       value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "ADD_OVERLAY",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-overlay-add_${nanoid(18)}`,
       projectId,
@@ -9182,6 +9197,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlay: null,
       afterOverlay: overlayWithReceipt,
+      projectRenderSnapshotInvalidation,
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -11586,6 +11602,16 @@ export class ProjectService {
       value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "UPDATE_OVERLAY",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-overlay_${nanoid(18)}`,
       projectId,
@@ -11597,6 +11623,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlay: currentOverlay,
       afterOverlay: updatedOverlay,
+      projectRenderSnapshotInvalidation,
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -12584,6 +12611,16 @@ export class ProjectService {
       value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "DELETE_OVERLAY",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-overlay-delete_${nanoid(18)}`,
       projectId,
@@ -12595,6 +12632,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlay: currentOverlay,
       afterOverlay: null,
+      projectRenderSnapshotInvalidation,
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -16914,6 +16952,7 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
   committedAt: string;
   beforeOverlay: Overlay | null;
   afterOverlay: Overlay | null;
+  projectRenderSnapshotInvalidation?: ProjectRenderSnapshotInvalidationLinkV1;
   sourceTimeTransform?: ProjectVideoSourceTimeTransformV1 | null;
 }): ProjectTimelineRangeChangeReceiptV1 {
   const representativeOverlay = input.afterOverlay ?? input.beforeOverlay;
@@ -16965,10 +17004,17 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
     sourceTimeTransform: input.sourceTimeTransform ?? null,
     splitChildren: [],
     ripple: null,
-    downstreamInvalidation: {
-      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
-      affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
-    },
+    downstreamInvalidation: input.projectRenderSnapshotInvalidation
+      ? {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+          affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
+          projectRenderSnapshotInvalidation:
+            structuredClone(input.projectRenderSnapshotInvalidation),
+        }
+      : {
+          status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+          affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
+        },
   };
 }
 

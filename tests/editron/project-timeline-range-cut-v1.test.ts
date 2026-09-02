@@ -2,16 +2,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
+  outboxFindOne: vi.fn(),
+  outboxInsertOne: vi.fn(),
   updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: { PROJECTS: "projects" },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      updateOne: persistenceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => name
+      === "editron_project_render_snapshot_invalidation_outbox_v1"
+      ? {
+          findOne: persistenceMocks.outboxFindOne,
+          insertOne: persistenceMocks.outboxInsertOne,
+        }
+      : {
+          findOne: persistenceMocks.findOne,
+          updateOne: persistenceMocks.updateOne,
+        }),
   })),
   connectToDatabase: vi.fn(),
 }));
@@ -134,6 +142,8 @@ function cutLock(input: {
 describe("ProjectService timeline range cut V1", () => {
   beforeEach(() => {
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistenceMocks.outboxInsertOne.mockReset().mockResolvedValue({ acknowledged: true });
     persistenceMocks.updateOne.mockReset();
   });
 

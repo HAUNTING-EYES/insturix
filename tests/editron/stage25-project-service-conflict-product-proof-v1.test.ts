@@ -138,51 +138,69 @@ function environment() {
   };
 }
 
-function createMultiProjectHarness(): {
-  database: Readonly<{
-    collection: (_name: string) => Readonly<{
-      findOne: (filter: JsonRecord, options?: unknown) => Promise<JsonRecord | null>;
-      updateOne: (
-        filter: JsonRecord,
-        update: JsonRecord,
-        options?: JsonRecord,
-      ) => Promise<Readonly<{
-        acknowledged: true;
-        matchedCount: number;
-        modifiedCount: number;
-      }>>;
-    }>;
-  }>;
-  store: Stage25ProjectServiceConflictProbeStoreV1;
-} {
+function createMultiProjectHarness() {
   const projects = new Map<string, Persistence>();
   const persistenceFor = (filter: JsonRecord): Persistence | null => {
     const projectId = filter.projectId;
     return typeof projectId === 'string' ? projects.get(projectId) ?? null : null;
   };
   const database = {
-    collection: () => ({
-      findOne: async (filter: JsonRecord, options?: unknown) => {
-        const persistence = persistenceFor(filter);
-        return persistence
-          ? persistence.asDatabase().collection('projects').findOne(filter, options)
-          : null;
-      },
-      updateOne: async (
-        filter: JsonRecord,
-        update: JsonRecord,
-        options?: JsonRecord,
-      ) => {
-        const persistence = persistenceFor(filter);
-        return persistence
-          ? persistence.asDatabase().collection('projects').updateOne(
-            filter,
-            update,
-            options,
-          )
-          : { acknowledged: true as const, matchedCount: 0, modifiedCount: 0 };
-      },
-    }),
+    collection: (name: string) => {
+      if (name === 'editron_project_render_snapshot_invalidation_outbox_v1') {
+        return {
+          findOne: async (filter: JsonRecord) => {
+            for (const persistence of projects.values()) {
+              const outbox = await persistence.asDatabase()
+                .collection('editron_project_render_snapshot_invalidation_outbox_v1')
+                .findOne(filter);
+              if (outbox) return outbox;
+            }
+            return null;
+          },
+          insertOne: async (document: JsonRecord) => {
+            const receipt = document.receipt;
+            const projectId = receipt && typeof receipt === 'object' && !Array.isArray(receipt)
+              ? (receipt as JsonRecord).projectId
+              : null;
+            if (typeof projectId !== 'string') {
+              throw new Error('PROJECT_SERVICE_TEST_INVALIDATION_PROJECT_ID_MISSING');
+            }
+            const persistence = projects.get(projectId);
+            if (!persistence) {
+              throw new Error('PROJECT_SERVICE_TEST_INVALIDATION_PROJECT_NOT_INSTALLED');
+            }
+            return persistence.asDatabase()
+              .collection('editron_project_render_snapshot_invalidation_outbox_v1')
+              .insertOne(document);
+          },
+        };
+      }
+      if (name !== 'projects') {
+        throw new Error(`PROJECT_SERVICE_TEST_COLLECTION_UNSUPPORTED:${name}`);
+      }
+      return {
+        findOne: async (filter: JsonRecord, options?: unknown) => {
+          const persistence = persistenceFor(filter);
+          return persistence
+            ? persistence.asDatabase().collection('projects').findOne(filter, options)
+            : null;
+        },
+        updateOne: async (
+          filter: JsonRecord,
+          update: JsonRecord,
+          options?: JsonRecord,
+        ) => {
+          const persistence = persistenceFor(filter);
+          return persistence
+            ? persistence.asDatabase().collection('projects').updateOne(
+              filter,
+              update,
+              options,
+            )
+            : { acknowledged: true as const, matchedCount: 0, modifiedCount: 0 };
+        },
+      };
+    },
   };
   const store: Stage25ProjectServiceConflictProbeStoreV1 = {
     installProject: async (project) => {

@@ -16,6 +16,29 @@ type UpdateResult = Readonly<{
   modifiedCount: number;
 }>;
 
+type ProjectCollection<T extends DocumentRecord> = Readonly<{
+  findOne: (filter: Query, options?: unknown) => Promise<T | null>;
+  updateOne: (
+    filter: Query,
+    update: Update,
+    options?: UpdateOptions,
+  ) => Promise<UpdateResult>;
+}>;
+
+type InvalidationOutboxCollection = Readonly<{
+  findOne: (filter: Query) => Promise<DocumentRecord | null>;
+  insertOne: (document: DocumentRecord) => Promise<{ acknowledged: true }>;
+}>;
+
+type TestDatabase<T extends DocumentRecord> = Readonly<{
+  collection: <Name extends string>(name: Name) =>
+    Name extends "projects"
+      ? ProjectCollection<T>
+      : Name extends "editron_project_render_snapshot_invalidation_outbox_v1"
+        ? InvalidationOutboxCollection
+        : never;
+}>;
+
 /**
  * Stateful, single-project persistence used only to exercise the real
  * ProjectService owner across sequential reads and CAS writes. It implements
@@ -24,6 +47,7 @@ type UpdateResult = Readonly<{
  */
 export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
   private project: T;
+  private readonly invalidationOutboxes = new Map<string, DocumentRecord>();
   private nextConflictMutation: ((current: T) => T) | null = null;
   private updateAttemptCount = 0;
 
@@ -31,21 +55,25 @@ export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
     this.project = clone(initialProject);
   }
 
-  asDatabase(): Readonly<{
-    collection: (_name: string) => Readonly<{
-      findOne: (filter: Query, options?: unknown) => Promise<T | null>;
-      updateOne: (
-        filter: Query,
-        update: Update,
-        options?: UpdateOptions,
-      ) => Promise<UpdateResult>;
-    }>;
-  }> {
+  asDatabase(): TestDatabase<T> {
+    const collection = (name: string): ProjectCollection<T> | InvalidationOutboxCollection => {
+      if (name === "projects") {
+        return {
+          findOne: (filter: Query, _options?: unknown) => this.findOne(filter),
+          updateOne: (filter: Query, update: Update, options?: UpdateOptions) =>
+            this.updateOne(filter, update, options),
+        };
+      }
+      if (name === "editron_project_render_snapshot_invalidation_outbox_v1") {
+        return {
+          findOne: async (filter: Query) => this.findInvalidationOutbox(filter),
+          insertOne: async (document: DocumentRecord) => this.insertInvalidationOutbox(document),
+        };
+      }
+      throw new Error(`UNSUPPORTED_PROJECT_SERVICE_TEST_COLLECTION:${name}`);
+    };
     return {
-      collection: () => ({
-        findOne: (filter) => this.findOne(filter),
-        updateOne: (filter, update, options) => this.updateOne(filter, update, options),
-      }),
+      collection: collection as TestDatabase<T>["collection"],
     };
   }
 
@@ -66,6 +94,27 @@ export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
 
   private async findOne(filter: Query): Promise<T | null> {
     return matches(this.project, filter) ? clone(this.project) : null;
+  }
+
+  private findInvalidationOutbox(filter: Query): DocumentRecord | null {
+    const id = typeof filter._id === "string" ? filter._id : filter.outboxId;
+    return typeof id === "string"
+      ? clone(this.invalidationOutboxes.get(id) ?? null)
+      : null;
+  }
+
+  private insertInvalidationOutbox(document: DocumentRecord): { acknowledged: true } {
+    const id = typeof document._id === "string" ? document._id : document.outboxId;
+    if (typeof id !== "string") {
+      throw new Error("PROJECT_SERVICE_TEST_INVALIDATION_ID_MISSING");
+    }
+    if (this.invalidationOutboxes.has(id)) {
+      const error = new Error("PROJECT_SERVICE_TEST_INVALIDATION_DUPLICATE") as Error & { code: number };
+      error.code = 11000;
+      throw error;
+    }
+    this.invalidationOutboxes.set(id, clone(document));
+    return { acknowledged: true };
   }
 
   private async updateOne(

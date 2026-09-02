@@ -160,7 +160,7 @@ export async function executeStage25ProjectServiceConflictProductProofV1(input: 
       limitations: [
         'The range lock is cut-specific; this does not certify a generic lock honored by every writer.',
         'The bounded conflict trial includes UPDATE_OVERLAY and CUT_TIMELINE_RANGE, not every ProjectService writer.',
-        'Downstream invalidation remains truthfully UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN.',
+        'UPDATE_OVERLAY now durably enqueues project-snapshot invalidation; CUT_TIMELINE_RANGE remains unmaterialized.',
         realMongo
           ? 'The durable proof uses an isolated loopback single-node mongod, not Atlas, a replica set, or a multi-user deployed product.'
           : 'The focused test uses a stateful persistence double and is not durable-database evidence.',
@@ -740,7 +740,11 @@ function assertExactOverlayReceipt(
     || hashCanonicalJsonV1(receipt.writeFrameRangesBefore)
       !== hashCanonicalJsonV1([expectedRange])
     || receipt.downstreamInvalidation.status
-      !== 'UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN') {
+      !== 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING'
+    || receipt.downstreamInvalidation.projectRenderSnapshotInvalidation.beforeRevision.value
+      !== receipt.beforeProjectRevision.value
+    || receipt.downstreamInvalidation.projectRenderSnapshotInvalidation.afterRevision.value
+      !== receipt.afterProjectRevision.value) {
     fail('UPDATE_OVERLAY_RANGE_RECEIPT_INVALID');
   }
 }
