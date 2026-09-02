@@ -17224,3 +17224,65 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5A direct media-admission checkpoint
+
+Commits `0a988b114` and `0eaf2cad6` close operation-specific media admission
+for caller-bound `ADD_OVERLAY` and `UPDATE_OVERLAY`. Both commits are pushed
+on `infrastructure-improvs-+Editron`.
+
+The direct writers reuse the canonical source-version, rights-ledger, audio
+evidence and predecessor owner for the exact post-mutation overlay. Admission
+is bound to the current project revision and project/user/owner/org scope. The
+sealed content-addressed receipt is stored before render invalidation admission
+and before project CAS, and its authenticated compact link is persisted on the
+same timeline mutation receipt. Failed media admission therefore performs no
+invalidation enqueue and no project mutation.
+
+The scope is intentionally the affected overlay rather than every unrelated
+project overlay. A text or other non-media direct edit receives a sealed
+zero-entry receipt, explicitly proving media non-applicability without
+fabricating rights. A video, image, sound or generated sequence must establish
+its qualified source or generated identity, current rights, audio evidence when
+applicable and original/generated/derived predecessor. `DELETE_OVERLAY`
+remains removable without fresh source rights while retaining its already
+closed project-snapshot invalidation; revoked or missing media must not become
+undeletable.
+
+The adjacent six-suite gate passed 95/95 tests. It covers the canonical owner,
+Mongo receipt runtime, direct ProjectService ordering, exact range/lock/CAS
+behavior and both stateful conflict proofs. The conflict harnesses traverse the
+real zero-entry receipt store for text edits. Only the deliberately unqualified
+video fixture used by the standalone range test stubs media admission, and
+that isolation is explicit in the test module. Targeted quiet ESLint, full
+8-GB TypeScript and `git diff --check` passed before the push.
+
+This is not universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Continue durable invalidation and applicable source, rights, audio,
+   predecessor, revision, range and lock classification across every remaining
+   specialized ProjectService writer. Metadata-only, analysis-only and
+   lease-only owners must explicitly record non-applicability rather than
+   fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state/direct
+   prerequisite receipts and an authoritative legacy checkpoint
+   migration/recapture rule; never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
