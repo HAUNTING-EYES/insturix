@@ -167,6 +167,7 @@ import {
   assertPipelineVideoDeliveryInvalidationAdmissionV1,
   assertPipelineVideoProjectDeliveryPrerequisiteV1,
   clonePipelineVideoCanonicalValueV1,
+  createPipelineVideoProjectDeliveryPrerequisiteV1,
   materializePipelineVideoProjectDeliveryPrerequisiteV1,
   pipelineVideoDeliveryInvalidationAdmissionHashV1,
   pipelineVideoDeliveryInvalidationAdmissionKeyV1,
@@ -181,6 +182,7 @@ import {
   applyProjectArtifactInvalidationProgressV1,
   assertProjectArtifactInvalidationOutboxV1,
   assertProjectArtifactInvalidationReceiptV1,
+  canAuthorizeProjectArtifactInvalidationV1,
   createProjectArtifactInvalidationOutboxV1,
   createProjectArtifactInvalidationReceiptV1,
   enqueueProjectArtifactInvalidationOutboxV1,
@@ -8593,6 +8595,7 @@ export class ProjectService {
       | "COMMIT_MG_RENDER_DELIVERY"
       | "FINALIZE_GENERATED_COMPOSITION"
       | "COMMIT_PIPELINE_AUDIO_DELIVERY"
+      | "REPLACE_PIPELINE_VIDEO_DELIVERY"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -10347,7 +10350,7 @@ export class ProjectService {
         );
       }
 
-      assertPipelineVideoDeliveryTargetAndLocksAgainstCurrentV1(
+      const targetOverlay = assertPipelineVideoDeliveryTargetAndLocksAgainstCurrentV1(
         projectId,
         current,
         {
@@ -10369,14 +10372,28 @@ export class ProjectService {
         beforeRevision,
       );
       if (recoverableAdmission) {
+        let recoveredPrerequisite: PipelineVideoProjectDeliveryPrerequisiteV1;
+        try {
+          recoveredPrerequisite = materializePipelineVideoProjectDeliveryPrerequisiteV1(
+            createPipelineVideoProjectDeliveryPrerequisiteV1({
+              projectId,
+              expectedRevision: recoverableAdmission.beforeRevision,
+              overlay: targetOverlay,
+            }),
+            recoverableAdmission,
+          );
+        } catch (error) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video invalidation recovery could not reconstruct its owner-bound prerequisite: "
+              + (error instanceof Error ? error.message : "UNKNOWN"),
+          );
+        }
         return {
-          disposition: "ALREADY_PENDING",
+          disposition: "ALREADY_ADMITTED",
           admission: structuredClone(recoverableAdmission),
-          prerequisite: null,
-          // No write occurred for this retry; both values remain the current
-          // ProjectService revision rather than manufacturing a new fence.
-          beforeRevision: structuredClone(beforeRevision),
-          afterRevision: structuredClone(beforeRevision),
+          prerequisite: recoveredPrerequisite,
+          beforeRevision: structuredClone(recoverableAdmission.beforeRevision),
+          afterRevision: structuredClone(recoverableAdmission.afterRevision),
         };
       }
 
@@ -10653,7 +10670,35 @@ export class ProjectService {
       // the persisted pending admission; narrow it for this owner-level gate.
       const admission = input.prerequisite.invalidation as
         PipelineVideoDeliveryInvalidationAdmissionV1;
-      if (admission.status === "ADMITTED_ARTIFACT_CHAIN_PENDING") {
+      const artifactInvalidationReceipt = createProjectArtifactInvalidationReceiptV1({
+        admissionId: admission.admissionId,
+        admissionHash: admission.admissionHash,
+        ownerId: userId,
+        projectId,
+        beforeRevision: admission.beforeRevision,
+        afterRevision: admission.afterRevision,
+        target: admission.target,
+        affectedDerivativeClasses: admission.affectedDerivativeClasses,
+      });
+      const artifactInvalidationCollection = db.collection(
+        PROJECT_ARTIFACT_INVALIDATION_OUTBOX_COLLECTION_V1,
+      ) as unknown as ProjectArtifactInvalidationOutboxCollectionV1;
+      const artifactInvalidationOutbox = await artifactInvalidationCollection.findOne({
+        _id: artifactInvalidationReceipt.receiptId,
+      });
+      try {
+        assertProjectArtifactInvalidationOutboxV1(artifactInvalidationOutbox);
+      } catch {
+        throw new ProjectPipelineVideoDeliveryConflictError(
+          beforeRevision,
+          "INVALIDATION_UNVERIFIABLE",
+        );
+      }
+      if (
+        artifactInvalidationOutbox.receipt.receiptHash
+          !== artifactInvalidationReceipt.receiptHash
+        || !canAuthorizeProjectArtifactInvalidationV1(artifactInvalidationOutbox)
+      ) {
         throw new ProjectPipelineVideoDeliveryConflictError(
           beforeRevision,
           "INVALIDATION_UNVERIFIABLE",
@@ -10675,9 +10720,13 @@ export class ProjectService {
       const rebase: ProjectPipelineVideoDeliveryRebaseV1 = "FRESH";
 
       const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
-      if (!beforeFrameRange) {
+      if (!isProjectTimelineFpsV1(current.fps)
+        || !Number.isSafeInteger(current.durationInFrames)
+        || current.durationInFrames <= 0
+        || !beforeFrameRange
+        || beforeFrameRange.endFrame > current.durationInFrames) {
         throw new ProjectMutationWriteError(
-          "Pipeline video delivery requires an exactly representable target timeline range.",
+          "Pipeline video delivery requires one exact bounded project timeline.",
         );
       }
 
@@ -10700,6 +10749,18 @@ export class ProjectService {
         );
       }
 
+      const wholeStateMediaPrerequisite =
+        await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+          operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+          tenantId: current.orgId ?? current.userId,
+          userId,
+          projectOwnerId: current.userId,
+          orgId: current.orgId ?? null,
+          projectId,
+          projectRevision: beforeRevision,
+          overlays: [replacementOverlay],
+        }, db, COLLECTIONS.MEDIA_ASSETS);
+
       const committedAt = new Date();
       const afterRevision: ProjectRevisionV1 = {
         schemaVersion: 1,
@@ -10713,6 +10774,16 @@ export class ProjectService {
         committedAt: committedAt.toISOString(),
       };
       const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
+      const projectRenderSnapshotInvalidation =
+        await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+          ownerId: userId,
+          projectId,
+          operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+          beforeRevision,
+          afterRevision,
+          committedAt,
+          db,
+        });
       const changedPaths = [
         "overlays",
         "pipelineVideoDeliveryReceipts",
@@ -10726,7 +10797,7 @@ export class ProjectService {
         operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
         actorKind: "SYSTEM",
         coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
-        fps: current.fps || 30,
+        fps: current.fps,
         beforeProjectRevision: beforeRevision,
         afterProjectRevision: afterRevision,
         committedAt: committedAt.toISOString(),
@@ -10746,9 +10817,12 @@ export class ProjectService {
         splitChildren: [],
         ripple: null,
         downstreamInvalidation: {
-          status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
           affectedFrameRangesBefore: [unionFrameRange],
+          projectRenderSnapshotInvalidation,
         },
+        wholeStateMediaPrerequisite:
+          projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       };
       const deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1 = {
         schemaVersion: 1,

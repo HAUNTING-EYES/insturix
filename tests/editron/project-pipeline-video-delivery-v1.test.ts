@@ -11,19 +11,42 @@ import {
   pipelineVideoDeliveryTargetFingerprintV1,
   pipelineVideoProjectDeliveryPrerequisiteHashV1,
 } from "@/lib/editron/services/pipeline-video-project-delivery-v1";
+import {
+  applyProjectArtifactInvalidationProgressV1,
+  createProjectArtifactInvalidationOutboxV1,
+  createProjectArtifactInvalidationReceiptV1,
+} from "@/lib/editron/services/project-artifact-invalidation-v1";
 
 const persistenceMocks = vi.hoisted(() => ({
+  artifactOutboxFindOne: vi.fn(),
   findOne: vi.fn(),
+  materializeMediaPrerequisite: vi.fn(),
+  snapshotOutboxFindOne: vi.fn(),
+  snapshotOutboxInsertOne: vi.fn(),
   updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { MEDIA_ASSETS: "media_assets", PROJECTS: "projects" },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      updateOne: persistenceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => {
+      if (name === "projects") {
+        return {
+          findOne: persistenceMocks.findOne,
+          updateOne: persistenceMocks.updateOne,
+        };
+      }
+      if (name === "editron_project_artifact_invalidation_outbox_v1") {
+        return { findOne: persistenceMocks.artifactOutboxFindOne };
+      }
+      if (name === "editron_project_render_snapshot_invalidation_outbox_v1") {
+        return {
+          findOne: persistenceMocks.snapshotOutboxFindOne,
+          insertOne: persistenceMocks.snapshotOutboxInsertOne,
+        };
+      }
+      return {};
+    }),
   })),
   connectToDatabase: vi.fn(),
 }));
@@ -41,6 +64,19 @@ vi.mock("@/lib/services/orgMemberService", () => ({
 
 vi.mock("@/lib/shared/project-links", () => ({
   removeProjectFromLinks: vi.fn(),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.materializeMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: vi.fn(() => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: "a".repeat(64),
+    candidateMediaSetSha256: "b".repeat(64),
+    candidateMediaContentSha256: "c".repeat(64),
+    mediaEntryCount: 1,
+  })),
 }));
 
 const PROJECT_ID = "proj_video_delivery";
@@ -216,6 +252,29 @@ function pendingAdmissionPrerequisite(
   };
 }
 
+function materializedArtifactInvalidationOutbox(
+  admission: ReturnType<typeof pendingAdmissionPrerequisite>["admission"],
+) {
+  const receipt = createProjectArtifactInvalidationReceiptV1({
+    admissionId: admission.admissionId,
+    admissionHash: admission.admissionHash,
+    ownerId: admission.ownerId,
+    projectId: admission.projectId,
+    beforeRevision: admission.beforeRevision,
+    afterRevision: admission.afterRevision,
+    target: admission.target,
+    affectedDerivativeClasses: admission.affectedDerivativeClasses,
+  });
+  return applyProjectArtifactInvalidationProgressV1({
+    outbox: createProjectArtifactInvalidationOutboxV1({
+      receipt,
+      now: new Date("2026-08-25T00:00:11.000Z"),
+    }),
+    resolvedDerivativeClasses: admission.affectedDerivativeClasses,
+    now: new Date("2026-08-25T00:00:12.000Z"),
+  });
+}
+
 function qualityWarningCommand(
   project: ReturnType<typeof projectFixture>,
   overrides: Record<string, unknown> = {},
@@ -236,8 +295,16 @@ function qualityWarningCommand(
 describe("ProjectService pipeline video delivery V1", () => {
   beforeEach(() => {
     vi.useRealTimers();
+    persistenceMocks.artifactOutboxFindOne.mockReset();
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.materializeMediaPrerequisite.mockReset();
+    persistenceMocks.snapshotOutboxFindOne.mockReset();
+    persistenceMocks.snapshotOutboxInsertOne.mockReset();
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.artifactOutboxFindOne.mockResolvedValue(null);
+    persistenceMocks.materializeMediaPrerequisite.mockResolvedValue({});
+    persistenceMocks.snapshotOutboxFindOne.mockResolvedValue(null);
+    persistenceMocks.snapshotOutboxInsertOne.mockResolvedValue({ acknowledged: true });
   });
 
   it("fails closed when no durable invalidation owner can admit the project delivery", async () => {
@@ -336,7 +403,7 @@ describe("ProjectService pipeline video delivery V1", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
 
     // A fresh HTTP retry starts from the already-admitted revision. Recover
-    // the pending reservation instead of advancing the project again.
+    // the same owner-issued prerequisite without advancing the project again.
     const freshRetryPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
       projectId: PROJECT_ID,
       expectedRevision: admissionResult.afterRevision,
@@ -348,10 +415,13 @@ describe("ProjectService pipeline video delivery V1", () => {
       PROJECT_ID,
       freshRetryPrerequisite,
     )).resolves.toMatchObject({
-      disposition: "ALREADY_PENDING",
+      disposition: "ALREADY_ADMITTED",
       admission: admissionResult.admission,
-      prerequisite: null,
-      beforeRevision: admissionResult.afterRevision,
+      prerequisite: {
+        expectedRevision: admissionResult.afterRevision,
+        invalidation: admissionResult.admission,
+      },
+      beforeRevision: admissionResult.beforeRevision,
       afterRevision: admissionResult.afterRevision,
     });
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
@@ -371,6 +441,101 @@ describe("ProjectService pipeline video delivery V1", () => {
     });
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
     expect(admittedProject).not.toHaveProperty("pipelineVideoDeliveryReceipts");
+  });
+
+  it("commits only after target invalidation, media admission, and snapshot invalidation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:13.000Z"));
+    const base = projectFixture();
+    const admitted = pendingAdmissionPrerequisite(base);
+    const admittedProject = {
+      ...base,
+      projectRevision: admitted.admission.afterRevision.value,
+      updatedAt: new Date(admitted.admission.afterRevision.compatibilityUpdatedAt),
+      pipelineVideoDeliveryInvalidationAdmissionsV1: [admitted.admission],
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    persistenceMocks.artifactOutboxFindOne.mockResolvedValueOnce(
+      materializedArtifactInvalidationOutbox(admitted.admission),
+    );
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const result = await projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(base, {
+        expectedRevision: admitted.admission.afterRevision,
+        prerequisite: admitted.prerequisite,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      disposition: "APPLIED",
+      deliveryReceipt: {
+        beforeRevision: admitted.admission.afterRevision,
+        afterRevision: { value: 9 },
+        replacementAssetId: "video-new",
+        timelineChangeReceipt: {
+          operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+          fps: 30,
+          wholeStateMediaPrerequisite: { mediaEntryCount: 1 },
+          downstreamInvalidation: {
+            status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+            projectRenderSnapshotInvalidation: {
+              receiptHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+              beforeRevision: admitted.admission.afterRevision,
+              afterRevision: { value: 9 },
+            },
+          },
+        },
+      },
+    });
+    expect(persistenceMocks.materializeMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+        projectRevision: admitted.admission.afterRevision,
+        overlays: [expect.objectContaining({ assetId: "video-new", id: 10 })],
+      }),
+      expect.anything(),
+      "media_assets",
+    );
+    expect(persistenceMocks.materializeMediaPrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.snapshotOutboxInsertOne.mock.invocationCallOrder[0]!);
+    expect(persistenceMocks.snapshotOutboxInsertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
+  });
+
+  it("does not invalidate or mutate when replacement media admission fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:13.000Z"));
+    const base = projectFixture();
+    const admitted = pendingAdmissionPrerequisite(base);
+    const admittedProject = {
+      ...base,
+      projectRevision: admitted.admission.afterRevision.value,
+      updatedAt: new Date(admitted.admission.afterRevision.compatibilityUpdatedAt),
+      pipelineVideoDeliveryInvalidationAdmissionsV1: [admitted.admission],
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    persistenceMocks.artifactOutboxFindOne.mockResolvedValueOnce(
+      materializedArtifactInvalidationOutbox(admitted.admission),
+    );
+    persistenceMocks.materializeMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_NOT_AUTHORIZED"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(base, {
+        expectedRevision: admitted.admission.afterRevision,
+        prerequisite: admitted.prerequisite,
+      }),
+    )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_NOT_AUTHORIZED");
+    expect(persistenceMocks.snapshotOutboxInsertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a valid-hash pending admission claim without the persisted ProjectService admission", async () => {
