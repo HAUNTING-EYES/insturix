@@ -1051,7 +1051,7 @@ export async function quarantineProjectRenderDispatchV1(input: {
     : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
 }
 
-function validateCurrentProjectRenderJob(
+export function validateCurrentProjectRenderJob(
   job: RenderJob | null,
   authorization: ProjectRenderJobAuthorizationV1,
 ): ProjectRenderJobNotCurrentReasonV1 | null {

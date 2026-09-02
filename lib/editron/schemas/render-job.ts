@@ -21,6 +21,7 @@ import {
 } from '@/lib/editron/services/project-render-snapshot-binding-v1';
 import { ProjectRenderSnapshotInvalidationLinkSchemaV1 } from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
 import { ProjectRenderSourceCleanupOutboxIdSchemaV1 } from '@/lib/editron/services/project-render-source-cleanup-v1';
+import { ProjectRenderLifecycleMigrationAssessmentSchemaV1 } from '@/lib/editron/services/project-render-lifecycle-migration-contract-v1';
 
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
@@ -776,6 +777,7 @@ export const RenderJobSchema = z.object({
   artifactState: ProjectArtifactStateSchema.optional(),
   artifactCleanup: ProjectArtifactCleanupSchema.optional(),
   projectRenderSourceCleanupOutboxId: ProjectRenderSourceCleanupOutboxIdSchemaV1.optional(),
+  projectRenderLifecycleMigration: ProjectRenderLifecycleMigrationAssessmentSchemaV1.optional(),
   artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
   projectRenderSnapshotInvalidation:
     ProjectRenderSnapshotInvalidationLinkSchemaV1.optional(),
