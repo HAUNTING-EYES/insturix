@@ -87,6 +87,22 @@ const SeqModel = mongoose.models.VibeConversationSeq ?? mongoose.model("VibeConv
 const OperationModel = mongoose.models.VibeOperation ?? mongoose.model("VibeOperation", OperationSchema);
 export { ProjectModel, OperationModel }; // status.ts computes labels from real records (plan §6)
 
+/** Durable outbox (plan §3 recovery): events that failed to reach the spine
+ *  log mid-turn land here instead of vanishing. Reads drain them back into
+ *  the log in order — the user's work finishes landing on the next load. */
+const OutboxSchema = new mongoose.Schema(
+  {
+    projectId: { type: String, required: true, index: true },
+    turnId: { type: String, default: null },
+    actor: { type: String, required: true },
+    kind: { type: String, required: true },
+    payload: { type: mongoose.Schema.Types.Mixed, required: true },
+    attempts: { type: Number, default: 0 },
+  },
+  { collection: "vibe_outbox", timestamps: true },
+);
+const OutboxModel = mongoose.models.VibeOutbox ?? mongoose.model("VibeOutbox", OutboxSchema);
+
 /* cached connection, clickatron-mongo pattern under our own global key */
 type Cache = { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null };
 const globalCache = globalThis as unknown as { studioSpine?: Cache };
@@ -183,6 +199,43 @@ export async function appendTurnEvent(
   }
   console.error(`[spine] appendTurnEvent failed for ${projectId} (${event.kind}) after ${SPINE_RETRY_BACKOFF_MS.length + 1} attempts`, lastError);
   return null;
+}
+
+/** Mid-turn failure path: park the event durably instead of losing it. If the
+ *  outbox write also fails (total outage) this returns false — nothing more
+ *  can be persisted anywhere, and the caller says so honestly. */
+export async function enqueueOutbox(
+  projectId: string,
+  event: { turnId: string | null; actor: SpineEvent["actor"]; kind: string; payload: unknown },
+): Promise<boolean> {
+  try {
+    await OutboxModel.create({ projectId, turnId: event.turnId, actor: event.actor, kind: event.kind, payload: event.payload });
+    return true;
+  } catch (error) {
+    console.error(`[spine] outbox enqueue failed for ${projectId} (${event.kind}) — event lost`, error);
+    return false;
+  }
+}
+
+/** Drain a project's outbox into the spine log, oldest first. Runs before
+ *  every events read, so a reload is what finishes landing interrupted work.
+ *  Stops at the first entry that still won't append (order beats completeness
+ *  — a later event must never land before an earlier one) and increments its
+ *  attempt count for observability. */
+export async function drainOutbox(projectId: string): Promise<number> {
+  await connectSpine();
+  let drained = 0;
+  const stuck = await OutboxModel.find({ projectId }).sort({ createdAt: 1, _id: 1 }).limit(200).lean();
+  for (const entry of stuck as unknown as Array<{ _id: unknown; turnId: string | null; actor: SpineEvent["actor"]; kind: string; payload: unknown }>) {
+    const appended = await appendTurnEvent(projectId, { turnId: entry.turnId, actor: entry.actor, kind: entry.kind, payload: entry.payload });
+    if (!appended) {
+      await OutboxModel.updateOne({ _id: entry._id }, { $inc: { attempts: 1 } }).catch(() => undefined);
+      break;
+    }
+    await OutboxModel.deleteOne({ _id: entry._id }).catch(() => undefined);
+    drained += 1;
+  }
+  return drained;
 }
 
 /** One-shot import claim (§10 conversation migration): exactly one caller

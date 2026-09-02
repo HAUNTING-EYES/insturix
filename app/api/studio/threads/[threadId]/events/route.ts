@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
-import { connectSpine, getOrCreateProject, getProject, listEvents } from "@/lib/studio/persist/db";
+import { connectSpine, drainOutbox, getOrCreateProject, getProject, listEvents } from "@/lib/studio/persist/db";
 import { computeProjectStatus } from "@/lib/studio/persist/status";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
@@ -49,6 +49,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     if (project.organizationId !== (orgId ?? null)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
+    /* recovery read: anything a dropped turn parked in the outbox finishes
+     * landing HERE, before the client sees the log — a reload is the heal */
+    await drainOutbox(projectId).catch((error) => console.error("[spine] outbox drain failed on read", error));
     await ensureThreadBootstrapped(projectId);
     const [events, status] = await Promise.all([listEvents(projectId, after), computeProjectStatus(projectId)]);
     const cursor = events.length ? events[events.length - 1].seq : after;

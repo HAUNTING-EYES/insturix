@@ -5,7 +5,7 @@ import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/wri
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
-import { appendTurnEvent, claimOperation, connectSpine, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
+import { appendTurnEvent, claimOperation, connectSpine, drainOutbox, enqueueOutbox, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
 export const runtime = "nodejs";
@@ -69,7 +69,9 @@ export async function POST(req: Request) {
       title: request.text.trim().slice(0, 80) || "Studio draft",
     });
     /* old TF sessions: their chat history enters the log BEFORE this turn's
-     * first event, so imported and new messages stay in true order */
+     * first event, so imported and new messages stay in true order; the drain
+     * first lands anything a previous turn parked in the outbox */
+    await drainOutbox(project.projectId);
     await ensureThreadBootstrapped(project.projectId);
     /* idempotency (plan §3): one operationId per logical turn — an in-flight
      * or completed claim is refused (409), so a retry can never charge or
@@ -184,12 +186,42 @@ export async function POST(req: Request) {
           const event =
             spineProjectId && rawEvent.type === "turn.received" ? { ...rawEvent, deliverableId: spineProjectId } : rawEvent;
           if (spineProjectId) {
-            await appendTurnEvent(spineProjectId, {
+            const appended = await appendTurnEvent(spineProjectId, {
               actor: "system",
               kind: event.type,
               turnId: (event as { turnId?: string }).turnId ?? null,
               payload: event,
             });
+            if (!appended) {
+              /* mid-turn spine failure: park this event durably, then stop —
+               * events that can't be persisted must not keep streaming. The
+               * operation is marked errored so the user can retry; the outbox
+               * drain on their next load finishes landing everything below. */
+              const parked = await enqueueOutbox(spineProjectId, {
+                actor: "system",
+                kind: event.type,
+                turnId: (event as { turnId?: string }).turnId ?? null,
+                payload: event,
+              });
+              if (spineOperationId) {
+                opFinal = true;
+                await markOperation(
+                  spineOperationId,
+                  "error",
+                  { error: parked ? "spine_interrupted_recovery_queued" : "spine_interrupted_events_lost" },
+                );
+              }
+              send({
+                type: "turn.error",
+                turnId: (event as { turnId?: string }).turnId ?? "t_unknown",
+                message: parked
+                  ? "the save connection dropped — your work is queued and finishes landing when you reload. nothing is lost."
+                  : "the save connection dropped and the safety queue is unreachable — what you saw streaming may not have saved. reload to see what persisted.",
+                retryable: true,
+                refundIssued: false,
+              });
+              break;
+            }
           }
           if (event.type === "turn.confirm_required" && spineOperationId) {
             opFinal = true;
