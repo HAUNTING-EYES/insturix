@@ -1293,7 +1293,7 @@ export async function POST(
             { upsert: true },
           );
 
-          await projectService.commitPipelineAudioDeliveryV1(
+          const bgmDelivery = await projectService.commitPipelineAudioDeliveryV1(
             userId,
             project.projectId,
             {
@@ -1312,12 +1312,44 @@ export async function POST(
               outcome: 'ATTACHED',
               overlays: bgmOverlays,
               musicCoveragePlan,
-              beatFrames: beatEvidence?.beatGrid.beats,
             },
           );
           overlays.push(...bgmOverlays);
-
           bgmSyncCompleted = true;
+
+          if (beatEvidence && bgmOverlays.length > 0) {
+            try {
+              const beatSync = await projectService.alignCutsToBeatsAtRevisionV1(
+                userId,
+                project.projectId,
+                {
+                  expectedRevision: bgmDelivery.deliveryReceipt.afterRevision,
+                  actorKind: 'SYSTEM',
+                  audioOverlayId: bgmOverlays[0].id,
+                  beatFilter: 'all',
+                  strengthThreshold: 0,
+                  evidenceSource: 'persisted-beat-grid',
+                },
+              );
+              if (beatSync.disposition !== 'APPLIED') {
+                pipelineWarnings.degraded(
+                  'bgm',
+                  'beat-sync-project-owner',
+                  `Conditioned BGM was attached, but authoritative beat-sync did not change cuts: ${beatSync.reason}.`,
+                );
+              }
+            } catch (beatSyncError: unknown) {
+              const message = beatSyncError instanceof Error
+                ? beatSyncError.message
+                : String(beatSyncError);
+              console.warn(`[Finalize] Authoritative beat-sync failed after BGM attachment: ${message}`);
+              pipelineWarnings.degraded(
+                'bgm',
+                'beat-sync-project-owner',
+                `Conditioned BGM was attached, but authoritative beat-sync failed: ${message}.`,
+              );
+            }
+          }
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
           pipelineWarnings.degraded(

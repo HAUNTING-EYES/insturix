@@ -502,9 +502,40 @@ async function handler(request: NextRequest) {
         outcome: 'ATTACHED',
         overlays: markedBgm as Overlay[],
         musicCoveragePlan,
-        beatFrames: beatEvidence?.beatGrid.beats ?? [],
         warnings: deliveryWarnings(warnings),
       });
+      if (beatEvidence && markedBgm.length > 0) {
+        try {
+          const beatSync = await projectService.alignCutsToBeatsAtRevisionV1(
+            userId,
+            projectId,
+            {
+              expectedRevision: delivery.deliveryReceipt.afterRevision,
+              actorKind: 'SYSTEM',
+              audioOverlayId: markedBgm[0].id,
+              beatFilter: 'all',
+              strengthThreshold: 0,
+              evidenceSource: 'persisted-beat-grid',
+            },
+          );
+          if (beatSync.disposition !== 'APPLIED') {
+            warnings.add({
+              severity: 'warning',
+              phase: 'bgm',
+              message: `Music was attached, but authoritative beat-sync did not change cuts: ${beatSync.reason}.`,
+            });
+          }
+        } catch (beatSyncError: unknown) {
+          const message = errorMessage(beatSyncError);
+          console.warn(`[AudioWorker] Authoritative beat-sync failed after BGM attachment: ${message}`);
+          warnings.add({
+            severity: 'warning',
+            phase: 'bgm',
+            message: `Music was attached, but authoritative beat-sync failed: ${message}.`,
+            details: { code: errorCode(beatSyncError) },
+          });
+        }
+      }
       console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
       return NextResponse.json({
         success: true,

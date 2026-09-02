@@ -5,16 +5,24 @@ import {
 
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
+  insertOne: vi.fn(),
+  materializeMediaPrerequisite: vi.fn(),
+  outboxFindOne: vi.fn(),
   updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "media_assets" },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      updateOne: persistenceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => name === "projects"
+      ? {
+          findOne: persistenceMocks.findOne,
+          updateOne: persistenceMocks.updateOne,
+        }
+      : {
+          findOne: persistenceMocks.outboxFindOne,
+          insertOne: persistenceMocks.insertOne,
+        }),
   })),
   connectToDatabase: vi.fn(),
 }));
@@ -32,6 +40,18 @@ vi.mock("@/lib/services/orgMemberService", () => ({
 
 vi.mock("@/lib/shared/project-links", () => ({
   removeProjectFromLinks: vi.fn(),
+}));
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.materializeMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: vi.fn(() => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: "a".repeat(64),
+    candidateMediaSetSha256: "b".repeat(64),
+    candidateMediaContentSha256: "c".repeat(64),
+    mediaEntryCount: 1,
+  })),
 }));
 
 const PROJECT_ID = "proj_audio_delivery";
@@ -155,7 +175,13 @@ describe("ProjectService pipeline audio delivery V1", () => {
   beforeEach(() => {
     vi.useRealTimers();
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.insertOne.mockReset();
+    persistenceMocks.materializeMediaPrerequisite.mockReset();
+    persistenceMocks.outboxFindOne.mockReset();
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.insertOne.mockResolvedValue({ acknowledged: true });
+    persistenceMocks.materializeMediaPrerequisite.mockResolvedValue({});
+    persistenceMocks.outboxFindOne.mockResolvedValue(null);
   });
 
   it("derives a stable visual binding that ignores audio-only writes", () => {
@@ -198,6 +224,16 @@ describe("ProjectService pipeline audio delivery V1", () => {
           outcome: "ATTACHED",
           rebase: "FRESH",
           attachedOverlayIds: ["20"],
+          beatAlignment: null,
+          timelineChangeReceipt: {
+            operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+            actorKind: "SYSTEM",
+            affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 180 }],
+            wholeStateMediaPrerequisite: { mediaEntryCount: 1 },
+            downstreamInvalidation: {
+              status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+            },
+          },
           proof: {
             required: true,
             status: "UNVERIFIABLE",
@@ -235,8 +271,28 @@ describe("ProjectService pipeline audio delivery V1", () => {
       });
       expect(update.$push.pipelineAudioDeliveryReceipts.$each[0]).toMatchObject({
         deliveryId: DELIVERY_ID,
-        changedPaths: ["pipelineAudioDeliveryReceipts", "overlays"],
+        changedPaths: [
+          "pipelineAudioDeliveryReceipts",
+          "overlays",
+          "timelineRangeChangeReceipts",
+        ],
       });
+      expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+        operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+      });
+      expect(persistenceMocks.materializeMediaPrerequisite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+          projectRevision: revisionFor(project),
+          overlays: expect.arrayContaining([expect.objectContaining({ id: 20 })]),
+        }),
+        expect.anything(),
+        "media_assets",
+      );
+      expect(persistenceMocks.materializeMediaPrerequisite.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+      expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
@@ -309,6 +365,38 @@ describe("ProjectService pipeline audio delivery V1", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
+  it("blocks missing audio/media admission before invalidation and project CAS", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.materializeMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_NOT_AUTHORIZED"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineAudioDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      sfxCommand(project),
+    )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_NOT_AUTHORIZED");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy delivery-owned beat mutation before database access", async () => {
+    const project = projectFixture();
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineAudioDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      bgmCommand(project, { beatFrames: [{ frame: 30, isDownbeat: true }] }),
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.materializeMediaPrerequisite).not.toHaveBeenCalled();
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it("records a BGM policy skip without inventing a coverage plan or overlay", async () => {
     const project = projectFixture();
     persistenceMocks.findOne.mockResolvedValueOnce(project);
@@ -336,11 +424,14 @@ describe("ProjectService pipeline audio delivery V1", () => {
         reason: "NO_AUDIO_OVERLAY_ATTACHED",
       },
       changedPaths: ["pipelineAudioDeliveryReceipts"],
+      timelineChangeReceipt: null,
     });
     const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
     expect(update.$set.musicCoveragePlan).toBeUndefined();
     expect(update.$set.overlays).toBeUndefined();
     expect(update.$push.overlays).toBeUndefined();
+    expect(persistenceMocks.materializeMediaPrerequisite).not.toHaveBeenCalled();
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
   });
 
   it("retries a BGM delivery from a fresh CAS snapshot and preserves an intervening SFX", async () => {

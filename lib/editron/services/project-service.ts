@@ -149,7 +149,6 @@ import {
 } from "./timeline-range-cut";
 import {
   ROW,
-  alignCutsToBeatsWithEvidence,
   type BeatAlignmentResult,
 } from "@/lib/pipeline/scene-to-editron";
 import { resolveBeatSyncMutationV1 } from "./beat-sync-mutation-v1";
@@ -385,6 +384,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "ALIGN_CUTS_TO_BEATS"
   | "COMMIT_MG_RENDER_DELIVERY"
   | "FINALIZE_GENERATED_COMPOSITION"
+  | "COMMIT_PIPELINE_AUDIO_DELIVERY"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -925,6 +925,7 @@ export interface ProjectPipelineAudioDeliveryReceiptV1 {
     changedOverlayIds: readonly string[];
     rejectedCount: number;
   } | null;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 | null;
   changedPaths: readonly string[];
   proof: {
     required: boolean;
@@ -8591,6 +8592,7 @@ export class ProjectService {
       | "ALIGN_CUTS_TO_BEATS"
       | "COMMIT_MG_RENDER_DELIVERY"
       | "FINALIZE_GENERATED_COMPOSITION"
+      | "COMMIT_PIPELINE_AUDIO_DELIVERY"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -10054,28 +10056,59 @@ export class ProjectService {
         : requiresTimelineBinding
           ? "SAFE_REBASED_AUDIO_ONLY"
           : "WARNING_ONLY_REBASED";
+      if (input.outcome === "ATTACHED") {
+        if (!isProjectTimelineFpsV1(current.fps)
+          || !Number.isSafeInteger(current.durationInFrames)
+          || current.durationInFrames <= 0
+          || !Array.isArray(current.overlays)
+          || current.overlays.length > 100_000) {
+          throw new ProjectMutationWriteError(
+            "Pipeline audio delivery requires one bounded exact project timeline.",
+          );
+        }
+        const attachedFrameRanges = overlayFamilyFrameRangesV1(
+          preparedOverlays,
+          "pipeline audio delivery",
+        );
+        if (attachedFrameRanges.some((range) => range.endFrame > current.durationInFrames)) {
+          throw new ProjectMutationWriteError(
+            "Pipeline audio delivery overlays must remain inside the project duration.",
+          );
+        }
+        const currentIdentities = new Set(current.overlays.map(
+          overlayIdentityKeyForFamilyReplacementV1,
+        ));
+        if (preparedOverlays.some((overlay) => (
+          currentIdentities.has(overlayIdentityKeyForFamilyReplacementV1(overlay))
+        ))) {
+          throw new ProjectMutationWriteError(
+            "Pipeline audio delivery overlay identity collides with current project state.",
+          );
+        }
+        if (hasActiveDirectorMutationLeaseV1(current)) {
+          throw new ProjectMutationConflictError(
+            beforeRevision,
+            "The project is locked by an active Director mutation. Reload before audio delivery.",
+          );
+        }
+        const blockingLocks = activeTimelineRangeCutLocksV1(
+          readTimelineRangeCutLocksV1(current),
+          new Date(),
+        ).filter((lock) => attachedFrameRanges.some((frameRange) => (
+          frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+        )));
+        if (blockingLocks.length > 0) {
+          throw new ProjectTimelineRangeCutLockConflictError(
+            beforeRevision,
+            [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+            "An active timeline range lock overlaps pipeline audio delivery.",
+          );
+        }
+      }
       const nextOverlays = structuredClone(current.overlays || []);
-      let beatAlignment: ProjectPipelineAudioDeliveryReceiptV1["beatAlignment"] = null;
+      const beatAlignment: ProjectPipelineAudioDeliveryReceiptV1["beatAlignment"] = null;
       if (input.outcome === "ATTACHED") {
         nextOverlays.push(...preparedOverlays);
-        if (input.kind === "BGM" && input.beatFrames && input.beatFrames.length > 0) {
-          const alignment = alignCutsToBeatsWithEvidence(
-            nextOverlays,
-            [...input.beatFrames],
-            current.fps || 30,
-          );
-          beatAlignment = {
-            snappedCount: alignment.snappedCount,
-            changedOverlayIds: [...new Set(
-              alignment.changes.flatMap((change) => [
-                String(change.clipAId),
-                String(change.clipBId),
-                ...change.transitionOverlayIds.map(String),
-              ]),
-            )],
-            rejectedCount: alignment.rejections.length,
-          };
-        }
       }
 
       const committedAt = new Date();
@@ -10090,6 +10123,50 @@ export class ProjectService {
         revision: afterRevision,
         committedAt: committedAt.toISOString(),
       };
+      let timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 | null = null;
+      if (input.outcome === "ATTACHED") {
+        const wholeStateMediaPrerequisite =
+          await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+            operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+            tenantId: current.orgId ?? current.userId,
+            userId,
+            projectOwnerId: current.userId,
+            orgId: current.orgId ?? null,
+            projectId,
+            projectRevision: beforeRevision,
+            overlays: preparedOverlays,
+          }, db, COLLECTIONS.MEDIA_ASSETS);
+        const projectRenderSnapshotInvalidation =
+          await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+            ownerId: userId,
+            projectId,
+            operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+            beforeRevision,
+            afterRevision,
+            committedAt,
+            db,
+          });
+        timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+          receiptId: `timeline-pipeline-audio_${nanoid(18)}`,
+          projectId,
+          operation: "COMMIT_PIPELINE_AUDIO_DELIVERY",
+          actorKind: "SYSTEM",
+          fps: current.fps,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+          committedAt: committedAt.toISOString(),
+          beforeOverlays: [],
+          afterOverlays: preparedOverlays,
+          projectRenderSnapshotInvalidation,
+          wholeStateMediaPrerequisite:
+            projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
+          changedPaths: [
+            "overlays",
+            "pipelineAudioDeliveryReceipts",
+            "timelineRangeChangeReceipts",
+          ],
+        });
+      }
       const changedPaths = pipelineAudioDeliveryChangedPathsV1(
         input,
         canonicalWarnings.length,
@@ -10108,6 +10185,7 @@ export class ProjectService {
         rebase,
         attachedOverlayIds: preparedOverlays.map((overlay) => String(overlay.id)),
         beatAlignment,
+        timelineChangeReceipt,
         changedPaths,
         proof: input.outcome === "ATTACHED"
           ? {
@@ -10128,6 +10206,12 @@ export class ProjectService {
           $slice: -MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1,
         },
       };
+      if (timelineChangeReceipt) {
+        push.timelineRangeChangeReceipts = {
+          $each: [timelineChangeReceipt],
+          $slice: -MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1,
+        };
+      }
       if (canonicalWarnings.length > 0) {
         push.pipelineWarnings = { $each: canonicalWarnings };
       }
@@ -13717,6 +13801,7 @@ function assertProjectPipelineAudioDeliveryCommandV1(
     || !Array.isArray(input.overlays)
     || !Array.isArray(input.warnings ?? [])
     || !Array.isArray(input.beatFrames ?? [])
+    || (input.beatFrames?.length ?? 0) > 0
   ) {
     throw new ProjectMutationWriteError("Pipeline audio delivery input is invalid.");
   }
@@ -13784,7 +13869,9 @@ function pipelineAudioDeliveryChangedPathsV1(
   hasMusicCoveragePlan: boolean,
 ): string[] {
   const paths = ["pipelineAudioDeliveryReceipts"];
-  if (input.outcome === "ATTACHED") paths.push("overlays");
+  if (input.outcome === "ATTACHED") {
+    paths.push("overlays", "timelineRangeChangeReceipts");
+  }
   if (warningCount > 0) paths.push("pipelineWarnings");
   if (hasMusicCoveragePlan) {
     paths.push("musicCoveragePlan", "intelligence.audio.musicCoveragePlan");
@@ -17700,6 +17787,7 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     | "REPLACE_BACKGROUND_MUSIC"
     | "ALIGN_CUTS_TO_BEATS"
     | "COMMIT_MG_RENDER_DELIVERY"
+    | "COMMIT_PIPELINE_AUDIO_DELIVERY"
     | "REPLACE_EDITOR_STATE"
     | "RESTORE_CHECKPOINT_STATE";
   actorKind: ProjectTimelineMutationActorKindV1;
