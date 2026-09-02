@@ -92,6 +92,33 @@ describe("project render source cleanup V1", () => {
     expect(changed._id).not.toBe(first._id);
   });
 
+  it("schedules retained media without changing its immutable cleanup identity", () => {
+    const retainedUntil = new Date("2026-09-08T04:00:00.000Z");
+    const scheduled = createProjectRenderSourceCleanupOutboxV1({
+      binding: binding(),
+      providerRenderId: "render_provider_1",
+      bucketName: "remotion-bucket-1",
+      region: "us-east-1",
+      sourceOutputUrl: "https://remotion-bucket-1.s3.us-east-1.amazonaws.com/renders/render_provider_1/out.mp4",
+      sourceOutputSize: 44_583_988,
+      now,
+      availableAt: retainedUntil,
+    });
+    expect(scheduled._id).toBe(createOutbox()._id);
+    expect(scheduled.createdAt).toEqual(now);
+    expect(scheduled.availableAt).toEqual(retainedUntil);
+    expect(() => createProjectRenderSourceCleanupOutboxV1({
+      binding: binding(),
+      providerRenderId: "render_provider_1",
+      bucketName: "remotion-bucket-1",
+      region: "us-east-1",
+      sourceOutputUrl: "https://remotion-bucket-1.s3.us-east-1.amazonaws.com/renders/render_provider_1/out.mp4",
+      sourceOutputSize: 44_583_988,
+      now,
+      availableAt: new Date(now.getTime() - 1),
+    })).toThrow("PROJECT_RENDER_SOURCE_CLEANUP_AVAILABLE_AT_INVALID");
+  });
+
   it("rejects tampering, insecure URLs, unsupported regions, and invalid lease state", () => {
     const original = createOutbox();
     expect(() => assertProjectRenderSourceCleanupOutboxV1({

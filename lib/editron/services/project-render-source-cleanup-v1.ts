@@ -244,6 +244,7 @@ export type ProjectRenderSourceCleanupOutboxV1 = z.infer<
 function createProjectRenderSourceCleanupOutboxFromUnsignedV1(
   unsigned: z.infer<typeof ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1>,
   now: Date,
+  availableAt: Date,
 ): ProjectRenderSourceCleanupOutboxV1 {
   const descriptorHash = projectRenderSourceCleanupDescriptorHashV1(unsigned);
   const descriptor = ProjectRenderSourceCleanupDescriptorSchemaV1.parse({
@@ -257,7 +258,7 @@ function createProjectRenderSourceCleanupOutboxFromUnsignedV1(
     descriptor,
     status: "PENDING",
     attempts: 0,
-    availableAt: now,
+    availableAt,
     createdAt: now,
     updatedAt: now,
   };
@@ -273,6 +274,17 @@ function cleanupTimeV1(nowInput: Date | undefined): Date {
   return now;
 }
 
+function cleanupAvailableAtV1(input: Date | undefined, createdAt: Date): Date {
+  const availableAt = input ?? createdAt;
+  if (
+    Number.isNaN(availableAt.getTime())
+    || availableAt.getTime() < createdAt.getTime()
+  ) {
+    throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_AVAILABLE_AT_INVALID");
+  }
+  return availableAt;
+}
+
 type ProjectRenderSourceCleanupProviderInputV1 = {
   binding: ProjectRenderSnapshotBindingV1;
   providerRenderId: string;
@@ -281,6 +293,7 @@ type ProjectRenderSourceCleanupProviderInputV1 = {
   sourceOutputUrl: string;
   sourceOutputSize: number;
   now?: Date;
+  availableAt?: Date;
 };
 
 function createUnsignedProjectRenderSourceCleanupDescriptorV1(
@@ -341,13 +354,15 @@ export function createProjectRenderSourceCleanupOutboxV1(input: {
   sourceOutputUrl: string;
   sourceOutputSize: number;
   now?: Date;
+  availableAt?: Date;
 }): ProjectRenderSourceCleanupOutboxV1 {
   const now = cleanupTimeV1(input.now);
+  const availableAt = cleanupAvailableAtV1(input.availableAt, now);
   const unsigned = createUnsignedProjectRenderSourceCleanupDescriptorV1({
     ...input,
     artifactKind: STANDARD_RENDER_ARTIFACT_KIND_V1,
   }, now);
-  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now);
+  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now, availableAt);
 }
 
 /**
@@ -371,7 +386,7 @@ export function createProjectRenderChapterChildSourceCleanupOutboxV1(input: {
     ...input,
     artifactKind: CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1,
   }, now);
-  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now);
+  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now, now);
 }
 
 export function assertProjectRenderSourceCleanupOutboxV1(
