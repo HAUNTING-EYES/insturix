@@ -11,17 +11,40 @@ const serviceMocks = vi.hoisted(() => ({
   updateOne: vi.fn(),
   getAsset: vi.fn(),
   resolveSourceBinding: vi.fn(),
+  outboxFindOne: vi.fn(),
+  outboxInsertOne: vi.fn(),
+  materializeMediaPrerequisite: vi.fn(),
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
-  COLLECTIONS: { PROJECTS: 'editron_prev.projects' },
+  COLLECTIONS: { PROJECTS: 'editron_prev.projects', MEDIA_ASSETS: 'mediaAssets' },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: serviceMocks.findOne,
-      updateOne: serviceMocks.updateOne,
-    })),
+    collection: vi.fn((name: string) => name
+      === 'editron_project_render_snapshot_invalidation_outbox_v1'
+      ? {
+          findOne: serviceMocks.outboxFindOne,
+          insertOne: serviceMocks.outboxInsertOne,
+        }
+      : {
+          findOne: serviceMocks.findOne,
+          updateOne: serviceMocks.updateOne,
+        }),
   })),
   connectToDatabase: vi.fn(),
+}));
+
+vi.mock('@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1', () => ({
+  loadProjectWholeStateMediaPrerequisiteByLinkV1: vi.fn(),
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    serviceMocks.materializeMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: 'MATERIALIZED',
+    collection: 'editron_project_whole_state_media_prerequisites_v1',
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
@@ -51,6 +74,15 @@ describe('ProjectService video speed-ramp writer V1', () => {
     serviceMocks.updateOne.mockReset();
     serviceMocks.getAsset.mockReset();
     serviceMocks.resolveSourceBinding.mockReset();
+    serviceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
+    serviceMocks.outboxInsertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    serviceMocks.materializeMediaPrerequisite.mockReset().mockImplementation(async (input) => ({
+      ...input,
+      mediaEntries: input.overlays.map((overlay: { id: number }) => ({ overlayId: overlay.id })),
+      candidateMediaSetSha256: 'e'.repeat(64),
+      candidateMediaContentSha256: 'f'.repeat(64),
+      receiptSha256: 'a'.repeat(64),
+    }));
     serviceMocks.getAsset.mockResolvedValue({ assetId: 'asset-1', type: 'video' });
     serviceMocks.resolveSourceBinding.mockReturnValue(binding());
   });
@@ -102,8 +134,107 @@ describe('ProjectService video speed-ramp writer V1', () => {
         sourceTimeTransform: result.sourceTimeTransform,
         beforeProjectRevision: revision(16),
         afterProjectRevision: result.mutationReceipt.revision,
+        downstreamInvalidation: expect.objectContaining({
+          status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+        }),
+        wholeStateMediaPrerequisite: expect.objectContaining({
+          status: 'MATERIALIZED',
+          mediaEntryCount: 1,
+        }),
       }),
     ]);
+    expect(serviceMocks.materializeMediaPrerequisite.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'APPLY_VIDEO_SPEED_RAMP',
+      projectRevision: revision(16),
+      overlays: [expect.objectContaining({ id: 17 })],
+    });
+    expect(serviceMocks.materializeMediaPrerequisite.mock.invocationCallOrder[0]).toBeLessThan(
+      serviceMocks.outboxInsertOne.mock.invocationCallOrder[0],
+    );
+    expect(serviceMocks.outboxInsertOne.mock.invocationCallOrder[0]).toBeLessThan(
+      serviceMocks.updateOne.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('rejects Director and overlapping timeline locks before source or evidence work', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T03:05:00.000Z'));
+    try {
+      serviceMocks.findOne.mockResolvedValueOnce(projectAtRevision(16, {}, undefined, {
+        directorLock: true,
+        directorLockAt: new Date('2026-09-02T03:04:00.000Z'),
+      }));
+      const { projectService } = await import('@/lib/editron/services/project-service');
+
+      await expect(projectService.applyVideoSpeedRampV1(
+        'user-1',
+        'project-1',
+        speedRampCommand(),
+      )).rejects.toMatchObject({ code: 'PROJECT_REVISION_CONFLICT' });
+
+      serviceMocks.findOne.mockResolvedValueOnce(projectAtRevision(16, {}, undefined, {
+        timelineRangeCutLocks: [{
+          schemaVersion: 1,
+          lockId: 'timeline-cut-lock_speedrampoverlap01',
+          actorKind: 'USER',
+          frameRange: { startFrame: 100, endFrame: 120 },
+          acquiredAt: '2026-09-02T03:00:00.000Z',
+          expiresAt: '2026-09-02T03:10:00.000Z',
+        }],
+      }));
+      await expect(projectService.applyVideoSpeedRampV1(
+        'user-1',
+        'project-1',
+        speedRampCommand(),
+      )).rejects.toMatchObject({
+        code: 'PROJECT_TIMELINE_RANGE_LOCKED',
+        blockingLockIds: ['timeline-cut-lock_speedrampoverlap01'],
+      });
+
+      expect(serviceMocks.getAsset).not.toHaveBeenCalled();
+      expect(serviceMocks.materializeMediaPrerequisite).not.toHaveBeenCalled();
+      expect(serviceMocks.outboxInsertOne).not.toHaveBeenCalled();
+      expect(serviceMocks.updateOne).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('blocks both retime writers before invalidation or CAS when media evidence fails', async () => {
+    serviceMocks.findOne.mockResolvedValueOnce(projectAtRevision(16));
+    serviceMocks.materializeMediaPrerequisite.mockRejectedValueOnce(
+      new Error('PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING'),
+    );
+    const { projectService } = await import('@/lib/editron/services/project-service');
+
+    const speedRampAttempt = await projectService.captureMutationReceipts(async () => {
+      await expect(projectService.applyVideoSpeedRampV1(
+        'user-1',
+        'project-1',
+        speedRampCommand(),
+      )).rejects.toThrow('PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING');
+    });
+    expect(speedRampAttempt.receipts).toEqual([]);
+
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16));
+    serviceMocks.materializeMediaPrerequisite.mockRejectedValueOnce(
+      new Error('PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING'),
+    );
+    const sourceRangeAttempt = await projectService.captureMutationReceipts(async () => {
+      await expect(projectService.applyVideoSourceRangeRetimeV1(
+        'user-1',
+        'project-1',
+        {
+          expectedRevision: revision(16),
+          actorKind: 'AGENT',
+          overlayId: 17,
+          playbackRate: 2,
+        },
+      )).rejects.toThrow('PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING');
+    });
+    expect(sourceRangeAttempt.receipts).toEqual([]);
+    expect(serviceMocks.outboxInsertOne).not.toHaveBeenCalled();
+    expect(serviceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('safe-stops before writing when terminal source timing or handles are unavailable', async () => {
@@ -321,7 +452,33 @@ describe('ProjectService video speed-ramp writer V1', () => {
         shiftedAfterFrameRange: { startFrame: 60, endFrame: 180 },
         deltaFrames: -60,
       },
+      downstreamInvalidation: {
+        status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+        affectedFrameRangesBefore: [{ startFrame: 0, endFrame: 240 }],
+        projectRenderSnapshotInvalidation: {
+          beforeRevision: { value: 16 },
+          afterRevision: { value: 17 },
+        },
+      },
+      wholeStateMediaPrerequisite: {
+        status: 'MATERIALIZED',
+        mediaEntryCount: 2,
+      },
     });
+    expect(serviceMocks.materializeMediaPrerequisite.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'RETIME_VIDEO_SOURCE_RANGE',
+      projectRevision: revision(16),
+      overlays: [
+        expect.objectContaining({ id: 17 }),
+        expect.objectContaining({ id: 18 }),
+      ],
+    });
+    expect(serviceMocks.materializeMediaPrerequisite.mock.invocationCallOrder[0]).toBeLessThan(
+      serviceMocks.outboxInsertOne.mock.invocationCallOrder[0],
+    );
+    expect(serviceMocks.outboxInsertOne.mock.invocationCallOrder[0]).toBeLessThan(
+      serviceMocks.updateOne.mock.invocationCallOrder[0],
+    );
   });
 
   it('safe-stops source-range retime on overlap and unsupported source rates', async () => {

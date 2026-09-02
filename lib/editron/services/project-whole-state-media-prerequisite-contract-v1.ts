@@ -77,6 +77,8 @@ const materialSchema = z.object({
     'ADD_OVERLAY',
     'UPDATE_OVERLAY',
     'CUT_TIMELINE_RANGE',
+    'APPLY_VIDEO_SPEED_RAMP',
+    'RETIME_VIDEO_SOURCE_RANGE',
   ]),
   projectId: identifier,
   userId: identifier,

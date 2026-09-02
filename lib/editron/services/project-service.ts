@@ -1969,7 +1969,7 @@ export interface Project {
   autoEditAnalysisRunV1?: ProjectAnalysisRunV1;
   /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
   qualityWarnings?: unknown[];
-  /** Bounded cut-specific coordination leases; no other command honors them yet. */
+  /** Bounded timeline-write coordination leases honored by range-aware mutation owners. */
   timelineRangeCutLocks?: ProjectTimelineRangeCutLockV1[];
   lastAutosaveAt?: Date;
   // Organization support
@@ -8453,7 +8453,9 @@ export class ProjectService {
       | "ADD_OVERLAY"
       | "UPDATE_OVERLAY"
       | "DELETE_OVERLAY"
-      | "CUT_TIMELINE_RANGE";
+      | "CUT_TIMELINE_RANGE"
+      | "APPLY_VIDEO_SPEED_RAMP"
+      | "RETIME_VIDEO_SOURCE_RANGE";
     beforeRevision: ProjectRevisionV1;
     afterRevision: ProjectRevisionV1;
     committedAt: Date;
@@ -11034,13 +11036,26 @@ export class ProjectService {
         projection: {
           overlays: 1,
           fps: 1,
+          userId: 1,
+          orgId: 1,
           projectRevision: 1,
           updatedAt: 1,
+          timelineRangeCutLocks: 1,
+          directorLock: 1,
+          directorLockAt: 1,
         },
       },
     )) as unknown as Pick<
       Project,
-      "overlays" | "fps" | "projectRevision" | "updatedAt"
+      | "overlays"
+      | "fps"
+      | "userId"
+      | "orgId"
+      | "projectRevision"
+      | "updatedAt"
+      | "timelineRangeCutLocks"
+      | "directorLock"
+      | "directorLockAt"
     > | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
     const currentRevision = projectRevisionFor(project);
@@ -11054,6 +11069,32 @@ export class ProjectService {
     if (!currentOverlay || currentOverlay.type !== "video") {
       throw new ProjectMutationWriteError(
         `Video overlay ${input.overlayId} was not found in project ${projectId}.`,
+      );
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before applying the speed ramp.",
+      );
+    }
+    const affectedFrameRange = overlayTimelineFrameRangeV1(currentOverlay);
+    if (!affectedFrameRange) {
+      throw new ProjectMutationWriteError(
+        "A video speed ramp requires one exact positive project-frame range.",
+      );
+    }
+    const activeOverlappingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      affectedFrameRange,
+    ));
+    if (activeOverlappingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        activeOverlappingLocks.map((lock) => lock.lockId),
+        "An active timeline range lock overlaps the video speed ramp.",
       );
     }
     const assetId = (currentOverlay as { assetId?: unknown }).assetId;
@@ -11148,6 +11189,27 @@ export class ProjectService {
         reason: "verified video retime persisted through ProjectService",
       },
     );
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "APPLY_VIDEO_SPEED_RAMP",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: [updatedOverlay],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "APPLY_VIDEO_SPEED_RAMP",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-video-retime_${nanoid(18)}`,
       projectId,
@@ -11160,6 +11222,9 @@ export class ProjectService {
       beforeOverlay: currentOverlay,
       afterOverlay: updatedOverlay,
       sourceTimeTransform,
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -11394,6 +11459,39 @@ export class ProjectService {
       startFrame: retime.effect.beforeTimelineRange.startFrame,
       endFrame: retime.effect.beforeProjectDurationInFrames,
     };
+    const persistedOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(retime.overlays),
+      "project-service-video-source-range-retime-v1",
+    );
+    const affectedPostRetimeOverlays = persistedOverlays.filter((overlay) => (
+      retime.effect.affectedOverlayIds.includes(overlay.id)
+    ));
+    if (affectedPostRetimeOverlays.length !== retime.effect.affectedOverlayIds.length) {
+      throw new ProjectMutationWriteError(
+        "Source-range retime media admission lost an affected overlay identity.",
+      );
+    }
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "RETIME_VIDEO_SOURCE_RANGE",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: affectedPostRetimeOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "RETIME_VIDEO_SOURCE_RANGE",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
       schemaVersion: 1,
       receiptId: `timeline-video-source-retime_${nanoid(18)}`,
@@ -11432,14 +11530,13 @@ export class ProjectService {
         deltaFrames: retime.effect.deltaFrames,
       },
       downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
         affectedFrameRangesBefore: [writeRangeBefore],
+        projectRenderSnapshotInvalidation,
       },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     };
-    const persistedOverlays = stampPersistedOverlays(
-      assetResolver.stripUrlsForLLM(retime.overlays),
-      "project-service-video-source-range-retime-v1",
-    );
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,

@@ -80,8 +80,14 @@ describe('project whole-state media prerequisite V1', () => {
     expect(assertProjectWholeStateMediaPrerequisiteReceiptV1(receipt)).toEqual(receipt);
   });
 
-  it('seals operation-specific direct add and update scopes', async () => {
-    for (const operation of ['ADD_OVERLAY', 'UPDATE_OVERLAY'] as const) {
+  it('seals operation-specific direct and retime scopes', async () => {
+    for (const operation of [
+      'ADD_OVERLAY',
+      'UPDATE_OVERLAY',
+      'CUT_TIMELINE_RANGE',
+      'APPLY_VIDEO_SPEED_RAMP',
+      'RETIME_VIDEO_SOURCE_RANGE',
+    ] as const) {
       const receipt = await issueProjectWholeStateMediaPrerequisiteV1({
         ...SCOPE,
         operation,
