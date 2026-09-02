@@ -39,6 +39,10 @@ import {
   assertCap2CurrentTruthSourcesMatchV15,
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v15';
+import {
+  assertCap2CurrentTruthSourcesMatchV16,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v16';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -88,7 +92,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves historical bindings while V15 owns current source verification', () => {
+  it('preserves historical bindings while V16 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
@@ -143,7 +147,16 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       normalizedSourceSnapshotHash:
         CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.sourceBinding.normalizedSourceSnapshotHash,
     });
-    expect(() => assertCap2CurrentTruthSourcesMatchV15()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV15()).toThrow(
+      'CAP-2 v15 live Queue 5 source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V16.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV16()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
