@@ -17831,3 +17831,64 @@ environment is source-qualified, then resume the unfinished Queue 3-4 media
 chain. Queue 3-4 work may be parallelized, but no subagents are to be created.
 Queue 6 and agency vertical certification remain serial unless the founder
 explicitly authorizes further parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 5J source-qualified live proof checkpoint
+
+Commits `0e01e1e7f` and `51c92fe44` are pushed on
+`infrastructure-improvs-+Editron`. The authorized source-qualified live proof
+is frozen in
+`docs/editron/open-ended-editing/stage25-queue5-source-qualified-atlas-live-proof-v1-receipt.json`.
+
+The live fixture generated a playable one-second H.264 MP4, uploaded it to a
+random GCS object, downloaded and byte-hashed the exact object, observed its
+provider generation and issued an immutable media source version. It inserted
+only random temporary Atlas records, migrated an explicit current user rights
+attestation into the source-rights ledger, then called the real
+`ProjectService.updateOverlayAtRevisionV1` owner. The owner advanced revision
+1 to 2 only after materializing the exact whole-state media prerequisite and
+its project-render invalidation; the worker materialized that invalidation.
+
+The same fixture then called the real revision-fenced project-deletion owner.
+The transaction removed the exact project, wrote its authenticated tombstone,
+preserved its reusable source media before fixture cleanup and allowed the
+invalidation worker to materialize deletion cleanup from that tombstone. The
+fixture finally removed and verified absence of every exact temporary Atlas
+record and the exact GCS object. The frozen receipt is `PASS` with receipt hash
+`e69691391ba2d902d95aafbde83274b7404181f8cda572aa5a831a34d689e58e`.
+
+The first live attempts exposed two production integration defects that local
+fixtures had missed. Atomic overlay receipts contain legitimate absent
+optional object fields, while strict canonical hashing rejected those
+transient JavaScript `undefined` values before Mongo persistence. The fix adds
+a separate persisted-document hash boundary that omits only absent object
+properties, retains the strict canonical owner for all ordinary receipts and
+still rejects ambiguous undefined array elements. The second defect allowed a
+full source-rights authorization object to flow structurally into the smaller
+strict prerequisite-rights slot. The owner now allowlists only its four public
+evidence fields; authority, scope and source details cannot leak into the
+downstream receipt.
+
+The focused regression gates passed 77/77 and then 81/81 tests. Full 8-GB
+TypeScript, full-repository quiet ESLint and `git diff --check` passed before
+each pushed fix. No customer project, provider/model inference, wallet state or
+historical paid-cohort result was touched.
+
+This closes the currently available source-qualified Atlas/GCS proof for the
+locally implemented Queue 5 owners. It does **not** establish universal
+production mutation safety while the two Queue 3-4 source dependencies remain
+open: proxy/master active-source cutover and complete analysis-native-audio
+evidence. It also does not prove deployed index/cron operation, private R2
+exact PUT/GET/DELETE, live provider-source deletion or genuine legacy unbound
+row reconstruction/retirement. Those stay explicit Queue 3-4 blockers.
+
+Queue 5 is therefore
+`LOCAL_IMPLEMENTATION_AND_MECHANICS_COVERED / SOURCE_QUALIFIED_ATLAS_GCS_PROOF_PASSING / QUEUE_3_4_DEPENDENCIES_OPEN`.
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No agency-class certification, successor
+readiness receipt or `GO` is claimed.
+
+The next work is the unfinished Queue 3-4 media chain. Work inside Queues 3 and
+4 may be parallelized, but no subagents are to be created. Queue 5 follow-up,
+Queue 6 and agency vertical certification remain serial unless the founder
+explicitly authorizes further parallel execution. Human-only review remains
+deferred to the end of the authorized technical queue.
