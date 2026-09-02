@@ -245,6 +245,16 @@ export async function initializeIndexes(): Promise<void> {
       },
       name: 'project_render_snapshot_cleanup_recovery_v1',
     },
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderLifecycleMigration.schemaVersion': 1,
+        status: 1,
+        startedAt: 1,
+        _id: 1,
+      },
+      name: 'project_render_lifecycle_migration_candidates_v1',
+    },
   ]);
 
   await db.collection(PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1).createIndexes([
