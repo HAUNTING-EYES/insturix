@@ -24,6 +24,7 @@ import {
   type Project,
   type ProjectProxySourceBindingCommandV1,
   type ProjectRevisionV1,
+  type ProjectTimelineRangeCutLockV1,
 } from '@/lib/editron/services/project-service';
 import { buildVerifiedProxySourceV3FixtureV1 }
   from './helpers/verified-proxy-source-v3-fixture';
@@ -33,7 +34,10 @@ const persistence = vi.hoisted(() => ({
   collection: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  loadPrerequisite: vi.fn(),
+  materializePrerequisite: vi.fn(),
   outboxFindOne: vi.fn(),
+  prerequisiteLink: vi.fn(),
   projectFindOne: vi.fn(),
   projectUpdateOne: vi.fn(),
 }));
@@ -52,6 +56,16 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
     stripUrlsForLLM: vi.fn((overlays) => overlays),
   },
 }));
+vi.mock(
+  '@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1',
+  () => ({
+    loadProjectWholeStateMediaPrerequisiteByLinkV1:
+      persistence.loadPrerequisite,
+    materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+      persistence.materializePrerequisite,
+    projectWholeStateMediaPrerequisiteLinkV1: persistence.prerequisiteLink,
+  }),
+);
 vi.mock('@/lib/services/orgMemberService', () => ({
   orgMemberService: { isMember: vi.fn() },
 }));
@@ -67,6 +81,14 @@ const REVISION: ProjectRevisionV1 = {
   schemaVersion: 1,
   value: 4,
   compatibilityUpdatedAt: '2026-08-31T09:04:00.000Z',
+};
+const PREREQUISITE_LINK = {
+  status: 'MATERIALIZED' as const,
+  collection: 'editron_project_whole_state_media_prerequisites_v1' as const,
+  receiptSha256: 'a'.repeat(64),
+  candidateMediaSetSha256: 'b'.repeat(64),
+  candidateMediaContentSha256: 'c'.repeat(64),
+  mediaEntryCount: 2,
 };
 
 type VerifiedFixtureV1 = Awaited<
@@ -101,7 +123,12 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
     persistence.collection.mockReset();
     persistence.getDatabase.mockReset();
     persistence.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistence.loadPrerequisite.mockReset();
+    persistence.materializePrerequisite.mockReset().mockResolvedValue({
+      receiptSha256: PREREQUISITE_LINK.receiptSha256,
+    });
     persistence.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistence.prerequisiteLink.mockReset().mockReturnValue(PREREQUISITE_LINK);
     persistence.projectFindOne.mockReset();
     persistence.projectUpdateOne.mockReset();
     persistence.projectUpdateOne.mockResolvedValue({
@@ -228,6 +255,29 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
     expect(update.$set.proxySourceBindingsV1).toEqual([
       captured.value.commitReceipt.binding,
     ]);
+    expect(persistence.materializePrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'BIND_PROXY_SOURCE',
+        projectRevision: REVISION,
+        overlays: update.$set.overlays,
+      }),
+      expect.anything(),
+      'mediaAssets',
+    );
+    const timelineReceipt = update.$push.timelineRangeChangeReceipts.$each[0];
+    expect(timelineReceipt).toMatchObject({
+      operation: 'BIND_PROXY_SOURCE',
+      beforeProjectRevision: REVISION,
+      afterProjectRevision: { value: 5 },
+      downstreamInvalidation: {
+        status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+      },
+      wholeStateMediaPrerequisite: PREREQUISITE_LINK,
+    });
+    expect(persistence.materializePrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistence.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.projectUpdateOne.mock.invocationCallOrder[0]!);
   });
 
   it('returns the original binding receipt on idempotent redelivery', async () => {
@@ -249,6 +299,8 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       updatedAt: committedSet.updatedAt,
     });
     persistence.projectUpdateOne.mockClear();
+    persistence.insertOne.mockClear();
+    persistence.materializePrerequisite.mockClear();
 
     const replay = await projectService.bindProjectOverlaysToVerifiedProxySourceV1(
       fixture.userId,
@@ -265,6 +317,8 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       },
     });
     expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+    expect(persistence.insertOne).not.toHaveBeenCalled();
+    expect(persistence.materializePrerequisite).not.toHaveBeenCalled();
   });
 
   it('blocks stale revisions and an active Director writer lease', async () => {
@@ -289,6 +343,37 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       PROJECT_ID,
       command(),
     )).rejects.toMatchObject({ code: 'PROJECT_REVISION_CONFLICT' });
+    expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('blocks an active range lock before durable prerequisite publication', async () => {
+    useStablePersistence(project({ timelineRangeCutLocks: [activeLock()] }));
+
+    await expect(projectService.bindProjectOverlaysToVerifiedProxySourceV1(
+      fixture.userId,
+      PROJECT_ID,
+      command(),
+    )).rejects.toMatchObject({
+      code: 'PROJECT_TIMELINE_RANGE_LOCKED',
+      blockingLockIds: ['timeline-cut-lock_123456789012345678'],
+    });
+    expect(persistence.materializePrerequisite).not.toHaveBeenCalled();
+    expect(persistence.insertOne).not.toHaveBeenCalled();
+    expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('blocks the project CAS when render invalidation cannot be enqueued', async () => {
+    useStablePersistence(project());
+    persistence.insertOne.mockRejectedValueOnce(
+      new Error('TEST_INVALIDATION_OUTBOX_UNAVAILABLE'),
+    );
+
+    await expect(projectService.bindProjectOverlaysToVerifiedProxySourceV1(
+      fixture.userId,
+      PROJECT_ID,
+      command(),
+    )).rejects.toBeInstanceOf(ProjectMutationWriteError);
+    expect(persistence.materializePrerequisite).toHaveBeenCalledOnce();
     expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
   });
 
@@ -371,6 +456,7 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
 
     persistence.projectFindOne.mockResolvedValue(project());
     persistence.projectUpdateOne.mockClear();
+    persistence.insertOne.mockClear();
     persistence.assetFindOne
       .mockReset()
       .mockResolvedValueOnce(structuredClone(fixture.asset))
@@ -425,6 +511,7 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       structuredClone(storedProject),
     );
     persistence.projectUpdateOne.mockClear();
+    persistence.insertOne.mockClear();
     await projectService.saveProjectWithReceipt(
       fixture.userId,
       PROJECT_ID,
@@ -540,5 +627,16 @@ function clip(
     rotation: 0,
     isDragging: false,
     styles: { opacity: 1 },
+  };
+}
+
+function activeLock(): ProjectTimelineRangeCutLockV1 {
+  return {
+    schemaVersion: 1,
+    lockId: 'timeline-cut-lock_123456789012345678',
+    actorKind: 'AGENT',
+    frameRange: { startFrame: 1, endFrame: 3 },
+    acquiredAt: '2026-08-31T09:04:30.000Z',
+    expiresAt: '2026-08-31T09:06:00.000Z',
   };
 }

@@ -395,6 +395,8 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "COMMIT_PIPELINE_AUDIO_DELIVERY"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
+  | "BIND_PROXY_SOURCE"
+  | "RELINK_PROXY_TO_MASTER"
   | "DELETE_OVERLAY"
   | "REPLACE_PIPELINE_VIDEO_DELIVERY"
   | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -4112,6 +4114,11 @@ export class ProjectService {
     })) as Project | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
     const currentRevision = projectRevisionFor(project);
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Proxy source binding requires a supported project frame rate.",
+      );
+    }
     const block = (
       reason: ProjectProxySourceBindingBlockReasonV1,
       message?: string,
@@ -4262,6 +4269,21 @@ export class ProjectService {
         "The project is locked by an active Director mutation. Reload before retrying.",
       );
     }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => overlays.some((overlay) =>
+      frameRangesOverlapHalfOpenV1(lock.frameRange, {
+        startFrame: overlay.timelineStartFrame,
+        endFrame: overlay.timelineEndFrameExclusive,
+      })));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the proxy source binding.",
+      );
+    }
 
     const preCommitAssetEvidence = await loadAssetEvidence();
     if (!sameProjectProxySourceBindingAssetEvidenceV1(
@@ -4328,6 +4350,48 @@ export class ProjectService {
         issuedAt: committedAt,
       }),
     );
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "BIND_PROXY_SOURCE",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: persistedOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "BIND_PROXY_SOURCE",
+        beforeRevision: currentRevision,
+        afterRevision: mutationReceipt.revision,
+        committedAt,
+        db,
+      });
+    const targetOverlayIds = new Set(binding.overlays.map(({ overlayId }) => overlayId));
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-proxy-source-binding_${nanoid(18)}`,
+      projectId,
+      operation: "BIND_PROXY_SOURCE",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: mutationReceipt.revision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: project.overlays.filter(({ id }) => targetOverlayIds.has(id)),
+      afterOverlays: persistedOverlays.filter(({ id }) => targetOverlayIds.has(id)),
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
+      changedPaths: [
+        "overlays",
+        "proxySourceBindingsV1",
+        "timelineRangeChangeReceipts",
+      ],
+    });
     const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -4340,6 +4404,12 @@ export class ProjectService {
           proxySourceBindingsV1: nextBindings,
           updatedAt: committedAt,
         },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as any,
         $inc: { projectRevision: 1 },
       },
     );
@@ -4412,6 +4482,11 @@ export class ProjectService {
     })) as Project | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
     const currentRevision = projectRevisionFor(project);
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Proxy/master relink requires a supported project frame rate.",
+      );
+    }
     const block = (
       reason: ProjectProxyMasterRelinkBlockReasonV1,
       message?: string,
@@ -4665,6 +4740,60 @@ export class ProjectService {
         issuedAt: committedAt,
       }),
     );
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: currentRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "RELINK_PROXY_TO_MASTER",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: persistedOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "RELINK_PROXY_TO_MASTER",
+        beforeRevision: currentRevision,
+        afterRevision: mutationReceipt.revision,
+        committedAt,
+        db,
+      });
+    const targetOverlayIds = new Set(
+      relinkState.overlayChanges.map(({ overlayId }) => overlayId),
+    );
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-proxy-master-relink_${nanoid(18)}`,
+      projectId,
+      operation: "RELINK_PROXY_TO_MASTER",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: mutationReceipt.revision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: project.overlays.filter(({ id }) => targetOverlayIds.has(id)),
+      afterOverlays: persistedOverlays.filter(({ id }) => targetOverlayIds.has(id)),
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
+      changedPaths: [
+        "overlays",
+        "proxyMasterRelinkStatesV1",
+        "timelineRangeChangeReceipts",
+      ],
+    });
     const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -4677,6 +4806,12 @@ export class ProjectService {
           proxyMasterRelinkStatesV1: nextRelinkStates,
           updatedAt: committedAt,
         },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as any,
         $inc: { projectRevision: 1 },
       },
     );
@@ -4687,16 +4822,6 @@ export class ProjectService {
     }
     if (update.modifiedCount !== 1) throw new ProjectMutationWriteError();
 
-    const mutationReceipt: ProjectMutationReceiptV1 = {
-      schemaVersion: 1,
-      projectId,
-      revision: {
-        schemaVersion: 1,
-        value: currentRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
-      committedAt: committedAt.toISOString(),
-    };
     const commitReceipt = createProjectProxyMasterRelinkCommitReceiptV1({
       state: relinkState,
       activeMappingState: initialAssetEvidence.activeMappingState,
@@ -8685,6 +8810,8 @@ export class ProjectService {
       | "COMMIT_ANALYSIS_NATIVE_AUDIO_EVIDENCE"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
+      | "BIND_PROXY_SOURCE"
+      | "RELINK_PROXY_TO_MASTER"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
       | "RECONCILE_PROJECT_DURATION"
       | "DELETE_PROJECT";
@@ -18230,6 +18357,8 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     | "ALIGN_CUTS_TO_BEATS"
     | "COMMIT_MG_RENDER_DELIVERY"
     | "COMMIT_PIPELINE_AUDIO_DELIVERY"
+    | "BIND_PROXY_SOURCE"
+    | "RELINK_PROXY_TO_MASTER"
     | "REPLACE_EDITOR_STATE"
     | "RESTORE_CHECKPOINT_STATE";
   actorKind: ProjectTimelineMutationActorKindV1;

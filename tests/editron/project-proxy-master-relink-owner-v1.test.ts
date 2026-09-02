@@ -46,6 +46,11 @@ const persistence = vi.hoisted(() => ({
   assetFindOne: vi.fn(),
   collection: vi.fn(),
   getDatabase: vi.fn(),
+  insertOne: vi.fn(),
+  loadPrerequisite: vi.fn(),
+  materializePrerequisite: vi.fn(),
+  outboxFindOne: vi.fn(),
+  prerequisiteLink: vi.fn(),
   projectFindOne: vi.fn(),
   projectUpdateOne: vi.fn(),
 }));
@@ -64,6 +69,16 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
     stripUrlsForLLM: vi.fn((overlays) => overlays),
   },
 }));
+vi.mock(
+  '@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1',
+  () => ({
+    loadProjectWholeStateMediaPrerequisiteByLinkV1:
+      persistence.loadPrerequisite,
+    materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+      persistence.materializePrerequisite,
+    projectWholeStateMediaPrerequisiteLinkV1: persistence.prerequisiteLink,
+  }),
+);
 vi.mock('@/lib/services/orgMemberService', () => ({
   orgMemberService: { isMember: vi.fn() },
 }));
@@ -79,6 +94,14 @@ const REVISION: ProjectRevisionV1 = {
   schemaVersion: 1,
   value: 7,
   compatibilityUpdatedAt: '2026-08-31T10:04:30.000Z',
+};
+const PREREQUISITE_LINK = {
+  status: 'MATERIALIZED' as const,
+  collection: 'editron_project_whole_state_media_prerequisites_v1' as const,
+  receiptSha256: 'a'.repeat(64),
+  candidateMediaSetSha256: 'b'.repeat(64),
+  candidateMediaContentSha256: 'c'.repeat(64),
+  mediaEntryCount: 2,
 };
 
 let fixture: MediaProxyMasterExactBoundaryFixtureV1;
@@ -124,6 +147,13 @@ describe('ProjectService proxy/master relink owner V1', () => {
     persistence.assetFindOne.mockReset();
     persistence.collection.mockReset();
     persistence.getDatabase.mockReset();
+    persistence.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistence.loadPrerequisite.mockReset();
+    persistence.materializePrerequisite.mockReset().mockResolvedValue({
+      receiptSha256: PREREQUISITE_LINK.receiptSha256,
+    });
+    persistence.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistence.prerequisiteLink.mockReset().mockReturnValue(PREREQUISITE_LINK);
     persistence.projectFindOne.mockReset();
     persistence.projectUpdateOne.mockReset();
     persistence.projectUpdateOne.mockResolvedValue({
@@ -133,6 +163,12 @@ describe('ProjectService proxy/master relink owner V1', () => {
     persistence.collection.mockImplementation((name: string) => {
       if (name === 'mediaAssets') {
         return { findOne: persistence.assetFindOne };
+      }
+      if (name === 'editron_project_render_snapshot_invalidation_outbox_v1') {
+        return {
+          findOne: persistence.outboxFindOne,
+          insertOne: persistence.insertOne,
+        };
       }
       return {
         findOne: persistence.projectFindOne,
@@ -252,6 +288,29 @@ describe('ProjectService proxy/master relink owner V1', () => {
     expect(update.$set.proxyMasterRelinkStatesV1).toEqual([
       captured.value.commitReceipt.state,
     ]);
+    expect(persistence.materializePrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'RELINK_PROXY_TO_MASTER',
+        projectRevision: REVISION,
+        overlays: update.$set.overlays,
+      }),
+      expect.anything(),
+      'mediaAssets',
+    );
+    const timelineReceipt = update.$push.timelineRangeChangeReceipts.$each[0];
+    expect(timelineReceipt).toMatchObject({
+      operation: 'RELINK_PROXY_TO_MASTER',
+      beforeProjectRevision: REVISION,
+      afterProjectRevision: { value: 8 },
+      downstreamInvalidation: {
+        status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+      },
+      wholeStateMediaPrerequisite: PREREQUISITE_LINK,
+    });
+    expect(persistence.materializePrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistence.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.projectUpdateOne.mock.invocationCallOrder[0]!);
   });
 
   it('returns the original receipt on idempotent redelivery without another write', async () => {
@@ -273,6 +332,8 @@ describe('ProjectService proxy/master relink owner V1', () => {
       updatedAt: committedSet.updatedAt,
     });
     persistence.projectUpdateOne.mockClear();
+    persistence.insertOne.mockClear();
+    persistence.materializePrerequisite.mockClear();
 
     const replay = await projectService.relinkProjectProxyToQualifiedMasterV1(
       userId,
@@ -285,6 +346,8 @@ describe('ProjectService proxy/master relink owner V1', () => {
       commitReceipt: first.commitReceipt,
     });
     expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+    expect(persistence.insertOne).not.toHaveBeenCalled();
+    expect(persistence.materializePrerequisite).not.toHaveBeenCalled();
   });
 
   it('blocks stale project revisions before the project CAS', async () => {
@@ -406,6 +469,21 @@ describe('ProjectService proxy/master relink owner V1', () => {
       }));
 
     await expectRelinkBlock('ASSET_CHANGED_BEFORE_COMMIT');
+    expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('blocks the relink CAS when render invalidation cannot be enqueued', async () => {
+    useStablePersistence(project());
+    persistence.insertOne.mockRejectedValueOnce(
+      new Error('TEST_INVALIDATION_OUTBOX_UNAVAILABLE'),
+    );
+
+    await expect(projectService.relinkProjectProxyToQualifiedMasterV1(
+      userId,
+      PROJECT_ID,
+      command(),
+    )).rejects.toBeInstanceOf(ProjectMutationWriteError);
+    expect(persistence.materializePrerequisite).toHaveBeenCalledOnce();
     expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
   });
 
