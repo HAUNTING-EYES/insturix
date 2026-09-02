@@ -85,6 +85,7 @@ const ProjectModel = mongoose.models.VibeProject ?? mongoose.model("VibeProject"
 const EventModel = mongoose.models.VibeConversationEvent ?? mongoose.model("VibeConversationEvent", EventSchema);
 const SeqModel = mongoose.models.VibeConversationSeq ?? mongoose.model("VibeConversationSeq", SeqSchema);
 const OperationModel = mongoose.models.VibeOperation ?? mongoose.model("VibeOperation", OperationSchema);
+export { ProjectModel, OperationModel }; // status.ts computes labels from real records (plan §6)
 
 /* cached connection, clickatron-mongo pattern under our own global key */
 type Cache = { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null };
@@ -136,6 +137,7 @@ export async function getOrCreateProject(input: {
   brandId: string | null;
   title: string;
 }): Promise<SpineProject> {
+  await connectSpine();
   const projectId = input.projectId ?? `proj_${crypto.randomUUID()}`;
   const doc = (await ProjectModel.findByIdAndUpdate(
     projectId,
@@ -146,6 +148,7 @@ export async function getOrCreateProject(input: {
 }
 
 export async function getProject(projectId: string): Promise<SpineProject | null> {
+  await connectSpine();
   const doc = (await ProjectModel.findById(projectId).lean()) as unknown as ProjectLean | null;
   if (!doc) return null;
   return toSpineProject(doc);
@@ -185,6 +188,7 @@ export async function appendTurnEvent(
 /** One-shot import claim (§10 conversation migration): exactly one caller
  *  wins the right to import a session's ThinkForge history — concurrent
  *  requests (turns route + events route racing) cannot duplicate it. */export async function claimTfImport(projectId: string): Promise<boolean> {
+  await connectSpine();
   const doc = await ProjectModel.findOneAndUpdate({ _id: projectId, tfImportedAt: null }, { $set: { tfImportedAt: new Date() } }, { new: true }).lean();
   return Boolean(doc);
 }
@@ -192,6 +196,7 @@ export async function appendTurnEvent(
 /** Release the claim when the import produced nothing (all writes failed) so
  *  a later attempt can retry instead of a permanently-empty history. */
 export async function releaseTfImportClaim(projectId: string): Promise<void> {
+  await connectSpine();
   await ProjectModel.updateOne({ _id: projectId }, { $set: { tfImportedAt: null } });
 }
 
@@ -204,6 +209,7 @@ export type OperationClaim =
  *  error → running (retry). Running and done claims are refused — the same
  *  request can never charge or publish twice. */
 export async function claimOperation(projectId: string, operationId: string, command: string, isConfirmResume: boolean): Promise<OperationClaim> {
+  await connectSpine();
   const existing = (await OperationModel.findById(operationId).lean()) as unknown as { state?: OperationState; projectId?: string } | null;
   if (existing && existing.projectId !== projectId) {
     return { ok: false, reason: "in_flight", state: existing.state ?? "running" }; // ids are global — a cross-project reuse is refused, not restarted
@@ -227,10 +233,12 @@ export async function markOperation(operationId: string, state: OperationState, 
   if (detail?.error !== undefined) set.error = detail.error;
   const update: Record<string, unknown> = { $set: set };
   if (detail?.turnId) update.$addToSet = { turnIds: detail.turnId };
+  await connectSpine();
   await OperationModel.findByIdAndUpdate(operationId, update).catch((error) => console.error(`[spine] markOperation(${operationId}, ${state}) failed`, error));
 }
 
 export async function listEvents(projectId: string, afterSeq: number, limit = 2000): Promise<SpineEvent[]> {
+  await connectSpine();
   const docs = await EventModel.find({ projectId, seq: { $gt: afterSeq } }).sort({ seq: 1 }).limit(limit).lean();
   return docs.map((d) => ({
     seq: d.seq as number,

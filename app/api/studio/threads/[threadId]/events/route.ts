@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
 import { connectSpine, getOrCreateProject, getProject, listEvents } from "@/lib/studio/persist/db";
+import { computeProjectStatus } from "@/lib/studio/persist/status";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
 export const runtime = "nodejs";
@@ -49,9 +50,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
     await ensureThreadBootstrapped(projectId);
-    const events = await listEvents(projectId, after);
+    const [events, status] = await Promise.all([listEvents(projectId, after), computeProjectStatus(projectId)]);
     const cursor = events.length ? events[events.length - 1].seq : after;
-    return NextResponse.json({ projectId, phase: project.phase, events, cursor });
+    return NextResponse.json({ projectId, status, events, cursor });
   } catch (error) {
     console.error("[spine] events read failed", error);
     return NextResponse.json({ error: "spine_unavailable" }, { status: 503 });
