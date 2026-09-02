@@ -513,18 +513,58 @@ export async function POST(
             linkedProjectId,
             unmaterializedPrerequisite,
           );
-          const rejectPendingAdmission = () => NextResponse.json({
-            success: false,
-            error: `Scene ${scene.sceneIndex} has a durable invalidation admission, but no consumer-enforced artifact invalidation chain exists yet.`,
-            code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
-            sceneIndex: scene.sceneIndex,
-            subShotIndex: scene.subShotIndex,
-          }, { status: 409 });
           if (admission.disposition === 'ALREADY_PENDING') {
-            return rejectPendingAdmission();
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} has an unusable legacy invalidation reservation.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+            }, { status: 409 });
           }
-          if (admission.admission.status === 'ADMITTED_ARTIFACT_CHAIN_PENDING') {
-            return rejectPendingAdmission();
+          const invalidation = await projectService.enqueuePipelineVideoArtifactInvalidationV1(
+            userId,
+            linkedProjectId,
+            admission.admission,
+          );
+          const { fenceRenderJobsForProjectArtifactInvalidationV1 } = await import(
+            '@/lib/editron/services/render-job-service'
+          );
+          const renderFences = await fenceRenderJobsForProjectArtifactInvalidationV1({
+            receipt: invalidation.outbox.receipt,
+          });
+          if (renderFences.unresolvedArtifactIds.length > 0) {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} has current render artifacts that could not be fenced.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNRESOLVED',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+              unresolvedArtifactCount: renderFences.unresolvedArtifactIds.length,
+            }, { status: 409 });
+          }
+          const progressedInvalidation =
+            await projectService.advancePipelineVideoArtifactInvalidationV1(
+              userId,
+              linkedProjectId,
+              {
+                outboxId: invalidation.outbox.outboxId,
+                receiptHash: invalidation.outbox.receipt.receiptHash,
+                fences: renderFences.fences,
+                resolvedDerivativeClasses: renderFences.resolvedDerivativeClasses,
+              },
+            );
+          const { canAuthorizeProjectArtifactInvalidationV1 } = await import(
+            '@/lib/editron/services/project-artifact-invalidation-v1'
+          );
+          if (!canAuthorizeProjectArtifactInvalidationV1(progressedInvalidation.outbox)) {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} artifact invalidation remains incomplete.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+            }, { status: 409 });
           }
           scene.projectDeliveryTarget = {
             ...resolution.target,

@@ -304,7 +304,7 @@ async function handler(request: NextRequest) {
     let projectDelivery: VideoWorkerProjectDeliveryOutcome = { status: 'NOT_REQUESTED' };
     if (payload.projectDelivery) {
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-        { assetId: result.assetId },
+        { assetId: result.assetId, userId },
         {
           $set: {
             source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',

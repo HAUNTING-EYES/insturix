@@ -62,17 +62,23 @@ describe('pipeline video project delivery target V1', () => {
 
     expect(producer).toContain('resolvePipelineVideoProjectDeliveryTargetV1');
     expect(producer).toContain('admitPipelineVideoDeliveryInvalidationV1');
-    expect(producer).toContain('ALREADY_PENDING');
-    expect(producer).toContain('ADMITTED_ARTIFACT_CHAIN_PENDING');
+    expect(producer).toContain('enqueuePipelineVideoArtifactInvalidationV1');
+    expect(producer).toContain('fenceRenderJobsForProjectArtifactInvalidationV1');
+    expect(producer).toContain('advancePipelineVideoArtifactInvalidationV1');
+    expect(producer).toContain('canAuthorizeProjectArtifactInvalidationV1');
     expect(producer).toContain('PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE');
+    expect(producer).toContain('PROJECT_DELIVERY_INVALIDATION_UNRESOLVED');
     expect(producer).toContain('linkedProjectTargetCount !== 1');
     expect(producer).toContain('PROJECT_DELIVERY_MULTIPLE_LINKED_TARGETS_UNSUPPORTED');
     expect(producer.indexOf('admitPipelineVideoDeliveryInvalidationV1'))
       .toBeLessThan(producer.indexOf("CreditsService.hasCredits"));
-    expect(producer.indexOf('ADMITTED_ARTIFACT_CHAIN_PENDING'))
+    expect(producer.indexOf('fenceRenderJobsForProjectArtifactInvalidationV1'))
+      .toBeLessThan(producer.indexOf('advancePipelineVideoArtifactInvalidationV1'));
+    expect(producer.indexOf('advancePipelineVideoArtifactInvalidationV1'))
       .toBeLessThan(producer.indexOf("CreditsService.hasCredits"));
     expect(producer).toContain('projectDelivery: projectDeliveryForScene(scene)');
     expect(worker).toContain('commitPipelineVideoDeliveryV1');
+    expect(worker).toContain('{ assetId: result.assetId, userId }');
     expect(worker).toContain("status: 'CONFLICT'");
     expect(worker).not.toMatch(/overlays\.\$\.(src|content|assetId|videoDurationMs|hasNativeAudio)/);
     expect(worker).not.toContain('storyboardBeforeVideoUpdate');
