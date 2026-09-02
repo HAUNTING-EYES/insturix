@@ -189,3 +189,14 @@ Remaining queue: #7 Brands place + Account shell (Phase 3 completion),
   read-side vault + assignments) and Account rail item. §7 place list
   complete. Phase 3 exit re-checked: no mock records in real mode.
 - Queue left: #5 (three-axis status, blocked on Phase 6 write-side).
+
+## 2026-09-03 (latest) — Phase 4 opener committed (7b15f7d6d)
+
+§17 Phase 4 first bullet: projects now stamp the EXACT accepted Brand Vault
+record they were created against (and refresh it when a later turn's §19
+authorization sees a newer record). TF imports stamp their binding version.
+Bare creation leaves the stamp null — never a guess.
+
+Next per Phase 4 order: the Vibe-native Write stage (clean editor, versions,
+selection edits, brand-context drawer) and removing the current ThinkForge
+UI from the normal path.
