@@ -383,6 +383,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "REPLACE_CAPTION_FAMILY"
   | "REPLACE_BACKGROUND_MUSIC"
   | "ALIGN_CUTS_TO_BEATS"
+  | "COMMIT_MG_RENDER_DELIVERY"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -8480,6 +8481,7 @@ export class ProjectService {
       | "REPLACE_CAPTION_FAMILY"
       | "REPLACE_BACKGROUND_MUSIC"
       | "ALIGN_CUTS_TO_BEATS"
+      | "COMMIT_MG_RENDER_DELIVERY"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -9506,10 +9508,13 @@ export class ProjectService {
   ): Promise<{
     delivered: boolean;
     receipt?: ProjectMutationReceiptV1;
+    timelineChangeReceipt?: ProjectTimelineRangeChangeReceiptV1;
   }> {
     assertProjectRevision(input.expectedRevision);
     const hasExactlyOneDeliveryOverlay = input.overlays.filter((overlay) => (
-      (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId === input.jobId
+      overlay.type === "mg-sequence"
+      && (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId
+        === input.jobId
     )).length === 1;
     const overlayIds = input.overlays.map((overlay) => String(overlay.id));
     if (
@@ -9525,7 +9530,13 @@ export class ProjectService {
       throw new ProjectMutationWriteError("MG render delivery input is invalid.");
     }
     if (input.outcome.status === "generated") {
-      if (input.overlays.length === 0 || !hasExactlyOneDeliveryOverlay || !input.outcome.sequenceId.trim()) {
+      if (
+        input.overlays.length === 0
+        || !hasExactlyOneDeliveryOverlay
+        || input.overlays.filter((overlay) => overlay.type === "mg-sequence").length !== 1
+        || input.overlays.some((overlay) => !["mg-sequence", "sound"].includes(overlay.type))
+        || !input.outcome.sequenceId.trim()
+      ) {
         throw new ProjectMutationWriteError("MG render delivery input is invalid.");
       }
     } else if (
@@ -9538,7 +9549,6 @@ export class ProjectService {
     const generated = input.outcome.status === "generated";
 
     const db = await getDatabase();
-    const committedAt = new Date();
     const persistedOverlays = input.overlays.map((overlay) => (
       ensureAtomicOverlayReceipt(overlay, {
         source: "project-service-mg-render-delivery",
@@ -9546,6 +9556,126 @@ export class ProjectService {
         reason: "generated MG delivery was attached through ProjectService",
       })
     ));
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: input.expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    let timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 | undefined;
+    if (generated) {
+      const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as (Project & {
+        intelligence?: { mgCodegenRun?: { asyncOutcomes?: Array<{ jobId?: unknown }> } };
+      }) | null;
+      if (!current) throw new ProjectNotFoundOrForbiddenError();
+      const overlayAlreadyDelivered = current.overlays?.some((overlay) => (
+        (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId
+          === input.jobId
+      )) ?? false;
+      const outcomeAlreadyDelivered = current.intelligence?.mgCodegenRun?.asyncOutcomes
+        ?.some((outcome) => outcome.jobId === input.jobId) ?? false;
+      if (overlayAlreadyDelivered !== outcomeAlreadyDelivered) {
+        throw new ProjectMutationWriteError("MG render delivery is partially persisted.");
+      }
+      if (outcomeAlreadyDelivered) return { delivered: false };
+
+      const currentRevision = projectRevisionFor(current);
+      if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+        throw new ProjectMutationConflictError(currentRevision);
+      }
+      if (!isProjectTimelineFpsV1(current.fps)
+        || !Number.isSafeInteger(current.durationInFrames)
+        || current.durationInFrames <= 0
+        || !Array.isArray(current.overlays)
+        || current.overlays.length > 100_000) {
+        throw new ProjectMutationWriteError(
+          "MG render delivery requires one exact supported project timeline.",
+        );
+      }
+      const deliveryFrameRanges = overlayFamilyFrameRangesV1(
+        persistedOverlays,
+        "MG render delivery",
+      );
+      if (deliveryFrameRanges.some((range) => range.endFrame > current.durationInFrames)) {
+        throw new ProjectMutationWriteError(
+          "MG render delivery overlays must remain inside the project duration.",
+        );
+      }
+      const currentIdentityKeys = new Set(current.overlays.map(
+        overlayIdentityKeyForFamilyReplacementV1,
+      ));
+      if (persistedOverlays.some((overlay) => (
+        currentIdentityKeys.has(overlayIdentityKeyForFamilyReplacementV1(overlay))
+      ))) {
+        throw new ProjectMutationWriteError(
+          "MG render delivery overlay identity collides with current project state.",
+        );
+      }
+      if (hasActiveDirectorMutationLeaseV1(current)) {
+        throw new ProjectMutationConflictError(
+          currentRevision,
+          "The project is locked by an active Director mutation. Reload before MG delivery.",
+        );
+      }
+      const blockingLocks = activeTimelineRangeCutLocksV1(
+        readTimelineRangeCutLocksV1(current),
+        committedAt,
+      ).filter((lock) => deliveryFrameRanges.some((frameRange) => (
+        frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+      )));
+      if (blockingLocks.length > 0) {
+        throw new ProjectTimelineRangeCutLockConflictError(
+          currentRevision,
+          [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+          "An active timeline range lock overlaps the MG render delivery.",
+        );
+      }
+
+      const wholeStateMediaPrerequisite =
+        await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+          operation: "COMMIT_MG_RENDER_DELIVERY",
+          tenantId: current.orgId ?? current.userId,
+          userId,
+          projectOwnerId: current.userId,
+          orgId: current.orgId ?? null,
+          projectId,
+          projectRevision: currentRevision,
+          overlays: persistedOverlays,
+        }, db, COLLECTIONS.MEDIA_ASSETS);
+      const projectRenderSnapshotInvalidation =
+        await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+          ownerId: userId,
+          projectId,
+          operation: "COMMIT_MG_RENDER_DELIVERY",
+          beforeRevision: currentRevision,
+          afterRevision,
+          committedAt,
+          db,
+        });
+      timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+        receiptId: `timeline-mg-delivery_${nanoid(18)}`,
+        projectId,
+        operation: "COMMIT_MG_RENDER_DELIVERY",
+        actorKind: "SYSTEM",
+        fps: current.fps,
+        beforeProjectRevision: currentRevision,
+        afterProjectRevision: afterRevision,
+        committedAt: committedAt.toISOString(),
+        beforeOverlays: [],
+        afterOverlays: persistedOverlays,
+        projectRenderSnapshotInvalidation,
+        wholeStateMediaPrerequisite:
+          projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
+        changedPaths: [
+          "overlays",
+          "intelligence.mgCodegenRun.asyncOutcomes",
+          "timelineRangeChangeReceipts",
+        ],
+      });
+    }
     const outcomePush = {
       $each: [input.outcome],
       $slice: -100,
@@ -9563,6 +9693,10 @@ export class ProjectService {
           ? {
             overlays: { $each: persistedOverlays } as never,
             "intelligence.mgCodegenRun.asyncOutcomes": outcomePush,
+            timelineRangeChangeReceipts: {
+              $each: [timelineChangeReceipt!],
+              $slice: -200,
+            } as never,
           }
           : { "intelligence.mgCodegenRun.asyncOutcomes": outcomePush },
         $set: { updatedAt: committedAt },
@@ -9594,15 +9728,15 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
-      revision: {
-        schemaVersion: 1,
-        value: input.expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
-    return { delivered: true, receipt };
+    return {
+      delivered: true,
+      receipt,
+      ...(timelineChangeReceipt ? { timelineChangeReceipt } : {}),
+    };
   }
 
   /**
@@ -17350,6 +17484,7 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     | "REPLACE_CAPTION_FAMILY"
     | "REPLACE_BACKGROUND_MUSIC"
     | "ALIGN_CUTS_TO_BEATS"
+    | "COMMIT_MG_RENDER_DELIVERY"
     | "REPLACE_EDITOR_STATE"
     | "RESTORE_CHECKPOINT_STATE";
   actorKind: ProjectTimelineMutationActorKindV1;

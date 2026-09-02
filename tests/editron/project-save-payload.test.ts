@@ -2518,6 +2518,15 @@ describe("Editron project save payload compaction", () => {
 
   it("commits an MG delivery, its selected SFX, and its worker outcome at one revision", async () => {
     const updatedAt = "2026-08-11T06:02:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    });
     persistenceMocks.updateOne.mockResolvedValueOnce({
       matchedCount: 1,
       modifiedCount: 1,
@@ -2538,6 +2547,7 @@ describe("Editron project save payload compaction", () => {
           {
             id: 8_000_000_000_000_001,
             type: "mg-sequence",
+            assetId: "mgseq_seq_1",
             from: 45,
             row: 5,
             durationInFrames: 90,
@@ -2546,6 +2556,7 @@ describe("Editron project save payload compaction", () => {
           {
             id: 800_000_001,
             type: "sound",
+            assetId: "sfx_generated_1",
             from: 60,
             row: 0,
             durationInFrames: 12,
@@ -2566,6 +2577,17 @@ describe("Editron project save payload compaction", () => {
     expect(captured.value).toMatchObject({
       delivered: true,
       receipt: { projectId: "proj_1", revision: { value: 8 } },
+      timelineChangeReceipt: {
+        operation: "COMMIT_MG_RENDER_DELIVERY",
+        actorKind: "SYSTEM",
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          mediaEntryCount: 2,
+        },
+      },
     });
     expect(captured.receipts).toHaveLength(1);
     expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
@@ -2590,15 +2612,36 @@ describe("Editron project save payload compaction", () => {
               status: "generated",
             })],
           }),
+          timelineRangeChangeReceipts: expect.objectContaining({
+            $each: [expect.objectContaining({
+              operation: "COMMIT_MG_RENDER_DELIVERY",
+            })],
+          }),
         }),
       }),
     );
+    expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "COMMIT_MG_RENDER_DELIVERY",
+        overlays: expect.arrayContaining([
+          expect.objectContaining({ id: 8_000_000_000_000_001 }),
+          expect.objectContaining({ id: 800_000_001 }),
+        ]),
+      }),
+      expect.anything(),
+      "editron_prev.media_assets",
+    );
+    expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
   });
 
   it("treats an already-landed MG job as idempotent without a new receipt", async () => {
     const updatedAt = "2026-08-11T06:03:00.000Z";
-    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
     persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
       projectRevision: 8,
       updatedAt: new Date(updatedAt),
       overlays: [{ metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }],
@@ -2702,8 +2745,9 @@ describe("Editron project save payload compaction", () => {
 
   it("rejects a stale MG delivery without changing project state", async () => {
     const expectedUpdatedAt = "2026-08-11T06:04:00.000Z";
-    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
     persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
       projectRevision: 8,
       updatedAt: new Date("2026-08-11T06:04:01.000Z"),
       overlays: [],
@@ -2737,7 +2781,53 @@ describe("Editron project save payload compaction", () => {
         completedAt: new Date("2026-08-11T06:04:02.000Z"),
       },
     })).rejects.toBeInstanceOf(ProjectMutationConflictError);
-    expect(persistenceMocks.updateOne).toHaveBeenCalledOnce();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("blocks generated MG delivery before invalidation and CAS when media admission fails", async () => {
+    const updatedAt = "2026-08-11T06:04:30.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    });
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_MG_PREDECESSOR_INVALID"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitMgRenderDelivery("user_1", "proj_1", {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: updatedAt,
+      },
+      jobId: "mgr_cccccccccccccccccccccccccccccccc",
+      overlays: [{
+        id: 8_000_000_000_000_003,
+        type: "mg-sequence",
+        assetId: "mgseq_seq_3",
+        from: 45,
+        row: 5,
+        durationInFrames: 90,
+        metadata: { mgRenderJobId: "mgr_cccccccccccccccccccccccccccccccc" },
+      }] as any,
+      outcome: {
+        jobId: "mgr_cccccccccccccccccccccccccccccccc",
+        status: "generated",
+        candidateId: "candidate_3",
+        factKind: "comparison",
+        frame: 45,
+        sequenceId: "seq_3",
+        completedAt: new Date("2026-08-11T06:04:31.000Z"),
+      },
+    })).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_MG_PREDECESSOR_INVALID");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("atomically completes an MG design job with its exact-revision EDL evidence", async () => {
