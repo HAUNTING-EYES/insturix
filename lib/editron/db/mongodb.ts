@@ -19,6 +19,8 @@ import { CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1 }
   from '@/lib/editron/services/chapter-render-dispatch-v1';
 import { CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1 }
   from '@/lib/editron/services/render-chapter-retention';
+import { PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -231,6 +233,13 @@ export async function initializeIndexes(): Promise<void> {
         _id: 1,
       },
       name: 'billing_recovery_unknown_job_v1',
+    },
+  ]);
+
+  await db.collection(PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1).createIndexes([
+    {
+      key: { status: 1, updatedAt: 1, createdAt: 1, _id: 1 },
+      name: 'project_render_snapshot_invalidation_recovery_v1',
     },
   ]);
 

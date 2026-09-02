@@ -53,6 +53,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/recover-editron-project-render-invalidations",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/recover-editron-render-billing",
       "schedule": "*/5 * * * *"
     },
