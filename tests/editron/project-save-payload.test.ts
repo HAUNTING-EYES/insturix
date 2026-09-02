@@ -1636,6 +1636,23 @@ describe("Editron project save payload compaction", () => {
     });
     const timelineReceipts = [addUpdate, directUpdate, deleteUpdate]
       .map((update) => update.$push.timelineRangeChangeReceipts.$each[0]);
+    expect(persistenceMocks.wholeStateMediaPrerequisite.mock.calls.map(([input]) => ({
+      operation: input.operation,
+      projectRevision: input.projectRevision.value,
+      overlayIds: input.overlays.map((overlay: any) => overlay.id),
+    }))).toEqual([
+      { operation: "ADD_OVERLAY", projectRevision: 7, overlayIds: [2] },
+      { operation: "UPDATE_OVERLAY", projectRevision: 8, overlayIds: [1] },
+    ]);
+    expect(timelineReceipts[0].wholeStateMediaPrerequisite).toMatchObject({
+      status: "MATERIALIZED",
+      mediaEntryCount: 0,
+    });
+    expect(timelineReceipts[1].wholeStateMediaPrerequisite).toMatchObject({
+      status: "MATERIALIZED",
+      mediaEntryCount: 0,
+    });
+    expect(timelineReceipts[2].wholeStateMediaPrerequisite).toBeUndefined();
     for (let index = 0; index < timelineReceipts.length; index += 1) {
       expect(timelineReceipts[index].downstreamInvalidation).toMatchObject({
         status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
@@ -1647,7 +1664,48 @@ describe("Editron project save payload compaction", () => {
       expect(persistenceMocks.insertOne.mock.invocationCallOrder[index])
         .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[index]!);
     }
+    expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[1])
+      .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[1]!);
     expect(persistenceMocks.insertOne).toHaveBeenCalledTimes(3);
+  });
+
+  it("blocks a direct overlay write before invalidation and CAS when media admission fails", async () => {
+    const updatedAt = "2026-08-11T02:00:03.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_REVOKED"),
+    );
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.addOverlayAtRevisionV1("user_1", "proj_1", {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: updatedAt,
+      },
+      actorKind: "AGENT",
+      overlay: {
+        id: 2,
+        type: "video",
+        assetId: "video_2",
+        from: 0,
+        row: 0,
+        durationInFrames: 30,
+      } as any,
+    })).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_REVOKED");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("adds an overlay only at the caller-bound project revision", async () => {

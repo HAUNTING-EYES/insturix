@@ -74,6 +74,8 @@ const materialSchema = z.object({
     'REPLACE_EDITOR_STATE',
     'CAPTURE_CHECKPOINT_STATE',
     'RESTORE_CHECKPOINT_STATE',
+    'ADD_OVERLAY',
+    'UPDATE_OVERLAY',
   ]),
   projectId: identifier,
   userId: identifier,

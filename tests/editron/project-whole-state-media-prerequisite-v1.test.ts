@@ -80,6 +80,18 @@ describe('project whole-state media prerequisite V1', () => {
     expect(assertProjectWholeStateMediaPrerequisiteReceiptV1(receipt)).toEqual(receipt);
   });
 
+  it('seals operation-specific direct add and update scopes', async () => {
+    for (const operation of ['ADD_OVERLAY', 'UPDATE_OVERLAY'] as const) {
+      const receipt = await issueProjectWholeStateMediaPrerequisiteV1({
+        ...SCOPE,
+        operation,
+        overlays: [],
+      }, ports([]));
+      expect(receipt).toMatchObject({ operation, mediaEntries: [] });
+      expect(assertProjectWholeStateMediaPrerequisiteReceiptV1(receipt)).toEqual(receipt);
+    }
+  });
+
   it('binds a qualified visual source and current project rights', async () => {
     const dependencies = ports([{
       assetId: 'video_1', userId: 'user_1', type: 'video', source: 'user-upload',

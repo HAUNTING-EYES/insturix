@@ -9170,6 +9170,17 @@ export class ProjectService {
       intent: `persist-${input.overlay.type}`,
       reason: "overlay persisted through a caller-bound ProjectService command",
     });
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "ADD_OVERLAY",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: [overlayWithReceipt],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
@@ -9198,6 +9209,8 @@ export class ProjectService {
       beforeOverlay: null,
       afterOverlay: overlayWithReceipt,
       projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -11596,6 +11609,17 @@ export class ProjectService {
       );
     }
 
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "UPDATE_OVERLAY",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: [updatedOverlay],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
@@ -11624,6 +11648,8 @@ export class ProjectService {
       beforeOverlay: currentOverlay,
       afterOverlay: updatedOverlay,
       projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -16953,6 +16979,7 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
   beforeOverlay: Overlay | null;
   afterOverlay: Overlay | null;
   projectRenderSnapshotInvalidation?: ProjectRenderSnapshotInvalidationLinkV1;
+  wholeStateMediaPrerequisite?: ProjectWholeStateMediaPrerequisiteLinkV1;
   sourceTimeTransform?: ProjectVideoSourceTimeTransformV1 | null;
 }): ProjectTimelineRangeChangeReceiptV1 {
   const representativeOverlay = input.afterOverlay ?? input.beforeOverlay;
@@ -17015,6 +17042,9 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
           status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
           affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
         },
+    ...(input.wholeStateMediaPrerequisite
+      ? { wholeStateMediaPrerequisite: structuredClone(input.wholeStateMediaPrerequisite) }
+      : {}),
   };
 }
 
