@@ -7,6 +7,7 @@ import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { runAutoEditTurn } from "@/lib/studio/orchestrator/auto-edit";
+import { appendTurnEvent, connectSpine, getOrCreateProject, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,39 @@ export async function POST(req: Request) {
   /* live turn state until the Deliverable adapter persists it — the client
    * round-trips the engine ids via artifact sourceRefs in attachments */
   const state: WriteTurnState = { thinkforgeSessionId: null, scriptId: null };
+
+  /* the spine (Phase 1): resolve or mint the persisted Project for this turn,
+   * save the user's message, then persist every streamed event server-side
+   * before it is sent — reload reconstructs the conversation from the event
+   * log (GET /api/studio/threads/[threadId]/events). Spine failures degrade
+   * to the old behavior (turn runs, nothing logged) — never a dead turn. */
+  let spineProjectId: string | null = null;
+  try {
+    await connectSpine();
+    const project = await getOrCreateProject({
+      projectId: spineProjectIdOrNull(request.deliverableId),
+      organizationId: orgId ?? null,
+      brandId: request.brandId ?? null,
+      title: request.text.trim().slice(0, 80) || "Studio draft",
+    });
+    spineProjectId = project.projectId;
+    await appendTurnEvent(spineProjectId, {
+      actor: "user",
+      kind: "user",
+      turnId: null,
+      payload: {
+        kind: "user",
+        id: `u_${Date.now()}`,
+        text: request.text,
+        attachments: request.attachments,
+        mentions: request.mentions ?? [],
+        createdAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("[spine] project resolution failed — turn continues unpersisted", error);
+  }
+
   const scriptAttachment = request.attachments.find((a) => a.role === "script");
   if (scriptAttachment) {
     const [sessionId, scriptId] = scriptAttachment.ref.split(":");
@@ -113,7 +147,19 @@ export async function POST(req: Request) {
                     request.text,
                     req.signal,
                   );
-        for await (const event of events) {
+        for await (const rawEvent of events) {
+          /* the client adopts the spine identity from turn.received — a minted
+           * project id (first turn on "live") replaces the del_live placeholder */
+          const event =
+            spineProjectId && rawEvent.type === "turn.received" ? { ...rawEvent, deliverableId: spineProjectId } : rawEvent;
+          if (spineProjectId) {
+            await appendTurnEvent(spineProjectId, {
+              actor: "system",
+              kind: event.type,
+              turnId: (event as { turnId?: string }).turnId ?? null,
+              payload: event,
+            });
+          }
           send(event);
         }
       } catch (error) {

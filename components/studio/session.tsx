@@ -15,12 +15,17 @@ import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import { MOCK_DELIVERABLE, MOCK_THREAD, MOCK_WALLET } from "@/lib/studio/mock/data";
 import { runMockTurn, type MockTurnHandle } from "@/lib/studio/mock/orchestrator";
 import { runRealTurn, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { replayEventsToItems, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
 import { useArtifactPolling } from "./use-artifact-polling";
 import { ComposerMedia, type ComposerAttachment } from "./composer-media";
 import { ThreadItems, ClarifyCard, CapabilityGapCard, ConfirmSpendCard, ConfirmPublishCard } from "./thread";
 import { StageHost } from "./stage";
 
 const REAL = studioRealTurnsEnabled;
+
+/* spine identity: a real project id (TF session_, Editron, proj_*) or null
+ * while the first turn is still on the "live"/"del_live" placeholder */
+const spineId = (id: string | null | undefined) => (!id || id === "live" || id === "del_live" ? null : id);
 
 interface PendingConfirm {
   kind: "spend" | "publish" | "destructive";
@@ -46,6 +51,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const handleRef = useRef<MockTurnHandle | null>(null);
   const lastTextRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const projectIdRef = useRef<string | null>(spineId(deliverableId));
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
@@ -71,6 +77,25 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
     };
   }, [REAL, deliverableId]);
 
+  /* spine: reload reconstructs the conversation from the persisted event log
+   * (plan §3) — the same items the live reducer produced, replayed in order */
+  useEffect(() => {
+    if (!REAL || !projectIdRef.current) return;
+    let cancelled = false;
+    fetch(`/api/studio/threads/${projectIdRef.current}/events`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { events?: PersistedSpineEvent[] }) => {
+        if (cancelled || !d.events?.length) return;
+        setItems(replayEventsToItems(d.events));
+      })
+      .catch(() => {
+        /* no history yet — the empty thread is the honest state */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useArtifactPolling(artifacts, setArtifacts, REAL);
 
   const showArtifact = useCallback((artifactId: string) => {
@@ -79,6 +104,14 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
 
   const applyEvent = useCallback((ev: StudioTurnEvent) => {
     switch (ev.type) {
+      case "turn.received":
+        /* first turn on the placeholder: adopt the minted spine project id and
+         * pin the URL so a reload lands on the same persisted project */
+        if (ev.deliverableId && ev.deliverableId !== projectIdRef.current) {
+          projectIdRef.current = ev.deliverableId;
+          window.history.replaceState(null, "", `/studio/d/${ev.deliverableId}`);
+        }
+        break;
       case "turn.plan":
         setItems((prev) => [
           ...prev,
@@ -223,8 +256,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
         try {
           for await (const ev of runRealTurn(
             {
-              deliverableId: "del_live",
-              threadId: "th_live",
+              deliverableId: projectIdRef.current ?? "del_live",
+              threadId: projectIdRef.current ? `th_${projectIdRef.current}` : "th_live",
               text: text.trim(),
               mode,
               attachments: [...attachment, ...composerAttachments.map((a) => ({ ref: a.ref, role: a.role }))],
