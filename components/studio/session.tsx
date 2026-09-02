@@ -52,6 +52,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const lastTextRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const projectIdRef = useRef<string | null>(spineId(deliverableId));
+  const runTurnRef = useRef<(text: string, confirmQuoteId?: string, confirmAccepted?: boolean) => void>(() => undefined);
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
@@ -78,22 +79,47 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   }, [REAL, deliverableId]);
 
   /* spine: reload reconstructs the conversation from the persisted event log
-   * (plan §3) — the same items the live reducer produced, replayed in order */
+   * (plan §3) — the same items the live reducer produced, replayed in order.
+   * Boot order matters: hydrate the log FIRST, then send the ?q= prompt from
+   * the Home composer as the first turn (Slice 2b), so replay never clobbers
+   * a live message. Mount-once. */
   useEffect(() => {
-    if (!REAL || !projectIdRef.current) return;
+    if (!REAL) return;
     let cancelled = false;
-    fetch(`/api/studio/threads/${projectIdRef.current}/events`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { events?: PersistedSpineEvent[] }) => {
-        if (cancelled || !d.events?.length) return;
-        setItems(replayEventsToItems(d.events));
-      })
-      .catch(() => {
-        /* no history yet — the empty thread is the honest state */
-      });
+    const boot = async () => {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q) window.history.replaceState(null, "", window.location.pathname);
+      const pid = projectIdRef.current;
+      if (pid) {
+        try {
+          const r = await fetch(`/api/studio/threads/${pid}/events`);
+          if (r.ok) {
+            const d = (await r.json()) as { events?: PersistedSpineEvent[] };
+            if (!cancelled && d.events?.length) setItems(replayEventsToItems(d.events));
+          }
+        } catch {
+          /* no history yet — the empty thread is the honest state */
+        }
+      }
+      if (!cancelled && q) void runTurnRef.current(q);
+    };
+    void boot();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const refetchThread = useCallback(() => {
+    const pid = projectIdRef.current;
+    if (!pid) return;
+    fetch(`/api/studio/threads/${pid}/events`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { events?: PersistedSpineEvent[] }) => {
+        if (d.events?.length) setItems(replayEventsToItems(d.events)); /* full replace — replay is canonical, so a dropped stream can't duplicate items */
+      })
+      .catch(() => {
+        /* offline — the next reload retries */
+      });
   }, []);
 
   useArtifactPolling(artifacts, setArtifacts, REAL);
@@ -290,6 +316,11 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
             }
             if (ev.type === "turn.capability_gap") gap = ev;
           }
+        } catch (error) {
+          /* stream dropped (network), not one of our own aborts: pull the
+           * persisted log so everything saved before the drop reappears —
+           * the spine resume path (plan §3) */
+          if ((error as Error)?.name !== "AbortError") refetchThread();
         } finally {
           setBusy(false);
           handleRef.current = null;
@@ -310,8 +341,10 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
       setBusy(false);
       handleRef.current = null;
     },
-    [busy, applyEvent, artifacts, mode, focus, composerAttachments],
+    [busy, applyEvent, artifacts, mode, focus, composerAttachments, refetchThread],
   );
+
+  runTurnRef.current = runTurn;
 
   const answerConfirm = useCallback(
     (accepted: boolean) => {
