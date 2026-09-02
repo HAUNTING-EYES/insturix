@@ -763,7 +763,6 @@ describe('chat AI edit transaction runtime', () => {
       type: 'before-llm',
       createdAt: new Date(),
     });
-
     await expect(service.recordRollbackExpectedRevision(
       'ckpt_writer_receipt_scope',
       'user_1',
@@ -1605,6 +1604,17 @@ describe('chat AI edit transaction runtime', () => {
       type: 'before-llm',
       createdAt: new Date(),
     });
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: {
+        ...structuredClone(ORIGINAL_PROJECT),
+        name: 'Current project differs from historical checkpoint',
+      } as never,
+      revision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+    });
 
     await expect(service.restoreProjectCheckpoint('ckpt_legacy_media', 'user_1', {
       projectId: 'proj_1',
@@ -1616,9 +1626,11 @@ describe('chat AI edit transaction runtime', () => {
       actorKind: 'USER',
     })).resolves.toMatchObject({
       restored: false,
-      reason: 'legacy-checkpoint-missing-media-prerequisite',
+      reason: 'legacy-checkpoint-historical-state-unverifiable',
     });
     expect(restore).not.toHaveBeenCalled();
+    expect(infrastructureMocks.wholeStateMediaPrerequisite).not.toHaveBeenCalled();
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
   it('keeps the authenticated restore route project-scoped and verification-gated', async () => {

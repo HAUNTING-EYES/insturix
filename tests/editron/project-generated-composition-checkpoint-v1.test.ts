@@ -23,11 +23,13 @@ const persistence = vi.hoisted(() => ({
   loadWholeStateMediaPrerequisite: vi.fn(),
   materializeWholeStateMediaPrerequisite: vi.fn(),
   outboxFindOne: vi.fn(),
+  updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: {
     CHECKPOINTS: "editron_prev.checkpoints",
+    MEDIA_ASSETS: "mediaAssets",
     PROJECTS: "editron_prev.projects",
   },
   connectToDatabase: vi.fn(),
@@ -40,6 +42,7 @@ vi.mock("@/lib/editron/services/asset-resolver", () => ({
   },
 }));
 vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  assertProjectWholeStateMediaPrerequisiteLinkV1: (value: unknown) => value,
   loadProjectWholeStateMediaPrerequisiteByLinkV1:
     persistence.loadWholeStateMediaPrerequisite,
   materializeProjectWholeStateMediaPrerequisiteInMongoV1:
@@ -80,6 +83,7 @@ describe("generated composition checkpoint participation", () => {
       userId: "user-1",
       projectOwnerId: "user-1",
       orgId: null,
+      projectRevision: REVISION,
       candidateMediaContentSha256: MEDIA_PREREQUISITE_LINK.candidateMediaContentSha256,
       mediaEntries: [],
     });
@@ -88,6 +92,10 @@ describe("generated composition checkpoint participation", () => {
       mediaEntries: [],
     });
     persistence.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistence.updateOne.mockReset().mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+    });
     persistence.getDatabase.mockResolvedValue({
       collection: vi.fn((name: string) => name
         === "editron_project_render_snapshot_invalidation_outbox_v1"
@@ -98,6 +106,7 @@ describe("generated composition checkpoint participation", () => {
         : {
             findOne: persistence.findOne,
             findOneAndUpdate: persistence.findOneAndUpdate,
+            updateOne: persistence.updateOne,
           }),
     });
   });
@@ -203,6 +212,89 @@ describe("generated composition checkpoint participation", () => {
       reason: "legacy-checkpoint-missing-generated-composition-state",
     });
     expect(persistence.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it("recaptures media evidence only when a legacy full-state checkpoint is current", async () => {
+    const currentProject = {
+      projectId: "project-1",
+      userId: "user-1",
+      orgId: null,
+      overlays: [],
+      generatedCompositions: [],
+      aspectRatio: "16:9",
+      fps: 30,
+      durationInFrames: 0,
+    };
+    const projectState = captureRestorableProjectState(currentProject);
+    const checkpoint = {
+      checkpointId: "checkpoint-legacy-current",
+      sessionId: "session-1",
+      projectId: "project-1",
+      userId: "user-1",
+      overlays: [],
+      projectState,
+      stateHash: projectStateFingerprint(projectState),
+      stateHashVersion: 2 as const,
+      timestamp: new Date(),
+      description: "Legacy current-state checkpoint",
+      type: "before-llm" as const,
+      createdAt: new Date(),
+    };
+    let storedCheckpoint = structuredClone(checkpoint) as typeof checkpoint & {
+      capturedProjectRevision?: ProjectRevisionV1;
+      wholeStateMediaPrerequisite?: typeof MEDIA_PREREQUISITE_LINK;
+    };
+    persistence.findOne.mockImplementation(async () => storedCheckpoint);
+    persistence.updateOne.mockImplementation(async (_filter, update) => {
+      storedCheckpoint = { ...storedCheckpoint, ...structuredClone(update.$set) };
+      return { acknowledged: true, matchedCount: 1 };
+    });
+    const service = new CheckpointService();
+    vi.spyOn(service, "getCheckpoint").mockResolvedValue(checkpoint);
+    const loadProject = vi.spyOn(projectService, "loadProjectForMutation").mockResolvedValue({
+      project: currentProject as never,
+      revision: REVISION,
+    });
+    const restore = vi.spyOn(projectService, "restoreCheckpointState");
+
+    const result = await service.restoreProjectCheckpoint(
+      checkpoint.checkpointId,
+      checkpoint.userId,
+      { projectId: checkpoint.projectId, expectedRevision: REVISION, actorKind: "SYSTEM" },
+    );
+
+    expect(result).toMatchObject({
+      restored: true,
+      reason: "legacy-checkpoint-recaptured-current-state",
+      restoredRevision: REVISION,
+    });
+    expect(persistence.materializeWholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "CAPTURE_CHECKPOINT_STATE",
+        projectId: checkpoint.projectId,
+        projectRevision: REVISION,
+        overlays: [],
+      }),
+      expect.anything(),
+      "mediaAssets",
+    );
+    expect(persistence.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointId: checkpoint.checkpointId,
+        stateHash: checkpoint.stateHash,
+        wholeStateMediaPrerequisite: { $exists: false },
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          capturedProjectRevision: REVISION,
+          wholeStateMediaPrerequisite: MEDIA_PREREQUISITE_LINK,
+        }),
+      }),
+    );
+    expect(persistence.loadWholeStateMediaPrerequisite)
+      .toHaveBeenCalledWith(MEDIA_PREREQUISITE_LINK, expect.anything());
+    expect(loadProject).toHaveBeenCalledTimes(2);
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it("rejects partial and invalid checkpoint state before persistence", async () => {

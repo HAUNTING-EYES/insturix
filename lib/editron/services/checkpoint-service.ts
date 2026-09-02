@@ -10,6 +10,8 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import {
+  assertProjectWholeStateMediaPrerequisiteLinkV1,
+  loadProjectWholeStateMediaPrerequisiteByLinkV1,
   materializeProjectWholeStateMediaPrerequisiteInMongoV1,
   projectWholeStateMediaPrerequisiteLinkV1,
   type ProjectWholeStateMediaPrerequisiteLinkV1,
@@ -512,6 +514,14 @@ export class CheckpointService {
       };
     }
     if (!checkpoint.wholeStateMediaPrerequisite) {
+      const recaptured = await this.recaptureLegacyCheckpointCurrentStateV1({
+        checkpoint,
+        projectState,
+        expectedStateHash,
+        userId,
+        expectedRevision: options.expectedRevision,
+      });
+      if (recaptured) return recaptured;
       return {
         restored: false,
         checkpointId,
@@ -589,6 +599,171 @@ export class CheckpointService {
       actualStateHash,
       beforeRevision: options.expectedRevision,
       restoredRevision: restoreReceipt.receipt.revision,
+    };
+  }
+
+  private async recaptureLegacyCheckpointCurrentStateV1(input: {
+    checkpoint: Checkpoint;
+    projectState: RestorableProjectState;
+    expectedStateHash: string;
+    userId: string;
+    expectedRevision: ProjectRevisionV1;
+  }): Promise<RestoreProjectCheckpointResult | null> {
+    if (input.checkpoint.stateHashVersion !== CURRENT_STATE_HASH_VERSION
+      || input.checkpoint.stateHash !== input.expectedStateHash) {
+      return null;
+    }
+
+    let snapshot;
+    try {
+      snapshot = await projectService.loadProjectForMutation(
+        input.userId,
+        input.checkpoint.projectId,
+      );
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return {
+          restored: false,
+          checkpointId: input.checkpoint.checkpointId,
+          expectedStateHash: input.expectedStateHash,
+          reason: 'project-not-found-or-not-owned',
+          beforeRevision: input.expectedRevision,
+        };
+      }
+      throw error;
+    }
+    if (!sameProjectRevision(snapshot.revision, input.expectedRevision)) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        reason: 'project-revision-conflict',
+        beforeRevision: input.expectedRevision,
+        currentRevision: snapshot.revision,
+      };
+    }
+
+    const currentState = this.cleanProjectState(captureRestorableProjectState(
+      snapshot.project as unknown as Record<string, unknown>,
+    ));
+    const currentStateHash = projectStateFingerprint(currentState);
+    if (currentStateHash !== input.expectedStateHash) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        actualStateHash: currentStateHash,
+        reason: 'legacy-checkpoint-historical-state-unverifiable',
+        beforeRevision: input.expectedRevision,
+        currentRevision: snapshot.revision,
+      };
+    }
+
+    const db = await getDatabase();
+    const receipt = await materializeProjectWholeStateMediaPrerequisiteInMongoV1(
+      {
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: snapshot.project.orgId ?? snapshot.project.userId,
+        userId: input.userId,
+        projectOwnerId: snapshot.project.userId,
+        orgId: snapshot.project.orgId ?? null,
+        projectId: input.checkpoint.projectId,
+        projectRevision: snapshot.revision,
+        overlays: (input.projectState.fields.overlays ?? []) as Overlay[],
+      },
+      db,
+      COLLECTIONS.MEDIA_ASSETS,
+    );
+    const proposedLink = projectWholeStateMediaPrerequisiteLinkV1(receipt);
+    const checkpoints = db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS);
+    const update = await checkpoints.updateOne(
+      {
+        checkpointId: input.checkpoint.checkpointId,
+        projectId: input.checkpoint.projectId,
+        userId: input.userId,
+        stateHashVersion: CURRENT_STATE_HASH_VERSION,
+        stateHash: input.expectedStateHash,
+        wholeStateMediaPrerequisite: { $exists: false },
+      },
+      {
+        $set: {
+          capturedProjectRevision: snapshot.revision,
+          wholeStateMediaPrerequisite: proposedLink,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    if (!update.acknowledged) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture was not acknowledged.');
+    }
+
+    const stored = await checkpoints.findOne({
+      checkpointId: input.checkpoint.checkpointId,
+      projectId: input.checkpoint.projectId,
+      userId: input.userId,
+      stateHashVersion: CURRENT_STATE_HASH_VERSION,
+      stateHash: input.expectedStateHash,
+    });
+    if (!stored?.wholeStateMediaPrerequisite
+      || !stored.capturedProjectRevision
+      || !sameProjectRevision(stored.capturedProjectRevision, snapshot.revision)) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture could not be verified.');
+    }
+    const storedLink = assertProjectWholeStateMediaPrerequisiteLinkV1(
+      stored.wholeStateMediaPrerequisite,
+    );
+    const storedReceipt = await loadProjectWholeStateMediaPrerequisiteByLinkV1(storedLink, db);
+    if (storedReceipt.operation !== 'CAPTURE_CHECKPOINT_STATE'
+      || storedReceipt.projectId !== input.checkpoint.projectId
+      || storedReceipt.userId !== input.userId
+      || !sameProjectRevision(storedReceipt.projectRevision, snapshot.revision)) {
+      throw new Error('Legacy checkpoint media-prerequisite recapture receipt is invalid.');
+    }
+
+    let finalSnapshot;
+    try {
+      finalSnapshot = await projectService.loadProjectForMutation(
+        input.userId,
+        input.checkpoint.projectId,
+      );
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return {
+          restored: false,
+          checkpointId: input.checkpoint.checkpointId,
+          expectedStateHash: input.expectedStateHash,
+          reason: 'project-not-found-or-not-owned',
+          beforeRevision: input.expectedRevision,
+        };
+      }
+      throw error;
+    }
+    const finalStateHash = projectStateFingerprint(this.cleanProjectState(
+      captureRestorableProjectState(
+        finalSnapshot.project as unknown as Record<string, unknown>,
+      ),
+    ));
+    if (!sameProjectRevision(finalSnapshot.revision, snapshot.revision)
+      || finalStateHash !== input.expectedStateHash) {
+      return {
+        restored: false,
+        checkpointId: input.checkpoint.checkpointId,
+        expectedStateHash: input.expectedStateHash,
+        actualStateHash: finalStateHash,
+        reason: 'project-revision-conflict',
+        beforeRevision: input.expectedRevision,
+        currentRevision: finalSnapshot.revision,
+      };
+    }
+
+    return {
+      restored: true,
+      checkpointId: input.checkpoint.checkpointId,
+      expectedStateHash: input.expectedStateHash,
+      actualStateHash: currentStateHash,
+      reason: 'legacy-checkpoint-recaptured-current-state',
+      beforeRevision: input.expectedRevision,
+      restoredRevision: snapshot.revision,
     };
   }
 
