@@ -22,6 +22,7 @@ import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling'
 
 interface Project {
   projectId: string;
+  projectRevision?: number;
   name: string;
   thumbnail?: string;
   updatedAt: string;
@@ -92,8 +93,23 @@ export default function ProjectsView() {
 
   const remove = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/services/editron/projects/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
+      const project = projects.find((candidate) => candidate.projectId === id);
+      if (!project) throw new Error('Project revision is unavailable. Reload and try again.');
+      const res = await fetch(`/api/services/editron/projects/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expectedRevision: {
+            schemaVersion: 1,
+            value: project.projectRevision ?? 0,
+            compatibilityUpdatedAt: new Date(project.updatedAt).toISOString(),
+          },
+        }),
+      });
+      if (!res.ok) {
+        const failure = await res.json().catch(() => null) as { error?: unknown } | null;
+        throw new Error(typeof failure?.error === 'string' ? failure.error : 'Delete failed');
+      }
       setProjects((prev) => prev.filter((p) => p.projectId !== id));
       toast({ title: 'Project deleted' });
     } catch (e) {
@@ -101,7 +117,7 @@ export default function ProjectsView() {
     } finally {
       setDeleteId(null);
     }
-  }, [toast]);
+  }, [projects, toast]);
 
   return (
     <div className="epv">

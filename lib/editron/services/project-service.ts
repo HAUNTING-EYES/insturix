@@ -2682,6 +2682,8 @@ async function materializeTerminalChapterCleanupV1(input: {
 
 export interface ProjectListItem {
   projectId: string;
+  /** Exact optimistic-concurrency counter paired with `updatedAt`. */
+  projectRevision?: number;
   name: string;
   thumbnail?: string;
   updatedAt: Date;
@@ -9333,6 +9335,7 @@ export class ProjectService {
       .find({ userId })
       .project({
         projectId: 1,
+        projectRevision: 1,
         name: 1,
         thumbnail: 1,
         updatedAt: 1,
@@ -9393,6 +9396,7 @@ export class ProjectService {
       .find(query)
       .project({
         projectId: 1,
+        projectRevision: 1,
         name: 1,
         thumbnail: 1,
         updatedAt: 1,

@@ -4,12 +4,36 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 import { auth } from '@clerk/nextjs/server';
 import { ProjectAssetSourceUnverifiableErrorV1 }
   from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
+
+function parseExpectedRevision(input: unknown): ProjectRevisionV1 | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const revision = (input as Record<string, unknown>).expectedRevision;
+  if (!revision || typeof revision !== 'object' || Array.isArray(revision)) return null;
+  const candidate = revision as Record<string, unknown>;
+  if (
+    candidate.schemaVersion !== 1
+    || !Number.isSafeInteger(candidate.value)
+    || (candidate.value as number) < 0
+    || typeof candidate.compatibilityUpdatedAt !== 'string'
+    || Number.isNaN(new Date(candidate.compatibilityUpdatedAt).getTime())
+  ) return null;
+  return {
+    schemaVersion: 1,
+    value: candidate.value as number,
+    compatibilityUpdatedAt: new Date(candidate.compatibilityUpdatedAt).toISOString(),
+  };
+}
 
 export async function GET(
   request: NextRequest,
@@ -126,17 +150,52 @@ export async function DELETE(
       );
     }
     const { projectId } = await params;
+    const expectedRevision = parseExpectedRevision(
+      await request.json().catch(() => null),
+    );
+    if (!expectedRevision) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Project deletion requires the exact revision shown to the user.',
+          code: 'PROJECT_DELETE_REVISION_REQUIRED',
+        },
+        { status: 400 },
+      );
+    }
 
-    await projectService.deleteProject(userId, projectId);
+    const result = await projectService.deleteProject(userId, projectId, expectedRevision);
 
     return NextResponse.json({
       success: true,
       message: 'Project deleted successfully',
+      deletionStatus: result.status,
+      terminalRevision: result.tombstone.afterRevision,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting project:', error);
+    if (error instanceof ProjectMutationConflictError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          code: error.code,
+          currentRevision: error.currentRevision,
+        },
+        { status: 409 },
+      );
+    }
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: 404 },
+      );
+    }
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to delete project' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete project',
+      },
       { status: 500 }
     );
   }
