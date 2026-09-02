@@ -55,7 +55,12 @@ function ports(assets: Record<string, unknown>[]): ProjectWholeStateMediaPrerequ
     loadAssets: vi.fn(async () => assets as Array<Record<string, unknown> & { assetId: string }>),
     authorizeSourceRights: vi.fn(async () => ({
       disposition: 'AUTHORIZED' as const,
-      receipt: { receiptSha256: 'b'.repeat(64) },
+      receipt: {
+        receiptSha256: 'b'.repeat(64),
+        sourceMediaRightsStateSha256V1: 'c'.repeat(64),
+        sourceMediaRightsRecordSha256: 'd'.repeat(64),
+        evaluatedAt: NOW.toISOString(),
+      },
     })),
     verifyAudioRights: vi.fn(async () => undefined),
     now: () => NOW,
@@ -86,7 +91,11 @@ describe('project whole-state media prerequisite V1', () => {
     }, dependencies);
     expect(receipt.mediaEntries[0]).toMatchObject({
       assetId: 'video_1',
-      rights: { disposition: 'PROJECT_SOURCE_AUTHORIZED' },
+      rights: {
+        disposition: 'PROJECT_SOURCE_AUTHORIZED',
+        sourceMediaRightsStateSha256V1: 'c'.repeat(64),
+        evaluatedAt: NOW.toISOString(),
+      },
       predecessor: { disposition: 'ORIGINAL_SOURCE', receiptSha256: null },
     });
   });

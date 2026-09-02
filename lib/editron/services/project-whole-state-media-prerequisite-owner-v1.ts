@@ -21,8 +21,14 @@ import type { ProjectRevisionV1 } from './project-revision-v1';
 
 type StoredAssetV1 = Record<string, unknown> & { assetId: string };
 type MediaOverlayV1 = ClipOverlay | ImageOverlay | SoundOverlay | MgSequenceOverlay;
+type SourceRightsAuthorizationEvidenceV1 = Readonly<{
+  receiptSha256: string;
+  sourceMediaRightsStateSha256V1: string;
+  sourceMediaRightsRecordSha256: string;
+  evaluatedAt: string;
+}>;
 type SourceRightsResultV1 = Readonly<
-  | { disposition: 'AUTHORIZED'; receipt: Readonly<{ receiptSha256: string }> }
+  | { disposition: 'AUTHORIZED'; receipt: SourceRightsAuthorizationEvidenceV1 }
   | { disposition: 'BLOCKED'; diagnosticCode: string }
 >;
 
@@ -82,7 +88,7 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
     });
   }
 
-  const rightsBySource = new Map<string, string>();
+  const rightsBySource = new Map<string, SourceRightsAuthorizationEvidenceV1>();
   const mediaEntries: ProjectWholeStateMediaPrerequisiteEntryV1[] = [];
   for (const overlay of mediaOverlays) {
     const assetId = assetIdFor(overlay);
@@ -93,8 +99,8 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
       continue;
     }
     const sourceVersion = sourceVersionFor(overlay, asset, input.projectId);
-    let rightsReceiptSha256 = rightsBySource.get(sourceVersion.sourceVersionSha256);
-    if (!rightsReceiptSha256) {
+    let rightsEvidence = rightsBySource.get(sourceVersion.sourceVersionSha256);
+    if (!rightsEvidence) {
       const authorization = await ports.authorizeSourceRights({
         tenantId: input.tenantId,
         userId: input.userId,
@@ -106,11 +112,11 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
       if (authorization.disposition !== 'AUTHORIZED') {
         fail(`PROJECT_WHOLE_STATE_MEDIA_RIGHTS_${authorization.diagnosticCode}`);
       }
-      if (!isSha256(authorization.receipt.receiptSha256)) {
+      if (!validSourceRightsEvidence(authorization.receipt)) {
         fail('PROJECT_WHOLE_STATE_MEDIA_RIGHTS_RECEIPT_INVALID');
       }
-      rightsReceiptSha256 = authorization.receipt.receiptSha256;
-      rightsBySource.set(sourceVersion.sourceVersionSha256, rightsReceiptSha256);
+      rightsEvidence = authorization.receipt;
+      rightsBySource.set(sourceVersion.sourceVersionSha256, rightsEvidence);
     }
     mediaEntries.push({
       overlayId: overlay.id,
@@ -122,7 +128,7 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
         sourceVersionSha256: sourceVersion.sourceVersionSha256,
         storageVersionSha256: sourceVersion.storageVersion.storageVersionSha256,
       },
-      rights: { disposition: 'PROJECT_SOURCE_AUTHORIZED', receiptSha256: rightsReceiptSha256 },
+      rights: { disposition: 'PROJECT_SOURCE_AUTHORIZED', ...rightsEvidence },
       audio: requiresAudioRights(overlay)
         ? { disposition: 'VERIFIED', evidenceSha256: audioEvidenceSha256(overlay, asset) }
         : { disposition: 'NOT_APPLICABLE', evidenceSha256: null },
@@ -271,6 +277,14 @@ function assertPorts(ports: Readonly<ProjectWholeStateMediaPrerequisitePortsV1>)
 
 function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function validSourceRightsEvidence(value: SourceRightsAuthorizationEvidenceV1): boolean {
+  return isSha256(value.receiptSha256)
+    && isSha256(value.sourceMediaRightsStateSha256V1)
+    && isSha256(value.sourceMediaRightsRecordSha256)
+    && typeof value.evaluatedAt === 'string'
+    && !Number.isNaN(Date.parse(value.evaluatedAt));
 }
 
 function fail(code: string): never { throw new Error(code); }

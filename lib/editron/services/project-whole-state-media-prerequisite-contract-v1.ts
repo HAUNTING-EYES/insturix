@@ -52,6 +52,9 @@ const entry = z.object({
     z.object({
       disposition: z.literal('PROJECT_SOURCE_AUTHORIZED'),
       receiptSha256: sha256,
+      sourceMediaRightsStateSha256V1: sha256,
+      sourceMediaRightsRecordSha256: sha256,
+      evaluatedAt: z.string().datetime(),
     }).strict(),
     z.object({
       disposition: z.literal('INTERNAL_GENERATED_ARTIFACT'),
