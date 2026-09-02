@@ -18,6 +18,7 @@ const persistenceMocks = vi.hoisted(() => ({
   outboxFindOne: vi.fn(),
   updateOne: vi.fn(),
   withTransaction: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -56,6 +57,13 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
       })),
     },
   })),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1:
+    "editron_project_whole_state_media_prerequisites_v1",
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.wholeStateMediaPrerequisite,
 }));
 
 function mgDesignCompletionCommand() {
@@ -231,6 +239,20 @@ describe("Editron project save payload compaction", () => {
     persistenceMocks.updateOne.mockReset();
     persistenceMocks.withTransaction.mockReset();
     persistenceMocks.withTransaction.mockImplementation(async (work) => work());
+    persistenceMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+      async (input: any) => ({
+        schemaVersion: 1,
+        kind: "EDITRON_PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_V1",
+        ...input,
+        mediaEntries: input.overlays
+          .filter((overlay: any) => ["video", "image", "sound", "mg-sequence"]
+            .includes(overlay.type))
+          .map((overlay: any) => ({ overlayId: overlay.id })),
+        candidateMediaSetSha256: "c".repeat(64),
+        issuedAt: "2026-09-02T04:00:00.000Z",
+        receiptSha256: "d".repeat(64),
+      }),
+    );
   });
 
   it("removes server-owned generated evidence before autosave/manual save requests", () => {
@@ -484,6 +506,31 @@ describe("Editron project save payload compaction", () => {
         evidence: { receiptId: "native-audio-rights-video_1" },
       }),
     );
+    expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "REPLACE_EDITOR_STATE",
+        tenantId: "user_1",
+        userId: "user_1",
+        projectOwnerId: "user_1",
+        orgId: null,
+        projectId: "proj_1",
+        projectRevision: expect.objectContaining({ value: 0 }),
+        overlays: expect.arrayContaining([
+          expect.objectContaining({ id: "source_video", assetId: "video_1" }),
+        ]),
+      }),
+      expect.anything(),
+      "editron_prev.media_assets",
+    );
+    const timelineReceipt =
+      persistenceMocks.updateOne.mock.calls[0][1].$push.timelineRangeChangeReceipts.$each[0];
+    expect(timelineReceipt.wholeStateMediaPrerequisite).toEqual({
+      status: "MATERIALIZED",
+      collection: "editron_project_whole_state_media_prerequisites_v1",
+      receiptSha256: "d".repeat(64),
+      candidateMediaSetSha256: "c".repeat(64),
+      mediaEntryCount: 1,
+    });
   });
 
   it("preserves the stored duration when manual save and autosave omit it", async () => {

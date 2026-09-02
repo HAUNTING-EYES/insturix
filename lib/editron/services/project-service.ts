@@ -204,6 +204,10 @@ import {
   type ProjectRenderSnapshotInvalidationOutboxCollectionV1,
 } from "./project-render-snapshot-invalidation-v1";
 import {
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1,
+  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+} from "./project-whole-state-media-prerequisite-runtime-v1";
+import {
   assertProjectVideoSpeedRampStateV1,
   classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
@@ -438,6 +442,14 @@ export type ProjectTimelineDownstreamInvalidationV1 =
       projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
     };
 
+export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
+  status: "MATERIALIZED";
+  collection: typeof PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1;
+  receiptSha256: string;
+  candidateMediaSetSha256: string;
+  mediaEntryCount: number;
+}
+
 export interface ProjectTimelineRangeChangeReceiptV1 {
   schemaVersion: 1;
   receiptId: string;
@@ -464,6 +476,7 @@ export interface ProjectTimelineRangeChangeReceiptV1 {
   splitChildren: readonly TimelineRangeCutSplitChildV1[];
   ripple: ProjectTimelineRippleEffectV1 | null;
   downstreamInvalidation: ProjectTimelineDownstreamInvalidationV1;
+  wholeStateMediaPrerequisite?: ProjectWholeStateMediaPrerequisiteLinkV1;
 }
 
 export interface ProjectTimelineRangeCutCommandV1 {
@@ -8746,6 +8759,17 @@ export class ProjectService {
         "A whole-state write cannot run while timeline range locks are active.",
       );
     }
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "REPLACE_EDITOR_STATE",
+        tenantId: currentProject.orgId ?? currentProject.userId,
+        userId: input.userId,
+        projectOwnerId: currentProject.userId,
+        orgId: currentProject.orgId ?? null,
+        projectId: input.projectId,
+        projectRevision: currentRevision,
+        overlays: mergedOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
@@ -8774,6 +8798,13 @@ export class ProjectService {
       beforeOverlays: currentProject.overlays ?? [],
       afterOverlays: mergedOverlays,
       projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite: {
+        status: "MATERIALIZED",
+        collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+        receiptSha256: wholeStateMediaPrerequisite.receiptSha256,
+        candidateMediaSetSha256: wholeStateMediaPrerequisite.candidateMediaSetSha256,
+        mediaEntryCount: wholeStateMediaPrerequisite.mediaEntries.length,
+      },
       changedPaths: [
         "overlays",
         "aspectRatio",
@@ -16769,6 +16800,7 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
   beforeOverlays: readonly Overlay[];
   afterOverlays: readonly Overlay[];
   projectRenderSnapshotInvalidation?: ProjectRenderSnapshotInvalidationLinkV1;
+  wholeStateMediaPrerequisite?: ProjectWholeStateMediaPrerequisiteLinkV1;
   changedPaths: readonly string[];
 }): ProjectTimelineRangeChangeReceiptV1 {
   const beforeFrameRanges = overlayFamilyFrameRangesV1(input.beforeOverlays, "stored family");
@@ -16814,6 +16846,9 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
           status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
           affectedFrameRangesBefore: writeFrameRanges,
         },
+    ...(input.wholeStateMediaPrerequisite
+      ? { wholeStateMediaPrerequisite: structuredClone(input.wholeStateMediaPrerequisite) }
+      : {}),
   };
 }
 
