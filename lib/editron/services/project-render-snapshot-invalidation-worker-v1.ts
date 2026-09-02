@@ -27,6 +27,8 @@ export interface ProjectRenderSnapshotInvalidationProjectDocumentV1 {
   projectId: string;
   userId: string;
   timelineRangeChangeReceipts?: unknown;
+  audioRightsAttestationReceiptsV1?: unknown;
+  autoEditAnalysisRunV1?: unknown;
 }
 
 export interface ProjectRenderSnapshotInvalidationProjectCollectionV1 {
@@ -69,47 +71,110 @@ function committedLinkFromProjectV1(
   ) {
     fail("PROJECT_SCOPE_MISMATCH");
   }
-  if (project.timelineRangeChangeReceipts === undefined) return undefined;
-  if (!Array.isArray(project.timelineRangeChangeReceipts)) {
-    fail("PROJECT_TIMELINE_HISTORY_INVALID");
-  }
 
   const matches: ProjectRenderSnapshotInvalidationLinkV1[] = [];
-  for (const receipt of project.timelineRangeChangeReceipts) {
-    if (!isRecord(receipt) || receipt.projectId !== outbox.receipt.projectId) continue;
-    const downstream = receipt.downstreamInvalidation;
-    if (!isRecord(downstream)) continue;
-    const candidate = downstream.projectRenderSnapshotInvalidation;
-    if (!isRecord(candidate) || candidate.invalidationId !== outbox.outboxId) continue;
-    const parsed = ProjectRenderSnapshotInvalidationLinkSchemaV1.safeParse(candidate);
-    if (!parsed.success) fail("COMMIT_LINK_INVALID");
-    const beforeRevision = ProjectArtifactProjectRevisionSchema.safeParse(
-      receipt.beforeProjectRevision,
-    );
-    const afterRevision = ProjectArtifactProjectRevisionSchema.safeParse(
-      receipt.afterProjectRevision,
-    );
-    if (
-      downstream.status !== "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING"
-      || receipt.operation !== outbox.receipt.operation
-      || receipt.committedAt !== outbox.receipt.afterRevision.compatibilityUpdatedAt
-      || !beforeRevision.success
-      || !afterRevision.success
-      || !sameProjectArtifactRevisionV1(
-        beforeRevision.data,
-        outbox.receipt.beforeRevision,
-      )
-      || !sameProjectArtifactRevisionV1(
-        afterRevision.data,
-        outbox.receipt.afterRevision,
-      )
-    ) {
-      fail("COMMIT_RECEIPT_MISMATCH");
+  if (project.timelineRangeChangeReceipts !== undefined) {
+    if (!Array.isArray(project.timelineRangeChangeReceipts)) {
+      fail("PROJECT_TIMELINE_HISTORY_INVALID");
     }
-    matches.push(parsed.data);
+    for (const receipt of project.timelineRangeChangeReceipts) {
+      if (!isRecord(receipt) || receipt.projectId !== outbox.receipt.projectId) continue;
+      const downstream = receipt.downstreamInvalidation;
+      if (!isRecord(downstream)) continue;
+      const candidate = downstream.projectRenderSnapshotInvalidation;
+      if (!isRecord(candidate) || candidate.invalidationId !== outbox.outboxId) continue;
+      const parsed = ProjectRenderSnapshotInvalidationLinkSchemaV1.safeParse(candidate);
+      if (!parsed.success) fail("COMMIT_LINK_INVALID");
+      assertCommittedReceiptBasisV1({
+        operation: receipt.operation,
+        committedAt: receipt.committedAt,
+        beforeRevision: receipt.beforeProjectRevision,
+        afterRevision: receipt.afterProjectRevision,
+        outbox,
+      });
+      if (downstream.status !== "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING") {
+        fail("COMMIT_RECEIPT_MISMATCH");
+      }
+      matches.push(parsed.data);
+    }
+  }
+
+  if (project.audioRightsAttestationReceiptsV1 !== undefined) {
+    if (!Array.isArray(project.audioRightsAttestationReceiptsV1)) {
+      fail("PROJECT_AUDIO_RIGHTS_HISTORY_INVALID");
+    }
+    for (const receipt of project.audioRightsAttestationReceiptsV1) {
+      if (!isRecord(receipt) || receipt.projectId !== outbox.receipt.projectId) continue;
+      const candidate = receipt.projectRenderSnapshotInvalidation;
+      if (!isRecord(candidate) || candidate.invalidationId !== outbox.outboxId) continue;
+      const parsed = ProjectRenderSnapshotInvalidationLinkSchemaV1.safeParse(candidate);
+      if (!parsed.success) fail("COMMIT_LINK_INVALID");
+      if (
+        outbox.receipt.operation !== "COMMIT_AUDIO_RIGHTS_ATTESTATION"
+        || (receipt.kind !== "native-video" && receipt.kind !== "uploaded-export-audio")
+      ) {
+        fail("COMMIT_RECEIPT_MISMATCH");
+      }
+      assertCommittedReceiptBasisV1({
+        operation: "COMMIT_AUDIO_RIGHTS_ATTESTATION",
+        committedAt: receipt.committedAt,
+        beforeRevision: receipt.beforeProjectRevision,
+        afterRevision: receipt.afterProjectRevision,
+        outbox,
+      });
+      matches.push(parsed.data);
+    }
+  }
+
+  const analysisRun = project.autoEditAnalysisRunV1;
+  if (isRecord(analysisRun)) {
+    const candidate = analysisRun.phase1ProjectRenderSnapshotInvalidation;
+    if (isRecord(candidate) && candidate.invalidationId === outbox.outboxId) {
+      const parsed = ProjectRenderSnapshotInvalidationLinkSchemaV1.safeParse(candidate);
+      if (!parsed.success) fail("COMMIT_LINK_INVALID");
+      if (
+        outbox.receipt.operation !== "COMMIT_ANALYSIS_NATIVE_AUDIO_EVIDENCE"
+        || typeof analysisRun.phase1EvidenceHash !== "string"
+        || !/^[a-f0-9]{64}$/.test(analysisRun.phase1EvidenceHash)
+        || typeof analysisRun.sourceAssetId !== "string"
+        || analysisRun.sourceAssetId.length === 0
+        || analysisRun.phase1EvidenceCommittedAt
+          !== outbox.receipt.afterRevision.compatibilityUpdatedAt
+      ) {
+        fail("COMMIT_RECEIPT_MISMATCH");
+      }
+      matches.push(parsed.data);
+    }
   }
   if (matches.length > 1) fail("COMMIT_LINK_NOT_UNIQUE");
   return matches[0];
+}
+
+function assertCommittedReceiptBasisV1(input: {
+  operation: unknown;
+  committedAt: unknown;
+  beforeRevision: unknown;
+  afterRevision: unknown;
+  outbox: ProjectRenderSnapshotInvalidationOutboxV1;
+}): void {
+  const beforeRevision = ProjectArtifactProjectRevisionSchema.safeParse(input.beforeRevision);
+  const afterRevision = ProjectArtifactProjectRevisionSchema.safeParse(input.afterRevision);
+  if (
+    input.operation !== input.outbox.receipt.operation
+    || input.committedAt !== input.outbox.receipt.afterRevision.compatibilityUpdatedAt
+    || !beforeRevision.success
+    || !afterRevision.success
+    || !sameProjectArtifactRevisionV1(
+      beforeRevision.data,
+      input.outbox.receipt.beforeRevision,
+    )
+    || !sameProjectArtifactRevisionV1(
+      afterRevision.data,
+      input.outbox.receipt.afterRevision,
+    )
+  ) {
+    fail("COMMIT_RECEIPT_MISMATCH");
+  }
 }
 
 async function persistTransitionOrReadWinnerV1(input: {

@@ -39,15 +39,21 @@ const AFTER = {
 };
 const NOW = new Date("2026-09-02T00:01:01.000Z");
 
-function makeReceipt() {
+function makeReceipt(operation = "REPLACE_EDITOR_STATE") {
   return createProjectRenderSnapshotInvalidationReceiptV1({
     ownerId: OWNER_ID,
     projectId: PROJECT_ID,
-    operation: "REPLACE_EDITOR_STATE",
+    operation,
     beforeRevision: BEFORE,
     afterRevision: AFTER,
     issuedAt: new Date(AFTER.compatibilityUpdatedAt),
   });
+}
+
+function outboxesFor(operation: string): MemoryOutboxes {
+  return new MemoryOutboxes(
+    createProjectRenderSnapshotInvalidationOutboxV1(makeReceipt(operation)),
+  );
 }
 
 function projectWithLink(): ProjectRenderSnapshotInvalidationProjectDocumentV1 {
@@ -217,6 +223,51 @@ describe("project render snapshot invalidation worker V1", () => {
     expect(outboxes.current.status).toBe("MATERIALIZED");
   });
 
+  it("activates from the exact audio-rights owner receipt", async () => {
+    const operation = "COMMIT_AUDIO_RIGHTS_ATTESTATION";
+    const receipt = makeReceipt(operation);
+    const outboxes = outboxesFor(operation);
+    const project: ProjectRenderSnapshotInvalidationProjectDocumentV1 = {
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+      audioRightsAttestationReceiptsV1: [{
+        projectId: PROJECT_ID,
+        kind: "native-video",
+        committedAt: AFTER.compatibilityUpdatedAt,
+        beforeProjectRevision: BEFORE,
+        afterProjectRevision: AFTER,
+        projectRenderSnapshotInvalidation: projectRenderSnapshotInvalidationLinkV1(receipt),
+      }],
+    };
+
+    const result = await runProjectRenderSnapshotInvalidationWorkerV1(
+      input(outboxes, new MemoryRenders([]), project),
+    );
+    expect(result).toMatchObject({ status: "MATERIALIZED", commitLinkFound: true });
+  });
+
+  it("activates from the exact Phase-1 native-audio evidence receipt", async () => {
+    const operation = "COMMIT_ANALYSIS_NATIVE_AUDIO_EVIDENCE";
+    const receipt = makeReceipt(operation);
+    const outboxes = outboxesFor(operation);
+    const project: ProjectRenderSnapshotInvalidationProjectDocumentV1 = {
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+      autoEditAnalysisRunV1: {
+        sourceAssetId: "asset_video_1",
+        phase1EvidenceHash: "e".repeat(64),
+        phase1EvidenceCommittedAt: AFTER.compatibilityUpdatedAt,
+        phase1ProjectRenderSnapshotInvalidation:
+          projectRenderSnapshotInvalidationLinkV1(receipt),
+      },
+    };
+
+    const result = await runProjectRenderSnapshotInvalidationWorkerV1(
+      input(outboxes, new MemoryRenders([]), project),
+    );
+    expect(result).toMatchObject({ status: "MATERIALIZED", commitLinkFound: true });
+  });
+
   it("waits for a commit before expiry and abandons only after expiry", async () => {
     const waiting = new MemoryOutboxes();
     const renders = new MemoryRenders([]);
@@ -288,6 +339,36 @@ describe("project render snapshot invalidation worker V1", () => {
     await expect(runProjectRenderSnapshotInvalidationWorkerV1(
       input(new MemoryOutboxes(), new MemoryRenders([]), wrongOperation),
     )).rejects.toThrow("PROJECT_SNAPSHOT_INVALIDATION_WORKER_COMMIT_RECEIPT_MISMATCH");
+
+    const rightsOperation = "COMMIT_AUDIO_RIGHTS_ATTESTATION";
+    const rightsReceipt = makeReceipt(rightsOperation);
+    const rightsLink = projectRenderSnapshotInvalidationLinkV1(rightsReceipt);
+    const duplicateAcrossOwners: ProjectRenderSnapshotInvalidationProjectDocumentV1 = {
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+      timelineRangeChangeReceipts: [{
+        projectId: PROJECT_ID,
+        operation: rightsOperation,
+        committedAt: AFTER.compatibilityUpdatedAt,
+        beforeProjectRevision: BEFORE,
+        afterProjectRevision: AFTER,
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+          projectRenderSnapshotInvalidation: rightsLink,
+        },
+      }],
+      audioRightsAttestationReceiptsV1: [{
+        projectId: PROJECT_ID,
+        kind: "native-video",
+        committedAt: AFTER.compatibilityUpdatedAt,
+        beforeProjectRevision: BEFORE,
+        afterProjectRevision: AFTER,
+        projectRenderSnapshotInvalidation: rightsLink,
+      }],
+    };
+    await expect(runProjectRenderSnapshotInvalidationWorkerV1(
+      input(outboxesFor(rightsOperation), new MemoryRenders([]), duplicateAcrossOwners),
+    )).rejects.toThrow("PROJECT_SNAPSHOT_INVALIDATION_WORKER_COMMIT_LINK_NOT_UNIQUE");
   });
 
   it("continues from a concurrent worker's activation CAS winner", async () => {
