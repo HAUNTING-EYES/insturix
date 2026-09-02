@@ -8464,6 +8464,7 @@ export class ProjectService {
       | "UPDATE_OVERLAY"
       | "DELETE_OVERLAY"
       | "CUT_TIMELINE_RANGE"
+      | "AUTO_EDIT_ASSEMBLY"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -13148,6 +13149,26 @@ export class ProjectService {
       assetResolver.stripUrlsForLLM(nextOverlays),
       "project-service-auto-edit-assembly-v1",
     );
+    const affectedPostAssemblyOverlays = cleanOverlays.filter((overlay) => {
+      const frameRange = overlayTimelineFrameRangeV1(overlay);
+      if (!frameRange) {
+        throw new ProjectMutationWriteError(
+          "Auto-edit media admission requires exact post-assembly overlay ranges.",
+        );
+      }
+      return frameRange.endFrame > sourceBeforeFrameRange.startFrame;
+    });
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "AUTO_EDIT_ASSEMBLY",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: affectedPostAssemblyOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
@@ -13169,6 +13190,16 @@ export class ProjectService {
       ...assembledOverlays.map(overlayReferenceForTimelineChangeV1),
       ...shiftedOverlays.map(overlayReferenceForTimelineChangeV1),
     ];
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "AUTO_EDIT_ASSEMBLY",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
       schemaVersion: 1,
       receiptId: `timeline-auto-edit_${nanoid(18)}`,
@@ -13202,9 +13233,12 @@ export class ProjectService {
         deltaFrames,
       },
       downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
         affectedFrameRangesBefore: [writeFrameRange],
+        projectRenderSnapshotInvalidation,
       },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     };
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {

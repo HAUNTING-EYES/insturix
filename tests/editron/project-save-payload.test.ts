@@ -2133,6 +2133,14 @@ describe("Editron project save payload compaction", () => {
           shiftedAfterFrameRange: { startFrame: 150, endFrame: 240 },
           deltaFrames: -150,
         },
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+          affectedFrameRangesBefore: [{ startFrame: 0, endFrame: 390 }],
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          mediaEntryCount: 2,
+        },
       },
     });
     const update = persistenceMocks.updateOne.mock.calls[0][1];
@@ -2159,6 +2167,66 @@ describe("Editron project save payload compaction", () => {
       projectRevision: 7,
       updatedAt: new Date(updatedAt),
     });
+    expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "AUTO_EDIT_ASSEMBLY",
+        projectRevision: expect.objectContaining({ value: 7 }),
+        overlays: expect.arrayContaining([
+          expect.objectContaining({ id: 101 }),
+          expect.objectContaining({ id: 102 }),
+          expect.objectContaining({ id: 20 }),
+        ]),
+      }),
+      expect.anything(),
+      "editron_prev.media_assets",
+    );
+    expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
+  });
+
+  it("blocks auto-edit assembly before invalidation and CAS when media admission fails", async () => {
+    const updatedAt = "2026-08-11T02:15:45.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [{
+        id: 10,
+        type: "video",
+        assetId: "asset_raw",
+        from: 0,
+        durationInFrames: 300,
+        videoStartTime: 0,
+      }],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_REVOKED"),
+    );
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.applyAutoEditAssemblyV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "SYSTEM",
+        sourceOverlayId: 10,
+        cuts: [{ clipId: 101, sourceStartFrame: 0, sourceEndFrame: 60 }],
+      },
+    )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_RIGHTS_REVOKED");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("blocks auto-edit assembly before writing when an overlay depends on the source video", async () => {
