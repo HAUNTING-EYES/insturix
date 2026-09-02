@@ -140,3 +140,20 @@ Phases 1/2/3/6 as below.
    write-side work.
 6. Browser E2E per slice (§20 / Rule 14).
 7. Brands place + Account shell to finish Phase 3 (§7).
+
+---
+
+## 2026-09-03 (remediation session) — queue items 1–3 closed
+
+1. **§17 cleanup commit `401206c2b`** — dead code removed BEFORE further
+   structural work: orphaned edit/auto-edit turn drivers + their smoke script
+   + stale test mocks (−335 lines). session.tsx/thread.tsx audited clean.
+2. **§3 fix `725b36987`** — unanswered approval gates survive reload: route
+   stamps confirm_required with the operation id; replayOpenConfirm derives
+   the open gate from the log; boot re-arms the interactive card; the answer
+   resumes the SAME operation claim. 4 new pure tests.
+3. **§10 fix (this commit)** — imported TF events marked with origin.
+
+Remaining queue: brand-scope checks (§19), status three-axis model (§6,
+depends on Phase 6 write-side), browser E2E gate (§20), Brands place +
+Account shell (§7 / Phase 3 completion).
