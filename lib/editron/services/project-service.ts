@@ -205,7 +205,8 @@ import {
 } from "./project-render-snapshot-invalidation-v1";
 import {
   materializeProjectWholeStateMediaPrerequisiteInMongoV1,
-  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+  projectWholeStateMediaPrerequisiteLinkV1,
+  type ProjectWholeStateMediaPrerequisiteLinkV1,
 } from "./project-whole-state-media-prerequisite-runtime-v1";
 import {
   assertProjectVideoSpeedRampStateV1,
@@ -441,14 +442,6 @@ export type ProjectTimelineDownstreamInvalidationV1 =
       affectedFrameRangesBefore: readonly TimelineFrameRangeV1[];
       projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
     };
-
-export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
-  status: "MATERIALIZED";
-  collection: typeof PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1;
-  receiptSha256: string;
-  candidateMediaSetSha256: string;
-  mediaEntryCount: number;
-}
 
 export interface ProjectTimelineRangeChangeReceiptV1 {
   schemaVersion: 1;
@@ -8798,13 +8791,8 @@ export class ProjectService {
       beforeOverlays: currentProject.overlays ?? [],
       afterOverlays: mergedOverlays,
       projectRenderSnapshotInvalidation,
-      wholeStateMediaPrerequisite: {
-        status: "MATERIALIZED",
-        collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
-        receiptSha256: wholeStateMediaPrerequisite.receiptSha256,
-        candidateMediaSetSha256: wholeStateMediaPrerequisite.candidateMediaSetSha256,
-        mediaEntryCount: wholeStateMediaPrerequisite.mediaEntries.length,
-      },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       changedPaths: [
         "overlays",
         "aspectRatio",

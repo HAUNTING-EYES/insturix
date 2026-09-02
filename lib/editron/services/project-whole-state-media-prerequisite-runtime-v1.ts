@@ -19,6 +19,14 @@ import { createSourceMediaRightsLedgerMongoPortsV1 } from './source-media-rights
 export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 =
   'editron_project_whole_state_media_prerequisites_v1' as const;
 
+export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
+  status: 'MATERIALIZED';
+  collection: typeof PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1;
+  receiptSha256: string;
+  candidateMediaSetSha256: string;
+  mediaEntryCount: number;
+}
+
 type StoredMediaAssetDocumentV1 = Record<string, unknown> & { assetId: string };
 type StoredPrerequisiteReceiptDocumentV1 = {
   _id: string;
@@ -40,6 +48,19 @@ export type ProjectWholeStateMediaPrerequisiteRuntimeInputV1 = Readonly<{
 export interface ProjectWholeStateMediaPrerequisiteRuntimePortsV1
   extends ProjectWholeStateMediaPrerequisitePortsV1 {
   storeReceipt(receipt: ProjectWholeStateMediaPrerequisiteReceiptV1): Promise<void>;
+}
+
+export function projectWholeStateMediaPrerequisiteLinkV1(
+  value: unknown,
+): ProjectWholeStateMediaPrerequisiteLinkV1 {
+  const receipt = assertProjectWholeStateMediaPrerequisiteReceiptV1(value);
+  return Object.freeze({
+    status: 'MATERIALIZED',
+    collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  });
 }
 
 export async function materializeProjectWholeStateMediaPrerequisiteV1(

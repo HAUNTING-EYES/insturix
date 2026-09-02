@@ -60,10 +60,15 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
 }));
 
 vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
-  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1:
-    "editron_project_whole_state_media_prerequisites_v1",
   materializeProjectWholeStateMediaPrerequisiteInMongoV1:
     persistenceMocks.wholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 function mgDesignCompletionCommand() {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createProjectWholeStateMediaPrerequisiteMongoPortsV1,
   materializeProjectWholeStateMediaPrerequisiteV1,
+  projectWholeStateMediaPrerequisiteLinkV1,
   PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
   type ProjectWholeStateMediaPrerequisiteRuntimePortsV1,
 } from '@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1';
@@ -40,6 +41,13 @@ describe('project whole-state media prerequisite runtime V1', () => {
     expect(events).toEqual(['stored']);
     expect(receipt.projectRevision).toEqual(INPUT.projectRevision);
     expect(receipt.mediaEntries).toEqual([]);
+    expect(projectWholeStateMediaPrerequisiteLinkV1(receipt)).toEqual({
+      status: 'MATERIALIZED',
+      collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+      receiptSha256: receipt.receiptSha256,
+      candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+      mediaEntryCount: 0,
+    });
   });
 
   it('does not return success when durable storage fails', async () => {
