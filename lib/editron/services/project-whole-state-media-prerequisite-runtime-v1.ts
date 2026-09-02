@@ -12,13 +12,19 @@ import {
   issueProjectWholeStateMediaPrerequisiteV1,
   type ProjectWholeStateMediaPrerequisitePortsV1,
 } from './project-whole-state-media-prerequisite-owner-v1';
+import {
+  assertProjectWholeStateMediaPrerequisiteRetentionStateV1,
+  createProjectWholeStateMediaPrerequisitePendingRetentionV1,
+  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+  type ProjectWholeStateMediaPrerequisiteRetentionStateV1,
+} from './project-whole-state-media-prerequisite-retention-v1';
 import type { ProjectRevisionV1 } from './project-revision-v1';
 import { verifyRenderAudioRightsAuthority } from './render-audio-rights-authority';
 import { authorizeCurrentSourceMediaRightsV1 } from './source-media-rights-authorization-v1';
 import { createSourceMediaRightsLedgerMongoPortsV1 } from './source-media-rights-ledger-v1';
 
-export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 =
-  'editron_project_whole_state_media_prerequisites_v1' as const;
+export { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 } from
+  './project-whole-state-media-prerequisite-retention-v1';
 
 export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
   status: 'MATERIALIZED';
@@ -44,6 +50,7 @@ type StoredPrerequisiteReceiptDocumentV1 = {
   _id: string;
   receipt: ProjectWholeStateMediaPrerequisiteReceiptV1;
   createdAt: Date;
+  retention?: ProjectWholeStateMediaPrerequisiteRetentionStateV1;
 };
 
 export type ProjectWholeStateMediaPrerequisiteRuntimeInputV1 = Readonly<{
@@ -164,6 +171,9 @@ export function createProjectWholeStateMediaPrerequisiteMongoPortsV1(
     },
     async storeReceipt(value) {
       const receipt = assertProjectWholeStateMediaPrerequisiteReceiptV1(value);
+      const pendingRetention = createProjectWholeStateMediaPrerequisitePendingRetentionV1(
+        new Date(),
+      );
       const result = await receipts.updateOne(
         { _id: receipt.receiptSha256 },
         {
@@ -171,6 +181,7 @@ export function createProjectWholeStateMediaPrerequisiteMongoPortsV1(
             _id: receipt.receiptSha256,
             receipt,
             createdAt: new Date(receipt.issuedAt),
+            retention: pendingRetention,
           },
         },
         { upsert: true },
@@ -178,10 +189,34 @@ export function createProjectWholeStateMediaPrerequisiteMongoPortsV1(
       if (!result.acknowledged) {
         throw new Error('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_WRITE_UNACKNOWLEDGED');
       }
-      const stored = await receipts.findOne({ _id: receipt.receiptSha256 });
+      let stored = await receipts.findOne({ _id: receipt.receiptSha256 });
       if (!stored || canonicalizeEditronJsonV1(stored.receipt)
         !== canonicalizeEditronJsonV1(receipt)) {
         throw new Error('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_PERSISTED_MISMATCH');
+      }
+      if (!stored.retention || stored.retention.status === 'QUARANTINED') {
+        const recovery = await receipts.updateOne(
+          {
+            _id: receipt.receiptSha256,
+            $or: [
+              { retention: { $exists: false } },
+              { 'retention.status': 'QUARANTINED' },
+            ],
+          },
+          { $set: { retention: pendingRetention } },
+        );
+        if (!recovery.acknowledged) {
+          throw new Error('PROJECT_WHOLE_STATE_MEDIA_RETENTION_RECOVERY_UNACKNOWLEDGED');
+        }
+        stored = await receipts.findOne({ _id: receipt.receiptSha256 });
+        if (!stored || canonicalizeEditronJsonV1(stored.receipt)
+          !== canonicalizeEditronJsonV1(receipt)) {
+          throw new Error('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_PERSISTED_MISMATCH');
+        }
+      }
+      assertProjectWholeStateMediaPrerequisiteRetentionStateV1(stored.retention);
+      if (stored.retention.status === 'QUARANTINED') {
+        throw new Error('PROJECT_WHOLE_STATE_MEDIA_RETENTION_RECOVERY_UNPROVED');
       }
     },
   };

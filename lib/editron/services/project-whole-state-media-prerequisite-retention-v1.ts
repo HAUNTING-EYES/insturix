@@ -5,9 +5,8 @@ import {
   assertProjectWholeStateMediaPrerequisiteReceiptV1,
   type ProjectWholeStateMediaPrerequisiteReceiptV1,
 } from "./project-whole-state-media-prerequisite-contract-v1";
-import {
-  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
-} from "./project-whole-state-media-prerequisite-runtime-v1";
+export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 =
+  "editron_project_whole_state_media_prerequisites_v1" as const;
 
 export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_INITIAL_GRACE_MS_V1 =
   24 * 60 * 60 * 1_000;
@@ -88,25 +87,45 @@ function assertCandidateV1(
     throw new Error("PROJECT_WHOLE_STATE_MEDIA_RETENTION_RECEIPT_ID_MISMATCH");
   }
   if (value.retention !== undefined) {
-    assertRetentionStateV1(value.retention);
+    assertProjectWholeStateMediaPrerequisiteRetentionStateV1(value.retention);
   }
   return receipt;
 }
 
-function assertRetentionStateV1(
-  value: ProjectWholeStateMediaPrerequisiteRetentionStateV1,
-): void {
-  assertDateV1(value.checkedAt, "PROJECT_WHOLE_STATE_MEDIA_RETENTION_CHECKED_AT_INVALID");
-  assertDateV1(value.nextCheckAt, "PROJECT_WHOLE_STATE_MEDIA_RETENTION_NEXT_CHECK_INVALID");
-  if (value.schemaVersion !== 1
-    || !["PENDING_REFERENCE", "PINNED", "QUARANTINED"].includes(value.status)
-    || value.nextCheckAt.getTime() <= value.checkedAt.getTime()
-    || (value.status === "QUARANTINED") !== (value.expiresAt instanceof Date)
-    || (value.expiresAt instanceof Date
-      && (Number.isNaN(value.expiresAt.getTime())
-        || value.expiresAt.getTime() <= value.nextCheckAt.getTime()))) {
+export function assertProjectWholeStateMediaPrerequisiteRetentionStateV1(
+  value: unknown,
+): asserts value is ProjectWholeStateMediaPrerequisiteRetentionStateV1 {
+  if (!value || typeof value !== "object") {
     throw new Error("PROJECT_WHOLE_STATE_MEDIA_RETENTION_STATE_INVALID");
   }
+  const retention = value as Partial<ProjectWholeStateMediaPrerequisiteRetentionStateV1>;
+  assertDateV1(retention.checkedAt, "PROJECT_WHOLE_STATE_MEDIA_RETENTION_CHECKED_AT_INVALID");
+  assertDateV1(retention.nextCheckAt, "PROJECT_WHOLE_STATE_MEDIA_RETENTION_NEXT_CHECK_INVALID");
+  if (retention.schemaVersion !== 1
+    || !["PENDING_REFERENCE", "PINNED", "QUARANTINED"].includes(retention.status ?? "")
+    || retention.nextCheckAt.getTime() <= retention.checkedAt.getTime()
+    || (retention.status === "QUARANTINED") !== (retention.expiresAt instanceof Date)
+    || (retention.expiresAt instanceof Date
+      && (Number.isNaN(retention.expiresAt.getTime())
+        || retention.expiresAt.getTime() <= retention.nextCheckAt.getTime()))) {
+    throw new Error("PROJECT_WHOLE_STATE_MEDIA_RETENTION_STATE_INVALID");
+  }
+}
+
+export function createProjectWholeStateMediaPrerequisitePendingRetentionV1(
+  checkedAt: Date,
+): ProjectWholeStateMediaPrerequisiteRetentionStateV1 {
+  assertDateV1(checkedAt, "PROJECT_WHOLE_STATE_MEDIA_RETENTION_CHECKED_AT_INVALID");
+  const retention: ProjectWholeStateMediaPrerequisiteRetentionStateV1 = {
+    schemaVersion: 1,
+    status: "PENDING_REFERENCE",
+    checkedAt,
+    nextCheckAt: new Date(
+      checkedAt.getTime() + PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_INITIAL_GRACE_MS_V1,
+    ),
+  };
+  assertProjectWholeStateMediaPrerequisiteRetentionStateV1(retention);
+  return retention;
 }
 
 function boundedErrorCodeV1(error: unknown): string {
@@ -169,7 +188,7 @@ export async function sweepProjectWholeStateMediaPrerequisiteRetentionV1(input: 
               now.getTime() + PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_QUARANTINE_MS_V1,
             ),
           };
-      assertRetentionStateV1(retention);
+      assertProjectWholeStateMediaPrerequisiteRetentionStateV1(retention);
       await store.recordRetention({ candidate, retention });
       if (recovered) result.recovered += 1;
       else if (referenced) result.pinned += 1;

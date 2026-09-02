@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/lib/editron/db/mongodb', () => ({ getDatabase: vi.fn() }));
+
 import {
   createProjectWholeStateMediaPrerequisiteMongoPortsV1,
   loadProjectWholeStateMediaPrerequisiteByLinkV1,
@@ -69,9 +71,20 @@ describe('project whole-state media prerequisite runtime V1', () => {
 
   it('persists idempotently and rejects content-address collisions', async () => {
     let storedDocument: Record<string, unknown> | null = null;
-    const updateOne = vi.fn(async (_filter, update: { $setOnInsert: Record<string, unknown> }) => {
-      storedDocument ??= structuredClone(update.$setOnInsert);
-      return { acknowledged: true };
+    const updateOne = vi.fn(async (
+      _filter,
+      update: {
+        $setOnInsert?: Record<string, unknown>;
+        $set?: Record<string, unknown>;
+      },
+    ) => {
+      if (!storedDocument && update.$setOnInsert) {
+        storedDocument = structuredClone(update.$setOnInsert);
+      }
+      if (storedDocument && update.$set) {
+        storedDocument = { ...storedDocument, ...structuredClone(update.$set) };
+      }
+      return { acknowledged: true, matchedCount: storedDocument ? 1 : 0 };
     });
     const findOne = vi.fn(async () => storedDocument);
     const collection = vi.fn((name: string) => {
@@ -88,8 +101,30 @@ describe('project whole-state media prerequisite runtime V1', () => {
       ...ports,
       now: () => NOW,
     });
+    expect(storedDocument).toMatchObject({
+      retention: {
+        schemaVersion: 1,
+        status: 'PENDING_REFERENCE',
+      },
+    });
     await expect(ports.storeReceipt(receipt)).resolves.toBeUndefined();
     expect(updateOne).toHaveBeenCalledTimes(2);
+
+    storedDocument = {
+      ...(storedDocument ?? {}),
+      retention: {
+        schemaVersion: 1,
+        status: 'QUARANTINED',
+        checkedAt: new Date('2026-09-01T00:00:00.000Z'),
+        nextCheckAt: new Date('2026-09-02T00:00:00.000Z'),
+        expiresAt: new Date('2026-10-01T00:00:00.000Z'),
+      },
+    };
+    await expect(ports.storeReceipt(receipt)).resolves.toBeUndefined();
+    expect(storedDocument).toMatchObject({
+      retention: { status: 'PENDING_REFERENCE' },
+    });
+    expect((storedDocument as { retention?: object }).retention).not.toHaveProperty('expiresAt');
 
     storedDocument = {
       ...(storedDocument ?? {}),
