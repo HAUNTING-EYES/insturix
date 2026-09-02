@@ -16,8 +16,7 @@ export type ProjectMutationSafeguardPolicyV1 =
 
 export type ProjectMutationOwnerClosureV1 =
   | "LOCAL_GUARDS_VERIFIED"
-  | "QUEUE_3_4_DEPENDENCY"
-  | "QUEUE_5_RETENTION_DEPENDENCY";
+  | "QUEUE_3_4_DEPENDENCY";
 
 export interface ProjectMutationOwnerGroupV1 {
   methods: readonly string[];
@@ -64,8 +63,8 @@ export const PROJECT_MUTATION_OWNER_GROUPS_V1 = {
     rightsEvidence: "NOT_APPLICABLE",
     predecessorEvidence: "REQUIRED",
     renderSnapshotInvalidation: "REQUIRED",
-    closure: "QUEUE_5_RETENTION_DEPENDENCY",
-    reason: "Deletion still requires an atomic tombstone plus durable render, checkpoint, chat, link and source-cleanup recovery.",
+    closure: "LOCAL_GUARDS_VERIFIED",
+    reason: "Deletion is caller-revision fenced, atomically removes project-owned Mongo state, preserves shared media, seals a durable tombstone and recovers render cleanup from that committed witness.",
   },
   RENDER_JOB_COORDINATION: {
     methods: [

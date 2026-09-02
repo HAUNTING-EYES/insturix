@@ -8,7 +8,8 @@ import {
 } from "@/lib/editron/services/project-mutation-owner-classification-v1";
 
 const METHOD_START = /^  (?:(?:private|protected) )?async ([A-Za-z0-9_]+)\(/gm;
-const PERSISTENCE_WRITE = /\.(?:insertOne|updateOne|updateMany|findOneAndUpdate|replaceOne|bulkWrite|deleteOne|deleteMany)\s*\(/;
+const PERSISTENCE_WRITE_OR_DELEGATION =
+  /(?:\.(?:insertOne|updateOne|updateMany|findOneAndUpdate|replaceOne|bulkWrite|deleteOne|deleteMany)|commitProjectDeletionV1)\s*\(/;
 
 function detectedProjectServicePersistenceMethods(): string[] {
   const source = readFileSync(
@@ -22,7 +23,7 @@ function detectedProjectServicePersistenceMethods(): string[] {
   return starts
     .filter((start, index) => {
       const end = starts[index + 1]?.index ?? source.length;
-      return PERSISTENCE_WRITE.test(source.slice(start.index, end));
+      return PERSISTENCE_WRITE_OR_DELEGATION.test(source.slice(start.index, end));
     })
     .map(({ name }) => name)
     .sort();
@@ -67,10 +68,17 @@ describe("ProjectService mutation-owner classification V1", () => {
 
   it("keeps unresolved cross-queue owners visible instead of certifying them", () => {
     expect(PROJECT_MUTATION_OWNER_GROUPS_V1.PROJECT_DELETION.closure)
-      .toBe("QUEUE_5_RETENTION_DEPENDENCY");
+      .toBe("LOCAL_GUARDS_VERIFIED");
     expect(PROJECT_MUTATION_OWNER_GROUPS_V1.PROXY_MASTER_ACTIVE_SOURCE.closure)
       .toBe("QUEUE_3_4_DEPENDENCY");
     expect(PROJECT_MUTATION_OWNER_GROUPS_V1.ANALYSIS_NATIVE_AUDIO_EVIDENCE.closure)
       .toBe("QUEUE_3_4_DEPENDENCY");
+    expect(Object.entries(PROJECT_MUTATION_OWNER_GROUPS_V1)
+      .filter(([, group]) => group.closure !== "LOCAL_GUARDS_VERIFIED")
+      .map(([name]) => name)
+      .sort()).toEqual([
+        "ANALYSIS_NATIVE_AUDIO_EVIDENCE",
+        "PROXY_MASTER_ACTIVE_SOURCE",
+      ]);
   });
 });
