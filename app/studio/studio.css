@@ -343,3 +343,7 @@
 /* ── workspace banner (Phase 3 slice 3 — mockup wsbanner, analyze-purple tint) ── */
 .stu-wsbanner { flex: none; display: flex; align-items: center; gap: 10px; margin: 10px 16px 0; background: rgba(144,136,212,.08); border: 1px solid rgba(144,136,212,.4); border-radius: 11px; padding: 9px 15px; font-size: 13px; color: var(--soft); }
 .stu-wsbanner b { color: var(--text); font-weight: 500; }
+
+/* connection rows in the needs-you queue: reconnect = blocked publishing */
+.stu-needsrow.danger { border-color: rgba(212,106,92,.5); }
+.stu-needsrow.danger .stu-needssub { color: var(--red); }

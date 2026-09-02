@@ -74,10 +74,24 @@ const RAIL_ICONS = {
 };
 
 type NeedsYouProject = { projectId: string; title: string; status: ProjectStatusPayload };
+type NeedsYouConnection = { platform: string; state: "attention" | "reconnect"; displayName: string | null; message: string | null };
 
-/** Needs-you slide-over (mockup §16.3 option B): the open decisions queue.
- *  Rows are pure records from the Slice-2 index — no invented severities. */
-export function NeedsYouPop({ open, onClose, projects, error }: { open: boolean; onClose: () => void; projects: NeedsYouProject[]; error: string | null }) {
+/** Needs-you slide-over (mockup §16.3 option B): the open decisions queue
+ *  (spine operations) + connection health (CalOS). Rows are pure records —
+ *  no invented severities, and healthy connections never surface. */
+export function NeedsYouPop({
+  open,
+  onClose,
+  projects,
+  connections,
+  error,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projects: NeedsYouProject[];
+  connections: NeedsYouConnection[];
+  error: string | null;
+}) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -93,7 +107,7 @@ export function NeedsYouPop({ open, onClose, projects, error }: { open: boolean;
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         <span className="stu-needshlabel">Needs you</span>
-        <span className="stu-mlabel">{projects.length > 0 ? `${projects.length} open` : ""}</span>
+        <span className="stu-mlabel">{projects.length + connections.length > 0 ? `${projects.length + connections.length} open` : ""}</span>
         <button className="stu-needsx" onClick={onClose} aria-label="Close needs you">
           <svg viewBox="0 0 24 24" aria-hidden>
             <path d="M18 6 6 18" />
@@ -103,13 +117,26 @@ export function NeedsYouPop({ open, onClose, projects, error }: { open: boolean;
       </div>
       <div className="stu-needsbody">
         {error && <p className="stu-placeerror">couldn&apos;t load the queue ({error})</p>}
-        {!error && projects.length === 0 && <p className="stu-placeempty">nothing needs you right now — anything that does lands here, never silently</p>}
+        {!error && projects.length === 0 && connections.length === 0 && (
+          <p className="stu-placeempty">nothing needs you right now — anything that does lands here, never silently</p>
+        )}
         {projects.map((p) => (
           <Link key={p.projectId} href={`/studio/d/${p.projectId}`} className="stu-needsrow" onClick={onClose}>
             <span className="stu-needstitle">{p.title}</span>
             <span className="stu-needssub">{p.status.label} — answered in the project chat</span>
             <span className="stu-needsopen">Open</span>
           </Link>
+        ))}
+        {connections.length > 0 && <div className="stu-mlabel" style={{ marginTop: 4 }}>connections</div>}
+        {connections.map((c) => (
+          <div key={c.platform} className={`stu-needsrow${c.state === "reconnect" ? " danger" : ""}`} style={{ textDecoration: "none" }}>
+            <span className="stu-needstitle">
+              {c.platform}
+              {c.displayName ? ` · ${c.displayName}` : ""}
+            </span>
+            <span className="stu-needssub">{c.message ?? "needs attention before publishing"}</span>
+            <span className="stu-needsopen">{c.state === "reconnect" ? "Reconnect" : "Resolve"}</span>
+          </div>
         ))}
       </div>
       <div className="stu-needsfoot">nothing publishes or proceeds without you</div>
@@ -121,19 +148,21 @@ export function StudioRail() {
   const pathname = usePathname();
   const REAL = studioRealTurnsEnabled;
   const [needsProjects, setNeedsProjects] = useState<NeedsYouProject[]>([]);
+  const [needsConnections, setNeedsConnections] = useState<NeedsYouConnection[]>([]);
   const [needsError, setNeedsError] = useState<string | null>(null);
   const [popOpen, setPopOpen] = useState(false);
-  const needsCount = needsProjects.length;
+  const needsCount = needsProjects.length + needsConnections.length;
 
   useEffect(() => {
     if (!REAL) return;
     let alive = true;
     const poll = () =>
-      fetch("/api/studio/projects?attention=needs_you")
+      fetch("/api/studio/needs-you")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-        .then((d: { projects?: NeedsYouProject[] }) => {
+        .then((d: { projects?: NeedsYouProject[]; connections?: NeedsYouConnection[] }) => {
           if (!alive) return;
           setNeedsProjects(d.projects ?? []);
+          setNeedsConnections(d.connections ?? []);
           setNeedsError(null);
         })
         .catch((e: Error) => alive && setNeedsError(e.message));
@@ -180,7 +209,7 @@ export function StudioRail() {
         <span className="stu-rl">Needs</span>
         {REAL && needsCount > 0 && <span className="stu-railbadge">{needsCount > 9 ? "9+" : needsCount}</span>}
       </button>
-      <NeedsYouPop open={popOpen} onClose={() => setPopOpen(false)} projects={needsProjects} error={needsError} />
+      <NeedsYouPop open={popOpen} onClose={() => setPopOpen(false)} projects={needsProjects} connections={needsConnections} error={needsError} />
     </nav>
   );
 }
