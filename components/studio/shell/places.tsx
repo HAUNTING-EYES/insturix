@@ -73,10 +73,57 @@ const RAIL_ICONS = {
   ),
 };
 
+type NeedsYouProject = { projectId: string; title: string; status: ProjectStatusPayload };
+
+/** Needs-you slide-over (mockup §16.3 option B): the open decisions queue.
+ *  Rows are pure records from the Slice-2 index — no invented severities. */
+export function NeedsYouPop({ open, onClose, projects, error }: { open: boolean; onClose: () => void; projects: NeedsYouProject[]; error: string | null }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  return (
+    <aside className={`stu-needspop${open ? " on" : ""}`} aria-label="Needs you" aria-hidden={!open}>
+      <div className="stu-needsh">
+        <svg viewBox="0 0 24 24" aria-hidden>
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        <span className="stu-needshlabel">Needs you</span>
+        <span className="stu-mlabel">{projects.length > 0 ? `${projects.length} open` : ""}</span>
+        <button className="stu-needsx" onClick={onClose} aria-label="Close needs you">
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+      <div className="stu-needsbody">
+        {error && <p className="stu-placeerror">couldn&apos;t load the queue ({error})</p>}
+        {!error && projects.length === 0 && <p className="stu-placeempty">nothing needs you right now — anything that does lands here, never silently</p>}
+        {projects.map((p) => (
+          <Link key={p.projectId} href={`/studio/d/${p.projectId}`} className="stu-needsrow" onClick={onClose}>
+            <span className="stu-needstitle">{p.title}</span>
+            <span className="stu-needssub">{p.status.label} — answered in the project chat</span>
+            <span className="stu-needsopen">Open</span>
+          </Link>
+        ))}
+      </div>
+      <div className="stu-needsfoot">nothing publishes or proceeds without you</div>
+    </aside>
+  );
+}
+
 export function StudioRail() {
   const pathname = usePathname();
   const REAL = studioRealTurnsEnabled;
-  const [needsCount, setNeedsCount] = useState<number | null>(null);
+  const [needsProjects, setNeedsProjects] = useState<NeedsYouProject[]>([]);
+  const [needsError, setNeedsError] = useState<string | null>(null);
+  const [popOpen, setPopOpen] = useState(false);
+  const needsCount = needsProjects.length;
 
   useEffect(() => {
     if (!REAL) return;
@@ -84,8 +131,12 @@ export function StudioRail() {
     const poll = () =>
       fetch("/api/studio/projects?attention=needs_you")
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-        .then((d: { projects?: unknown[] }) => alive && setNeedsCount(d.projects?.length ?? 0))
-        .catch(() => alive && setNeedsCount(null));
+        .then((d: { projects?: NeedsYouProject[] }) => {
+          if (!alive) return;
+          setNeedsProjects(d.projects ?? []);
+          setNeedsError(null);
+        })
+        .catch((e: Error) => alive && setNeedsError(e.message));
     poll();
     const t = setInterval(poll, 60_000);
     return () => {
@@ -116,17 +167,20 @@ export function StudioRail() {
       {item("calendar", "/studio/calendar", "Calendar", RAIL_ICONS.calendar)}
       {item("library", "/studio/library", "Library", RAIL_ICONS.library)}
       <div className="stu-railgap" />
-      <Link
-        href="/studio?attention=1"
+      <button
         className="stu-rbtn"
-        title={needsCount == null ? "Needs you — attention items live on Home" : `Needs you — ${needsCount} item${needsCount === 1 ? "" : "s"}`}
+        onClick={() => setPopOpen((v) => !v)}
+        title={REAL ? `Needs you — ${needsCount} item${needsCount === 1 ? "" : "s"}` : "Needs you — attention items appear here in real mode"}
         aria-label="Needs you"
+        aria-haspopup="dialog"
+        aria-expanded={popOpen}
         style={{ position: "relative" }}
       >
         {RAIL_ICONS.bell}
         <span className="stu-rl">Needs</span>
-        {needsCount != null && needsCount > 0 && <span className="stu-railbadge">{needsCount > 9 ? "9+" : needsCount}</span>}
-      </Link>
+        {REAL && needsCount > 0 && <span className="stu-railbadge">{needsCount > 9 ? "9+" : needsCount}</span>}
+      </button>
+      <NeedsYouPop open={popOpen} onClose={() => setPopOpen(false)} projects={needsProjects} error={needsError} />
     </nav>
   );
 }

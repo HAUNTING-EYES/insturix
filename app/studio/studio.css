@@ -320,3 +320,22 @@
 .stu-dayrow .stu-daysub + .stu-chip { margin-left: 0; }
 .stu-placeempty, .stu-placemock, .stu-placeerror { color: var(--muted); font-size: 13px; margin: 0; }
 .stu-placeerror { color: var(--red); }
+
+/* ── needs-you slide-over (Phase 3 slice 2, mockup §16.3 option B) ── */
+.stu-needspop { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; background: var(--raised); border-left: 1px solid var(--bs); z-index: 60; display: flex; flex-direction: column; box-shadow: -18px 0 40px rgba(0,0,0,.4); transform: translateX(105%); transition: transform .28s var(--ease); }
+.stu-needspop.on { transform: translateX(0); }
+.stu-needspop[aria-hidden="true"] { pointer-events: none; }
+.stu-needsh { flex: none; display: flex; align-items: center; gap: 9px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.stu-needsh svg { width: 17px; height: 17px; stroke: var(--gold); fill: none; stroke-width: 1.6; }
+.stu-needshlabel { font-weight: 800; letter-spacing: -.01em; font-size: 15px; }
+.stu-needsh .stu-mlabel { margin-left: 2px; }
+.stu-needsx { margin-left: auto; width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.stu-needsx:hover { color: var(--soft); background: var(--well); }
+.stu-needsx svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.6; }
+.stu-needsbody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.stu-needsrow { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--deeper); text-decoration: none; color: var(--text); transition: border-color .18s var(--ease); }
+.stu-needsrow:hover { border-color: var(--gold); }
+.stu-needstitle { font-weight: 500; font-size: 13.5px; }
+.stu-needssub { color: var(--muted); font-size: 12px; }
+.stu-needsopen { margin-top: 5px; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--gold); }
+.stu-needsfoot { flex: none; padding: 12px 18px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11.5px; }
