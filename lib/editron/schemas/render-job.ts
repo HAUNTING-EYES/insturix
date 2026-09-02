@@ -829,7 +829,8 @@ export const RenderJobSchema = z.object({
     && (
       job.projectRenderSnapshotBinding === undefined
       || job.artifactBinding !== undefined
-      || job.artifactState !== 'STALE'
+      || job.artifactState === undefined
+      || job.artifactState === 'ACTIVE'
       || job.artifactCleanup === undefined
       || job.artifactCleanup.state === 'NOT_REQUIRED'
     )
@@ -837,7 +838,7 @@ export const RenderJobSchema = z.object({
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['projectRenderSourceCleanupOutboxId'],
-      message: 'A render source cleanup handoff requires one stale project-snapshot render.',
+      message: 'A render source cleanup handoff requires one non-active project-snapshot render.',
       params: { code: 'RENDER_SOURCE_CLEANUP_SCOPE_INVALID' },
     });
   }
