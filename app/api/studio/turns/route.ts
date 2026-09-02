@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     /* idempotency (plan §3): one operationId per logical turn — an in-flight
      * or completed claim is refused (409), so a retry can never charge or
      * publish twice; the confirm answer resumes its own claim. */
-    const operationId = request.operationId || `op_${crypto.randomUUID()}`;
+    const operationId = request.operationId || crypto.randomUUID();
     const claim = await claimOperation(project.projectId, operationId, request.text.slice(0, 200), Boolean(request.confirmAcceptedQuoteId));
     if (!claim.ok) {
       return NextResponse.json(

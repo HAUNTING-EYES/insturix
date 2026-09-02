@@ -262,8 +262,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
       lastTextRef.current = text.trim();
       /* one operationId per logical turn — retries and confirm answers reuse
        * it, so the server's claim (409 on in-flight/done) makes double charges
-       * and double publishes impossible */
-      const opId = operationId ?? `op_${crypto.randomUUID()}`;
+       * and double publishes impossible. Plain UUID: the contract requires it */
+      const opId = operationId ?? crypto.randomUUID();
       opIdRef.current = opId;
       setClarifyEv(null);
       setGapEv(null);
