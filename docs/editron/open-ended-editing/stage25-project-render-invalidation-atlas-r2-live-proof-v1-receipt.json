@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "scope": "PROJECT_RENDER_INVALIDATION_ATLAS_R2_LIVE_PROOF",
+  "sourceCommit": "3e3fd4620ea014f14cf3ec7e486c6835e29caab5",
+  "executedAt": "2026-09-02T01:51:00.708Z",
+  "decision": "MODIFY",
+  "atlas": {
+    "status": "PASS",
+    "atlasUri": true,
+    "invalidationStatus": "MATERIALIZED",
+    "fencedArtifactCount": 1,
+    "cleanupDisposition": "CLEANUP_DONE",
+    "replayDisposition": "CLEANUP_DONE",
+    "temporaryFixtureOnly": true,
+    "cleanupVerified": true
+  },
+  "r2": {
+    "status": "BLOCKED",
+    "reason": "NotEntitled",
+    "configured": true,
+    "putSucceeded": false,
+    "cleanupAttempted": true,
+    "cleanupVerified": false
+  },
+  "receiptHash": "99bb54aad9defcb482492d68402f663e914045c8762fd8965ef782fc74fa4fb7"
+}

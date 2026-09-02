@@ -17025,3 +17025,62 @@ under the founder's authorization; (3) implement Queue 6 serially; and (4)
 certify agency verticals serially unless the founder explicitly authorizes
 additional parallel execution. Human-only review remains deferred to the end
 of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4X live lifecycle checkpoint
+
+Commit `3e3fd4620ea014f14cf3ec7e486c6835e29caab5` adds the
+source-bound live lifecycle harness. The committed harness was executed once
+against the configured production-like Atlas/private-R2 bindings. Its
+sanitized immutable result is
+`docs/editron/open-ended-editing/stage25-project-render-invalidation-atlas-r2-live-proof-v1-receipt.json`
+with receipt hash
+`99bb54aad9defcb482492d68402f663e914045c8762fd8965ef782fc74fa4fb7`.
+
+Atlas passed. A unique temporary project, render job and snapshot-invalidation
+outbox were created; the real worker reached `MATERIALIZED`; the exact render
+was fenced; provider-free terminal cleanup reached `CLEANUP_DONE`; replay
+returned the same terminal disposition; and exact cleanup verified every
+temporary Atlas fixture collection at zero rows. This is a real Atlas
+transaction/lifecycle proof for the bounded fixture, not deployed-cron or
+universal mutation-owner proof.
+
+Private R2 did not pass. The configured endpoint returned `NotEntitled` on the
+exact temporary PUT before an object was written. The harness attempted exact
+cleanup, but the same entitlement boundary prevented independent absence
+verification. The receipt therefore records R2 as `BLOCKED`, cleanup as
+unverified and the combined decision as `MODIFY`. No storage reachability or
+private object-lifecycle success is inferred from configuration alone.
+
+No customer row, provider render, provider deletion, wallet, project content,
+historical paid-cohort row or model inference was touched. Deployed cron/index
+presence, private R2 PUT/GET/DELETE, live provider-source deletion and any
+source-backed handling of genuine unbound rows remain open.
+
+The remaining Queue 5 order is now:
+
+1. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations without reopening their
+   closed revision, actor, timebase, range, lock or invalidation checks.
+2. Classify durable invalidation and applicable prerequisites for every
+   remaining direct and specialized ProjectService writer; metadata-only and
+   lease-only owners must explicitly record non-applicability.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, the R2 entitlement allows exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—have source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. The live
+Atlas subclaim is `PASS`; the private-R2/deployment/provider subclaims remain
+`BLOCKED` or unproven. No universal mutation-safety, agency-class
+certification, successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining applicable Queue 5 owners
+serially; (2) run aggregate Queue 5 verification; (3) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
