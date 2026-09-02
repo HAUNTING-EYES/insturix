@@ -16819,3 +16819,136 @@ Queues 3 and 4, which alone may be worked in parallel under the founder's
 current authorization; (5) implement Queue 6 serially; and (6) certify agency
 verticals serially unless the founder explicitly authorizes additional
 parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4U checkpoint
+
+Commits `943d7f3e3`, `5d259593e`, `1d77c2770`, `96f576b3a`,
+`e3e37eb27`, `2eaf28d3d`, `a0084baee` and `2a4e156c0` close the
+remaining checkpoint rollback-receipt replay, generic duration-writer and
+current mutation-actor slices left open by Phase 4T. All listed commits are
+pushed on `infrastructure-improvs-+Editron`.
+
+Rollback can no longer reuse one writer receipt to authorize multiple restore
+attempts. The checkpoint owner binds the receipt to its exact project,
+operation and restored revision, persists replay state, and rejects a replay or
+wrong-scope receipt before project mutation. The corresponding tests require a
+writer-issued receipt rather than a caller-observed revision. The prior
+documentation wording that implied weaker provenance was corrected instead of
+being treated as current truth.
+
+The generic duration-update surface was removed. Duration changes now remain
+with their operation-specific ProjectService writers rather than a helper that
+could bypass the applicable revision, timeline and evidence contract.
+
+Current ProjectService mutation commands, active range locks, checkpoint
+restore inputs and current receipt builders now require explicit `USER`,
+`AGENT` or `SYSTEM` authority. `UNKNOWN_LEGACY_CALLER` remains readable only on
+historical receipts and cannot authorize a current mutation. CAP-2 current
+truth V15 and V16 preserve the preceding receipts while binding the rollback,
+duration and actor-provenance source slices. V16 binds landed commit
+`a0084baee93273a1e1a2b5b0f149870c7182ba03`, the 351-path issuance
+snapshot `6a29ab8986e27f97f123bf945cfbf615abcfd8d9cde09220156d0d639d848ce4`,
+the three-path actor snapshot
+`813f94b4384dffed7d21d14e3644fec2b4212c106e2738a3b3083ea8d2e6a4c1`
+and manifest
+`0f38ac5574486fbc153dae08410434846d7cbbf90c8ac09822b996cd13ece433`.
+V16 is now an immutable historical receipt whose live-source assertion
+correctly reports stale after Phase 4V.
+
+This closes actor and rollback provenance for the covered checkpoint/current
+command paths, not universal Queue 5 prerequisites. Source identity, rights,
+predecessors and durable derivative invalidation remained open at this
+checkpoint, as did remaining specialized ProjectService writer
+classification. No provider call, render, storage spend, wallet mutation,
+project-content edit, paid-cohort rerun or model inference occurred.
+
+Queue 5 remained `ACTIVE_PARTIAL`; Queues 3 and 4 remained `ACTIVE_PARTIAL`;
+Stage 2.5 remained `MODIFY`; Stage 3 remained `BLOCKED_NOT_AUTHORIZED`.
+
+## 2026-09-02 vertical-convergence Phase 4V checkpoint
+
+Commits `f9a3e4e76`, `9d1d338b7`, `3fc0cd4d0` and `d4fe72d1e`
+close the durable whole-project render-invalidation admission, render-job fence
+and whole-state/checkpoint commit-link slice. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The project-snapshot invalidation owner is deliberately separate from the
+existing single-overlay artifact invalidation owner. It issues a hashed exact
+before/after revision receipt for both `RENDERED_PREVIEW` and
+`DELIVERY_PROOF`, creates an inert `AWAITING_PROJECT_COMMIT` outbox, activates
+only from the exact link committed in project history, abandons an uncommitted
+record after its bounded activation window, and advances partial or complete
+materialization through an outbox compare-and-set. A receipt or link must
+advance exactly one project revision.
+
+The render-job schema now stores that exact project-snapshot invalidation link
+only on a non-active job carrying the matching pre-change project-snapshot
+binding and pending cleanup. The materializer scans the full active
+owner/project render domain, including nonterminal legacy jobs without an
+artifact-state marker. It fences only exact pre-change whole-project bindings,
+keeps terminal jobs as `HISTORY_ONLY`, marks nonterminal jobs `STALE`, preserves
+another revision, recognizes an exact CAS race replay, and refuses to report a
+derivative class resolved when an active legacy, malformed, single-overlay or
+lost-CAS row remains unresolved. This is conservative shared downstream
+plumbing, not convergence of the overlay and project-snapshot invalidation
+owners.
+
+Manual save, autosave and checkpoint restore now pre-enqueue the inert outbox
+after validation and lock checks but before the project compare-and-set. A
+failed enqueue aborts with zero project mutation. A losing project CAS leaves
+only an inert record that cannot activate without a committed link and can be
+abandoned. A successful project CAS appends the exact invalidation identity to
+the same timeline receipt that advances the project revision. The protected
+proxy source pins survive the whole-state path unchanged.
+
+Focused verification passed the 37-test render materializer/contract closure,
+the 128-test ProjectService save/checkpoint/proxy regression closure, 35
+adjacent ProjectService/conflict tests and the 17-test V16/V17 audit chain.
+Targeted quiet ESLint, repeated full 8-GB TypeScript checks and
+`git diff --check` passed before the corresponding pushes. No provider call,
+render, storage spend, wallet mutation, project-content edit, paid-cohort rerun
+or model inference occurred.
+
+CAP-2 current truth V17 chains immutable V16 and binds landed commit
+`3fc0cd4d06d11954bba97ab632b309c82b2f1516`, the 351-path issuance
+snapshot `14fbd283f631d96822b7084a7c5a42a6691214b5948309f5b76c3fb3b0674521`,
+the nine-path invalidation snapshot
+`f33482feec7195611afd8af143f8202a3694a6a43b9dcc38caed895f08af796f`
+and manifest
+`83e24664e75599440c95068e4831d77ab9d30a1aab8ff2f3dd440e741069570d`.
+It explicitly grants no catalog promotion, runtime planner authority, Stage
+2.5 `GO` or Stage 3 authorization.
+
+This closes durable invalidation admission and commit binding for whole-state
+save/autosave/checkpoint plus exact render-job fencing; it does not close the
+full materialization/recovery loop or universal Queue 5. The remaining Queue 5
+work is now:
+
+1. Implement the worker that reads the committed timeline link, activates the
+   outbox, fences exact render jobs, persists partial progress and reaches
+   `MATERIALIZED` only when both derivative classes are resolved.
+2. Complete cleanup retention, retry/recovery and legacy-safe migration for
+   active unbound render jobs; prove the real Atlas/R2 lifecycle rather than
+   only local collection contracts.
+3. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations. Their revision, actor,
+   timebase, range, Director lease, timeline-lock and invalidation admission
+   checks are now present and must not be reopened.
+4. Add durable invalidation and applicable prerequisite classification to the
+   remaining direct and specialized ProjectService writer families. Metadata-
+   only and lease-only writers must explicitly mark media dimensions
+   non-applicable rather than fabricate evidence.
+5. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 closed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the five Queue 5 items above serially;
+(2) return to unfinished Queues 3 and 4, which alone may be worked in parallel
+under the founder's authorization; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly authorizes
+additional parallel execution. Human-only review remains deferred to the end
+of the authorized technical queue.
