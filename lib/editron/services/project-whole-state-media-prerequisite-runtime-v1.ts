@@ -1,4 +1,5 @@
 import type { Db } from 'mongodb';
+import { z } from 'zod';
 
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 
@@ -28,6 +29,16 @@ export interface ProjectWholeStateMediaPrerequisiteLinkV1 {
   mediaEntryCount: number;
 }
 
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
+const prerequisiteLinkSchema = z.object({
+  status: z.literal('MATERIALIZED'),
+  collection: z.literal(PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1),
+  receiptSha256: sha256,
+  candidateMediaSetSha256: sha256,
+  candidateMediaContentSha256: sha256,
+  mediaEntryCount: z.number().int().nonnegative().max(100_000),
+}).strict();
+
 type StoredMediaAssetDocumentV1 = Record<string, unknown> & { assetId: string };
 type StoredPrerequisiteReceiptDocumentV1 = {
   _id: string;
@@ -55,7 +66,7 @@ export function projectWholeStateMediaPrerequisiteLinkV1(
   value: unknown,
 ): ProjectWholeStateMediaPrerequisiteLinkV1 {
   const receipt = assertProjectWholeStateMediaPrerequisiteReceiptV1(value);
-  return Object.freeze({
+  return assertProjectWholeStateMediaPrerequisiteLinkV1({
     status: 'MATERIALIZED',
     collection: PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
     receiptSha256: receipt.receiptSha256,
@@ -63,6 +74,34 @@ export function projectWholeStateMediaPrerequisiteLinkV1(
     candidateMediaContentSha256: receipt.candidateMediaContentSha256,
     mediaEntryCount: receipt.mediaEntries.length,
   });
+}
+
+export function assertProjectWholeStateMediaPrerequisiteLinkV1(
+  value: unknown,
+): ProjectWholeStateMediaPrerequisiteLinkV1 {
+  return Object.freeze(prerequisiteLinkSchema.parse(value));
+}
+
+export async function loadProjectWholeStateMediaPrerequisiteByLinkV1(
+  value: unknown,
+  db: Db,
+): Promise<ProjectWholeStateMediaPrerequisiteReceiptV1> {
+  if (!db || typeof db.collection !== 'function') {
+    throw new Error('PROJECT_WHOLE_STATE_MEDIA_DATABASE_INVALID');
+  }
+  const link = assertProjectWholeStateMediaPrerequisiteLinkV1(value);
+  const stored = await db.collection<StoredPrerequisiteReceiptDocumentV1>(
+    PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
+  ).findOne({ _id: link.receiptSha256 });
+  if (!stored) {
+    throw new Error('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_NOT_FOUND');
+  }
+  const receipt = assertProjectWholeStateMediaPrerequisiteReceiptV1(stored.receipt);
+  if (canonicalizeEditronJsonV1(projectWholeStateMediaPrerequisiteLinkV1(receipt))
+    !== canonicalizeEditronJsonV1(link)) {
+    throw new Error('PROJECT_WHOLE_STATE_MEDIA_LINK_MISMATCH');
+  }
+  return receipt;
 }
 
 export async function materializeProjectWholeStateMediaPrerequisiteV1(

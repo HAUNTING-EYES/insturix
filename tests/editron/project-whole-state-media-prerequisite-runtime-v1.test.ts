@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createProjectWholeStateMediaPrerequisiteMongoPortsV1,
+  loadProjectWholeStateMediaPrerequisiteByLinkV1,
   materializeProjectWholeStateMediaPrerequisiteV1,
   projectWholeStateMediaPrerequisiteLinkV1,
   PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
@@ -96,5 +97,41 @@ describe('project whole-state media prerequisite runtime V1', () => {
     };
     await expect(ports.storeReceipt(receipt))
       .rejects.toThrow('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_PERSISTED_MISMATCH');
+  });
+
+  it('loads only an authentic receipt whose compact link matches every sealed field', async () => {
+    const receipt = await materializeProjectWholeStateMediaPrerequisiteV1(INPUT, {
+      loadAssets: vi.fn(async () => []),
+      authorizeSourceRights: vi.fn(async () => ({
+        disposition: 'BLOCKED' as const,
+        diagnosticCode: 'UNUSED',
+      })),
+      verifyAudioRights: vi.fn(async () => undefined),
+      now: () => NOW,
+      storeReceipt: vi.fn(async () => undefined),
+    });
+    const link = projectWholeStateMediaPrerequisiteLinkV1(receipt);
+    let storedReceipt: {
+      _id: string;
+      receipt: typeof receipt;
+      createdAt: Date;
+    } | null = {
+      _id: receipt.receiptSha256,
+      receipt,
+      createdAt: NOW,
+    };
+    const findOne = vi.fn(async () => storedReceipt);
+    const db = { collection: vi.fn(() => ({ findOne })) } as never;
+
+    await expect(loadProjectWholeStateMediaPrerequisiteByLinkV1(link, db))
+      .resolves.toEqual(receipt);
+    await expect(loadProjectWholeStateMediaPrerequisiteByLinkV1({
+      ...link,
+      candidateMediaContentSha256: 'f'.repeat(64),
+    }, db)).rejects.toThrow('PROJECT_WHOLE_STATE_MEDIA_LINK_MISMATCH');
+
+    storedReceipt = null;
+    await expect(loadProjectWholeStateMediaPrerequisiteByLinkV1(link, db))
+      .rejects.toThrow('PROJECT_WHOLE_STATE_MEDIA_RECEIPT_NOT_FOUND');
   });
 });
