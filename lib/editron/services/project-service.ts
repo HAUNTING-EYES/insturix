@@ -114,7 +114,6 @@ import {
   type OverlaySaveAuthority,
 } from "@/lib/editron/shared/project-save-payload";
 import { orgMemberService } from "@/lib/services/orgMemberService";
-import { removeProjectFromLinks } from "@/lib/shared/project-links";
 import { isOrgWalletBillingEnabled } from "@/lib/services/org-wallet-flag";
 import { resolveCreationVisibility } from "./project-ownership";
 import type {
@@ -206,6 +205,11 @@ import {
   type ProjectRenderSnapshotInvalidationLinkV1,
   type ProjectRenderSnapshotInvalidationOutboxCollectionV1,
 } from "./project-render-snapshot-invalidation-v1";
+import {
+  PROJECT_DELETION_TOMBSTONES_COLLECTION_V1,
+  commitProjectDeletionV1,
+  type ProjectDeletionCommitResultV1,
+} from "./project-deletion-v1";
 import {
   loadProjectWholeStateMediaPrerequisiteByLinkV1,
   materializeProjectWholeStateMediaPrerequisiteInMongoV1,
@@ -8687,7 +8691,8 @@ export class ProjectService {
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
-      | "RECONCILE_PROJECT_DURATION";
+      | "RECONCILE_PROJECT_DURATION"
+      | "DELETE_PROJECT";
     beforeRevision: ProjectRevisionV1;
     afterRevision: ProjectRevisionV1;
     committedAt: Date;
@@ -9214,41 +9219,91 @@ export class ProjectService {
   /**
    * Delete project
    */
-  async deleteProject(userId: string, projectId: string): Promise<void> {
-    const db = await getDatabase();
-
-    // Verify ownership before deleting
-    const project = await db
-      .collection(COLLECTIONS.PROJECTS)
-      .findOne({ projectId });
-    if (!project) {
-      throw new Error("Project not found");
+  async deleteProject(
+    userId: string,
+    projectId: string,
+    expectedRevision?: ProjectRevisionV1,
+  ): Promise<ProjectDeletionCommitResultV1> {
+    if (!isBoundedNonEmptyStringV1(userId, 200)
+      || !isBoundedNonEmptyStringV1(projectId, 200)) {
+      throw new ProjectNotFoundOrForbiddenError();
     }
-    if (project.userId !== userId) {
-      throw new Error(
-        "Unauthorized: Cannot delete project owned by another user",
-      );
+    if (expectedRevision) assertProjectRevision(expectedRevision);
+    const { client, db } = await connectToDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    }, {
+      projection: { projectRevision: 1, updatedAt: 1 },
+    })) as Pick<Project, "projectRevision" | "updatedAt"> | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const beforeRevision = projectRevisionFor(project);
+    if (expectedRevision && !sameProjectRevisionV1(expectedRevision, beforeRevision)) {
+      throw new ProjectMutationConflictError(beforeRevision);
     }
-
-    // Delete project
-    await db.collection(COLLECTIONS.PROJECTS).deleteOne({ projectId });
-
-    // Delete associated checkpoints
-    await db.collection(COLLECTIONS.CHECKPOINTS).deleteMany({ projectId });
-
-    // Delete associated chat sessions
-    await db.collection(COLLECTIONS.CHAT_SESSIONS).deleteMany({ projectId });
-
-    // Clean up project links (fail-open — link cleanup failure must not block delete)
+    const deletedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: beforeRevision.value + 1,
+      compatibilityUpdatedAt: deletedAt.toISOString(),
+    };
+    const invalidation = await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+      ownerId: userId,
+      projectId,
+      operation: "DELETE_PROJECT",
+      beforeRevision,
+      afterRevision,
+      committedAt: deletedAt,
+      db,
+    });
+    const session = client.startSession();
     try {
-      await removeProjectFromLinks(userId, projectId);
-    } catch (linkErr: any) {
-      console.error(
-        `[deleteProject] Link cleanup failed for ${projectId}: ${linkErr.message}`,
-      );
+      const result = await session.withTransaction(async () => (
+        commitProjectDeletionV1({
+          ownerId: userId,
+          projectId,
+          beforeRevision,
+          afterRevision,
+          invalidation,
+          projectCollection: db.collection(COLLECTIONS.PROJECTS),
+          checkpointCollection: db.collection(COLLECTIONS.CHECKPOINTS),
+          chatSessionCollection: db.collection(COLLECTIONS.CHAT_SESSIONS),
+          projectLinkCollection: db.collection(COLLECTIONS.PROJECT_LINKS),
+          tombstoneCollection: db.collection(PROJECT_DELETION_TOMBSTONES_COLLECTION_V1),
+          session,
+          now: deletedAt,
+        })
+      ), {
+        readConcern: { level: "snapshot" },
+        writeConcern: { w: "majority" },
+        readPreference: "primary",
+      });
+      if (!result) {
+        throw new ProjectMutationWriteError("Project deletion transaction returned no result.");
+      }
+      this.publishMutationReceipt({
+        schemaVersion: 1,
+        projectId,
+        revision: afterRevision,
+        committedAt: deletedAt.toISOString(),
+      });
+      return result;
+    } catch (error) {
+      if (error instanceof Error
+        && error.message === "PROJECT_DELETION_PROJECT_NOT_CURRENT") {
+        const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+          projectId,
+          userId,
+        }, {
+          projection: { projectRevision: 1, updatedAt: 1 },
+        })) as Pick<Project, "projectRevision" | "updatedAt"> | null;
+        if (latest) throw new ProjectMutationConflictError(projectRevisionFor(latest));
+        throw new ProjectNotFoundOrForbiddenError();
+      }
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    // Note: We don't delete media assets as they might be shared across projects
   }
 
   /**

@@ -23,6 +23,8 @@ import { PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
 import { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 }
   from '@/lib/editron/services/project-whole-state-media-prerequisite-persistence-v1';
+import { PROJECT_DELETION_TOMBSTONES_COLLECTION_V1 }
+  from '@/lib/editron/services/project-deletion-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -89,6 +91,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   PROJECT_RENDER_JOBS: 'editron_render_jobs',
+  PROJECT_DELETION_TOMBSTONES: PROJECT_DELETION_TOMBSTONES_COLLECTION_V1,
   PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES:
     PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
   CHAPTER_RENDER_CHAPTERS: CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1,
@@ -201,6 +204,16 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Durable whole-project deletion receipts. Never TTL-delete audit proof.
+  await db.collection(COLLECTIONS.PROJECT_DELETION_TOMBSTONES).createIndexes([
+    {
+      key: { ownerId: 1, projectId: 1 },
+      name: 'project_deletion_owner_project_unique_v1',
+      unique: true,
+    },
+    { key: { deletedAt: -1, _id: 1 }, name: 'project_deletion_time_v1' },
   ]);
 
   // Provider render outputs that became stale after dispatch are deleted by a
