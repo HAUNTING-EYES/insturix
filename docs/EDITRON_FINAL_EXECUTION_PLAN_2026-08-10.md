@@ -17157,3 +17157,70 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4Z direct-overlay invalidation checkpoint
+
+Commits `1ad282f9e` and `ab0fac9c3` close durable project-snapshot
+invalidation admission for the caller-bound `ADD_OVERLAY`, `UPDATE_OVERLAY`
+and `DELETE_OVERLAY` ProjectService writers. Both commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+Each writer now validates its current revision, exact affected range and
+overlapping timeline locks, computes the next revision, durably inserts the
+content-addressed invalidation outbox row, binds that exact before/after link
+into the timeline mutation receipt and only then attempts the project CAS. A
+crash after project commit therefore leaves recoverable invalidation work; an
+outbox persistence failure prevents the project mutation. The existing worker
+continues to decide whether the pre-admitted row activates or is abandoned
+after observing the committed project receipt.
+
+The invalidation is intentionally project-snapshot-wide. It safely prevents
+old rendered previews and delivery proofs from surviving a direct overlay
+change, but it is not claimed as efficient range-cache invalidation. Deletion
+does not require fresh source or rights authorization merely to remove media;
+addition and update still require their operation-specific media-prerequisite
+binding before that part of Queue 5 can close.
+
+The real ProjectService conflict proof now requires the exact durable
+`UPDATE_OVERLAY` invalidation link while continuing to report
+`CUT_TIMELINE_RANGE` as unmaterialized. Its multi-project persistence harness
+models per-project invalidation outboxes and duplicate-key behavior instead of
+mocking the new owner away. The direct-writer regression separately proves
+all three outbox inserts occur before their corresponding project updates.
+
+Focused verification passed 84/84 conflict/range/direct-writer tests and the
+62/62 save-payload suite. Targeted quiet ESLint, full 8-GB TypeScript and
+`git diff --check` passed before the pushes. No provider call, render, storage
+spend, wallet mutation, customer project edit, historical paid-cohort rerun or
+model inference occurred.
+
+This is not universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Bind operation-specific source, rights, audio and predecessor prerequisites
+   to direct media-bearing addition/update and then continue durable
+   invalidation plus applicable revision/range/lock/prerequisite classification
+   across the remaining specialized ProjectService writers. Metadata-only,
+   analysis-only and lease-only owners must explicitly record
+   non-applicability rather than fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state prerequisite
+   receipts and an authoritative legacy checkpoint migration/recapture rule;
+   never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
