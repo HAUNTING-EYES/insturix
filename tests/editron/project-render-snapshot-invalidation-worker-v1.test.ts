@@ -9,6 +9,10 @@ import {
   createPendingRenderJob,
   type RenderJob,
 } from "@/lib/editron/schemas/render-job";
+import { hashEditronCanonicalJsonV1 }
+  from "@/lib/editron/services/canonical-json-v1";
+import type { ProjectDeletionTombstoneV1 }
+  from "@/lib/editron/services/project-deletion-v1";
 import {
   createProjectRenderSnapshotBindingV1,
 } from "@/lib/editron/services/project-render-snapshot-binding-v1";
@@ -73,6 +77,47 @@ function projectWithLink(): ProjectRenderSnapshotInvalidationProjectDocumentV1 {
       },
     }],
   };
+}
+
+function deletionTombstone(): ProjectDeletionTombstoneV1 {
+  const receipt = makeReceipt("DELETE_PROJECT");
+  const invalidation = projectRenderSnapshotInvalidationLinkV1(receipt);
+  const identityHash = hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    scope: "PROJECT_DELETION",
+    operation: "DELETE_PROJECT",
+    ownerId: OWNER_ID,
+    projectId: PROJECT_ID,
+    beforeRevision: BEFORE,
+    afterRevision: AFTER,
+    projectRenderSnapshotInvalidation: invalidation,
+  });
+  const tombstoneId = `project-deletion_${identityHash}`;
+  const unsigned = {
+    _id: tombstoneId,
+    schemaVersion: 1 as const,
+    tombstoneId,
+    scope: "PROJECT_DELETION" as const,
+    ownerId: OWNER_ID,
+    projectId: PROJECT_ID,
+    operation: "DELETE_PROJECT" as const,
+    beforeRevision: BEFORE,
+    afterRevision: AFTER,
+    projectRenderSnapshotInvalidation: invalidation,
+    cleanup: {
+      project: { state: "DELETED" as const, deletedCount: 1 },
+      checkpoints: { state: "DELETED" as const, deletedCount: 2 },
+      chatSessions: { state: "DELETED" as const, deletedCount: 1 },
+      projectLinks: { state: "REMOVED" as const, modifiedCount: 1 },
+      sharedMedia: { state: "PRESERVED_SHARED" as const },
+      renderArtifacts: {
+        state: "PENDING_DURABLE_INVALIDATION" as const,
+        invalidationId: invalidation.invalidationId,
+      },
+    },
+    deletedAt: AFTER.compatibilityUpdatedAt,
+  };
+  return { ...unsigned, receiptHash: hashEditronCanonicalJsonV1(unsigned) };
 }
 
 class MemoryOutboxes implements ProjectRenderSnapshotInvalidationOutboxCollectionV1 {
@@ -193,11 +238,15 @@ function input(
   renders: MemoryRenders,
   project: ProjectRenderSnapshotInvalidationProjectDocumentV1 | null,
   now = NOW,
+  tombstone: ProjectDeletionTombstoneV1 | null = null,
 ) {
   return {
     outboxId: outboxes.current.outboxId,
     outboxCollection: outboxes,
     projectCollection: { findOne: async () => structuredClone(project) },
+    deletionTombstoneCollection: {
+      findOne: async () => structuredClone(tombstone),
+    },
     renderJobCollection: renders as unknown as Collection<RenderJob>,
     now,
   };
@@ -266,6 +315,20 @@ describe("project render snapshot invalidation worker V1", () => {
       input(outboxes, new MemoryRenders([]), project),
     );
     expect(result).toMatchObject({ status: "MATERIALIZED", commitLinkFound: true });
+  });
+
+  it("activates project deletion only from its exact durable tombstone", async () => {
+    const outboxes = outboxesFor("DELETE_PROJECT");
+    const result = await runProjectRenderSnapshotInvalidationWorkerV1(
+      input(outboxes, new MemoryRenders([]), null, NOW, deletionTombstone()),
+    );
+    expect(result).toMatchObject({ status: "MATERIALIZED", commitLinkFound: true });
+
+    const forged = deletionTombstone();
+    forged.receiptHash = "f".repeat(64);
+    await expect(runProjectRenderSnapshotInvalidationWorkerV1(
+      input(outboxesFor("DELETE_PROJECT"), new MemoryRenders([]), null, NOW, forged),
+    )).rejects.toThrow("PROJECT_DELETION_TOMBSTONE_HASH_MISMATCH");
   });
 
   it("waits for a commit before expiry and abandons only after expiry", async () => {

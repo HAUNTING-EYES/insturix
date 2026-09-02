@@ -1,6 +1,9 @@
 import { COLLECTIONS, getDatabase } from "../db/mongodb";
 import type { RenderJob } from "../schemas/render-job";
 import {
+  PROJECT_DELETION_TOMBSTONES_COLLECTION_V1,
+} from "./project-deletion-v1";
+import {
   PROJECT_RENDER_JOBS_COLLECTION_V1,
 } from "./render-job-service";
 import {
@@ -11,6 +14,7 @@ import {
 } from "./project-render-snapshot-invalidation-v1";
 import {
   runProjectRenderSnapshotInvalidationWorkerV1,
+  type ProjectRenderSnapshotInvalidationDeletionTombstoneCollectionV1,
   type ProjectRenderSnapshotInvalidationProjectCollectionV1,
   type ProjectRenderSnapshotInvalidationWorkerResultV1,
 } from "./project-render-snapshot-invalidation-worker-v1";
@@ -93,6 +97,9 @@ export async function sweepProjectRenderSnapshotInvalidationRecoveryV1(input: {
       outboxCollection,
       projectCollection: db!.collection(COLLECTIONS.PROJECTS) as unknown as
         ProjectRenderSnapshotInvalidationProjectCollectionV1,
+      deletionTombstoneCollection: db!.collection(
+        PROJECT_DELETION_TOMBSTONES_COLLECTION_V1,
+      ) as unknown as ProjectRenderSnapshotInvalidationDeletionTombstoneCollectionV1,
       renderJobCollection: db!.collection<RenderJob>(PROJECT_RENDER_JOBS_COLLECTION_V1),
       now: workerNow,
     })

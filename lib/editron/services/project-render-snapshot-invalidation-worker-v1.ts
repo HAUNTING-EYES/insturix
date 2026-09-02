@@ -2,6 +2,10 @@ import type { Collection } from "mongodb";
 
 import type { RenderJob } from "../schemas/render-job";
 import {
+  assertProjectDeletionTombstoneV1,
+  type ProjectDeletionTombstoneV1,
+} from "./project-deletion-v1";
+import {
   ProjectArtifactProjectRevisionSchema,
   sameProjectArtifactRevisionV1,
 } from "./project-artifact-invalidation-v1";
@@ -37,10 +41,18 @@ export interface ProjectRenderSnapshotInvalidationProjectCollectionV1 {
   ): Promise<ProjectRenderSnapshotInvalidationProjectDocumentV1 | null>;
 }
 
+export interface ProjectRenderSnapshotInvalidationDeletionTombstoneCollectionV1 {
+  findOne(
+    filter: Record<string, unknown>,
+  ): Promise<ProjectDeletionTombstoneV1 | null>;
+}
+
 export interface ProjectRenderSnapshotInvalidationWorkerInputV1 {
   outboxId: string;
   outboxCollection: ProjectRenderSnapshotInvalidationOutboxCollectionV1;
   projectCollection: ProjectRenderSnapshotInvalidationProjectCollectionV1;
+  deletionTombstoneCollection?:
+    ProjectRenderSnapshotInvalidationDeletionTombstoneCollectionV1;
   renderJobCollection: Collection<RenderJob>;
   now?: Date;
 }
@@ -177,6 +189,33 @@ function assertCommittedReceiptBasisV1(input: {
   }
 }
 
+function committedLinkFromDeletionTombstoneV1(
+  tombstone: ProjectDeletionTombstoneV1 | null,
+  outbox: ProjectRenderSnapshotInvalidationOutboxV1,
+): ProjectRenderSnapshotInvalidationLinkV1 | undefined {
+  if (!tombstone) return undefined;
+  assertProjectDeletionTombstoneV1(tombstone);
+  if (
+    outbox.receipt.operation !== "DELETE_PROJECT"
+    || tombstone.operation !== "DELETE_PROJECT"
+    || tombstone.ownerId !== outbox.receipt.ownerId
+    || tombstone.projectId !== outbox.receipt.projectId
+    || tombstone.deletedAt !== outbox.receipt.afterRevision.compatibilityUpdatedAt
+    || !sameProjectArtifactRevisionV1(
+      tombstone.beforeRevision,
+      outbox.receipt.beforeRevision,
+    )
+    || !sameProjectArtifactRevisionV1(
+      tombstone.afterRevision,
+      outbox.receipt.afterRevision,
+    )
+    || tombstone.projectRenderSnapshotInvalidation.invalidationId !== outbox.outboxId
+    || tombstone.projectRenderSnapshotInvalidation.receiptHash
+      !== outbox.receipt.receiptHash
+  ) fail("DELETION_TOMBSTONE_MISMATCH");
+  return structuredClone(tombstone.projectRenderSnapshotInvalidation);
+}
+
 async function persistTransitionOrReadWinnerV1(input: {
   expected: ProjectRenderSnapshotInvalidationOutboxV1;
   next: ProjectRenderSnapshotInvalidationOutboxV1;
@@ -229,7 +268,21 @@ export async function runProjectRenderSnapshotInvalidationWorkerV1(
       projectId: current.receipt.projectId,
       userId: current.receipt.ownerId,
     });
-    const committedLink = committedLinkFromProjectV1(project, current);
+    const projectLink = committedLinkFromProjectV1(project, current);
+    let deletionLink: ProjectRenderSnapshotInvalidationLinkV1 | undefined;
+    if (current.receipt.operation === "DELETE_PROJECT") {
+      if (!input.deletionTombstoneCollection) {
+        fail("DELETION_TOMBSTONE_COLLECTION_REQUIRED");
+      }
+      const tombstone = await input.deletionTombstoneCollection.findOne({
+        ownerId: current.receipt.ownerId,
+        projectId: current.receipt.projectId,
+        "projectRenderSnapshotInvalidation.invalidationId": current.outboxId,
+      });
+      deletionLink = committedLinkFromDeletionTombstoneV1(tombstone, current);
+    }
+    if (projectLink && deletionLink) fail("COMMIT_LINK_NOT_UNIQUE");
+    const committedLink = projectLink ?? deletionLink;
     commitLinkFound = committedLink !== undefined;
     const activated = activateProjectRenderSnapshotInvalidationOutboxV1({
       outbox: current,
