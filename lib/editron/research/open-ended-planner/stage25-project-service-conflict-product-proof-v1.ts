@@ -450,6 +450,7 @@ async function proveStaleEvidenceBlocks(
     input.owner.prepareProjectGeneratedCompositionV1(input.userId, projectId, {
       kind: 'INSERT',
       expectedRevision: initial.revision,
+      actorKind: 'AGENT',
       draft,
     })
   ));
@@ -461,6 +462,7 @@ async function proveStaleEvidenceBlocks(
     input.owner.prepareProjectGeneratedCompositionV1(input.userId, projectId, {
       kind: 'REVISE',
       expectedRevision: insert.value.receipt.revision,
+      actorKind: 'AGENT',
       expectedBaseStateToken: FORGED_STATE_TOKEN,
       draft,
     })
@@ -475,6 +477,7 @@ async function proveStaleEvidenceBlocks(
     input.owner.prepareProjectGeneratedCompositionV1(input.userId, projectId, {
       kind: 'REVISE',
       expectedRevision: insert.value.receipt.revision,
+      actorKind: 'AGENT',
       expectedBaseStateToken: currentToken,
       draft,
     })

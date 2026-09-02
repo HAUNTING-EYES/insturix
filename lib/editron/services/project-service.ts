@@ -384,6 +384,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "REPLACE_BACKGROUND_MUSIC"
   | "ALIGN_CUTS_TO_BEATS"
   | "COMMIT_MG_RENDER_DELIVERY"
+  | "FINALIZE_GENERATED_COMPOSITION"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -776,23 +777,27 @@ export type ProjectGeneratedCompositionPrepareCommandV1 =
   | {
       kind: "INSERT";
       expectedRevision: ProjectRevisionV1;
+      actorKind: ProjectTimelineMutationActorKindV1;
       draft: ProjectGeneratedCompositionDraftV1;
     }
   | {
       kind: "REVISE";
       expectedRevision: ProjectRevisionV1;
+      actorKind: ProjectTimelineMutationActorKindV1;
       expectedBaseStateToken: string;
       draft: ProjectGeneratedCompositionDraftV1;
     };
 
 export interface ProjectGeneratedCompositionFinalizeCommandV1 {
   expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineMutationActorKindV1;
   terminalState: ProjectGeneratedCompositionStateV1;
 }
 
 export interface ProjectGeneratedCompositionMutationResultV1 {
   entry: ProjectGeneratedCompositionEntryV1;
   receipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 | null;
 }
 
 export type ProjectAudioRightsAttestationKindV1 =
@@ -5088,6 +5093,7 @@ export class ProjectService {
     command: ProjectGeneratedCompositionPrepareCommandV1,
   ): Promise<ProjectGeneratedCompositionMutationResultV1> {
     assertProjectRevision(command.expectedRevision);
+    assertProjectTimelineMutationActorKindV1(command.actorKind);
     const draft = parseProjectGeneratedCompositionDraftV1(command.draft);
     const expectedBaseStateToken = command.kind === "REVISE"
       ? parseProjectGeneratedCompositionStateTokenV1(
@@ -5132,6 +5138,28 @@ export class ProjectService {
         currentRevision,
       );
     }
+    const committedAt = new Date();
+    const candidateFrameRange = assertProjectGeneratedCompositionAdmissionV1(
+      project,
+      draft,
+    );
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before preparing generated composition state.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      committedAt,
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(lock.frameRange, candidateFrameRange));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the generated composition candidate.",
+      );
+    }
 
     const pendingState = createPendingProjectGeneratedCompositionStateV1(
       projectId,
@@ -5144,7 +5172,6 @@ export class ProjectService {
       activeState: currentEntry?.activeState ?? null,
       candidateState: pendingState,
     });
-    const committedAt = new Date();
     const update: Record<string, unknown> = command.kind === "INSERT"
       ? {
           $push: { generatedCompositions: nextEntry },
@@ -5205,7 +5232,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
-    return { entry: nextEntry, receipt };
+    return { entry: nextEntry, receipt, timelineChangeReceipt: null };
   }
 
   /**
@@ -5219,6 +5246,7 @@ export class ProjectService {
     command: ProjectGeneratedCompositionFinalizeCommandV1,
   ): Promise<ProjectGeneratedCompositionMutationResultV1> {
     assertProjectRevision(command.expectedRevision);
+    assertProjectTimelineMutationActorKindV1(command.actorKind);
     const terminalState = parseProjectGeneratedCompositionStateV1(
       command.terminalState,
     );
@@ -5278,6 +5306,80 @@ export class ProjectService {
         : terminalState,
     });
     const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: command.expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    let timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 | null = null;
+    if (terminalState.verificationDisposition === "PASS") {
+      const afterFrameRange = assertProjectGeneratedCompositionAdmissionV1(
+        project,
+        terminalState,
+      );
+      const beforeFrameRange = currentEntry?.activeState
+        ? assertProjectGeneratedCompositionAdmissionV1(project, currentEntry.activeState)
+        : null;
+      if (hasActiveDirectorMutationLeaseV1(project)) {
+        throw new ProjectMutationConflictError(
+          currentRevision,
+          "The project is locked by an active Director mutation. Reload before promoting generated composition state.",
+        );
+      }
+      const writeFrameRangesBefore = canonicalTimelineFrameRangesV1([
+        ...(beforeFrameRange ? [beforeFrameRange] : []),
+        afterFrameRange,
+      ]);
+      const blockingLocks = activeTimelineRangeCutLocksV1(
+        readTimelineRangeCutLocksV1(project),
+        committedAt,
+      ).filter((lock) => writeFrameRangesBefore.some((frameRange) => (
+        frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+      )));
+      if (blockingLocks.length > 0) {
+        throw new ProjectTimelineRangeCutLockConflictError(
+          currentRevision,
+          [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+          "An active timeline range lock overlaps generated composition promotion.",
+        );
+      }
+      const wholeStateMediaPrerequisite =
+        await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+          operation: "FINALIZE_GENERATED_COMPOSITION",
+          tenantId: project.orgId ?? project.userId,
+          userId,
+          projectOwnerId: project.userId,
+          orgId: project.orgId ?? null,
+          projectId,
+          projectRevision: currentRevision,
+          overlays: [],
+        }, db, COLLECTIONS.MEDIA_ASSETS);
+      const projectRenderSnapshotInvalidation =
+        await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+          ownerId: userId,
+          projectId,
+          operation: "FINALIZE_GENERATED_COMPOSITION",
+          beforeRevision: currentRevision,
+          afterRevision,
+          committedAt,
+          db,
+        });
+      timelineChangeReceipt = createGeneratedCompositionFinalizationTimelineChangeReceiptV1({
+        receiptId: `timeline-generated-composition_${nanoid(18)}`,
+        projectId,
+        actorKind: command.actorKind,
+        fps: project.fps,
+        beforeProjectRevision: currentRevision,
+        afterProjectRevision: afterRevision,
+        committedAt: committedAt.toISOString(),
+        compositionId: terminalState.compositionId,
+        beforeFrameRange,
+        afterFrameRange,
+        projectRenderSnapshotInvalidation,
+        wholeStateMediaPrerequisite:
+          projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
+      });
+    }
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -5297,6 +5399,16 @@ export class ProjectService {
           updatedAt: committedAt,
         },
         $inc: { projectRevision: 1 },
+        ...(timelineChangeReceipt
+          ? {
+              $push: {
+                timelineRangeChangeReceipts: {
+                  $each: [timelineChangeReceipt],
+                  $slice: -200,
+                } as never,
+              },
+            }
+          : {}),
       },
       {
         arrayFilters: [{
@@ -5319,15 +5431,11 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
-      revision: {
-        schemaVersion: 1,
-        value: command.expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
-    return { entry: nextEntry, receipt };
+    return { entry: nextEntry, receipt, timelineChangeReceipt };
   }
 
   private async throwProjectGeneratedCompositionConflictV1(
@@ -8482,6 +8590,7 @@ export class ProjectService {
       | "REPLACE_BACKGROUND_MUSIC"
       | "ALIGN_CUTS_TO_BEATS"
       | "COMMIT_MG_RENDER_DELIVERY"
+      | "FINALIZE_GENERATED_COMPOSITION"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -14902,6 +15011,112 @@ function currentProjectGeneratedCompositionStateTokenV1(
     );
   }
   return state.stateIdentity.token;
+}
+
+function assertProjectGeneratedCompositionAdmissionV1(
+  project: Project,
+  state: Pick<
+    ProjectGeneratedCompositionDraftV1,
+    | "compositionId"
+    | "placement"
+    | "canvas"
+    | "sourceBindings"
+    | "dependencyBindings"
+    | "fontBindings"
+  >,
+): TimelineFrameRangeV1 {
+  if (!isProjectTimelineFpsV1(project.fps)
+    || !Number.isSafeInteger(project.durationInFrames)
+    || project.durationInFrames <= 0
+    || state.placement.projectTimebase.rate.numerator !== String(project.fps)
+    || state.placement.projectTimebase.rate.denominator !== "1") {
+    throw new ProjectMutationWriteError(
+      "Generated composition admission requires the exact supported project frame rate.",
+    );
+  }
+  if (!project.playerDimensions
+    || state.canvas.width !== project.playerDimensions.width
+    || state.canvas.height !== project.playerDimensions.height) {
+    throw new ProjectMutationWriteError(
+      "Generated composition canvas must match the current project canvas.",
+    );
+  }
+  const start = BigInt(state.placement.projectRange.startTick);
+  const end = BigInt(state.placement.projectRange.endExclusiveTick);
+  if (start < BigInt(0)
+    || end <= start
+    || end > BigInt(project.durationInFrames)
+    || start > BigInt(Number.MAX_SAFE_INTEGER)
+    || end > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ProjectMutationWriteError(
+      "Generated composition placement must be one exact in-project frame range.",
+    );
+  }
+  if (state.sourceBindings.length > 0) {
+    throw new ProjectMutationWriteError(
+      "Generated composition source bindings require a live source and rights authority before admission.",
+    );
+  }
+  if (state.dependencyBindings.length > 0) {
+    throw new ProjectMutationWriteError(
+      "Generated composition tracking or mask bindings require a live dependency authority before admission.",
+    );
+  }
+  if (state.fontBindings.length > 0) {
+    throw new ProjectMutationWriteError(
+      "Generated composition font bindings require a live font and license authority before admission.",
+    );
+  }
+  return { startFrame: Number(start), endFrame: Number(end) };
+}
+
+function createGeneratedCompositionFinalizationTimelineChangeReceiptV1(input: {
+  receiptId: string;
+  projectId: string;
+  actorKind: ProjectTimelineMutationActorKindV1;
+  fps: number;
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  committedAt: string;
+  compositionId: string;
+  beforeFrameRange: TimelineFrameRangeV1 | null;
+  afterFrameRange: TimelineFrameRangeV1;
+  projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
+  wholeStateMediaPrerequisite: ProjectWholeStateMediaPrerequisiteLinkV1;
+}): ProjectTimelineRangeChangeReceiptV1 {
+  const writeFrameRangesBefore = canonicalTimelineFrameRangesV1([
+    ...(input.beforeFrameRange ? [input.beforeFrameRange] : []),
+    input.afterFrameRange,
+  ]);
+  return {
+    schemaVersion: 1,
+    receiptId: input.receiptId,
+    projectId: input.projectId,
+    operation: "FINALIZE_GENERATED_COMPOSITION",
+    actorKind: input.actorKind,
+    coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+    fps: input.fps,
+    beforeProjectRevision: input.beforeProjectRevision,
+    afterProjectRevision: input.afterProjectRevision,
+    committedAt: input.committedAt,
+    readFrameRangesBefore: writeFrameRangesBefore,
+    writeFrameRangesBefore,
+    affectedFrameRangesAfter: [input.afterFrameRange],
+    affectedOverlayRefs: [`generated-composition:${input.compositionId}`],
+    changedPaths: ["generatedCompositions", "timelineRangeChangeReceipts"],
+    rangeObservation: "EXACT",
+    overlayTemporalChange: null,
+    timelineCoordinateTransform: null,
+    sourceTimeTransform: null,
+    splitChildren: [],
+    ripple: null,
+    downstreamInvalidation: {
+      status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+      affectedFrameRangesBefore: writeFrameRangesBefore,
+      projectRenderSnapshotInvalidation: input.projectRenderSnapshotInvalidation,
+    },
+    wholeStateMediaPrerequisite: input.wholeStateMediaPrerequisite,
+  };
 }
 
 function assertProjectGeneratedCompositionCheckpointRestoreV1(

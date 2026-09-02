@@ -20,11 +20,16 @@ import {
 const persistence = vi.hoisted(() => ({
   findOne: vi.fn(),
   getDatabase: vi.fn(),
+  insertOne: vi.fn(),
+  materializeMediaPrerequisite: vi.fn(),
   updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "editron_prev.projects" },
+  COLLECTIONS: {
+    PROJECTS: "editron_prev.projects",
+    MEDIA_ASSETS: "editron_prev.media_assets",
+  },
   connectToDatabase: vi.fn(),
   getDatabase: persistence.getDatabase,
 }));
@@ -43,6 +48,18 @@ vi.mock("@/lib/shared/project-links", () => ({
 vi.mock("@/lib/services/org-wallet-flag", () => ({
   isOrgWalletBillingEnabled: vi.fn(() => false),
 }));
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistence.materializeMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: vi.fn(() => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: "a".repeat(64),
+    candidateMediaSetSha256: "b".repeat(64),
+    candidateMediaContentSha256: "c".repeat(64),
+    mediaEntryCount: 0,
+  })),
+}));
 
 const PROJECT_ID = "project-1";
 const USER_ID = "user-1";
@@ -58,13 +75,18 @@ describe("ProjectService generated-composition lifecycle V1", () => {
   beforeEach(() => {
     persistence.findOne.mockReset();
     persistence.getDatabase.mockReset();
+    persistence.insertOne.mockReset();
+    persistence.materializeMediaPrerequisite.mockReset();
     persistence.updateOne.mockReset();
     persistence.getDatabase.mockResolvedValue({
       collection: vi.fn(() => ({
         findOne: persistence.findOne,
+        insertOne: persistence.insertOne,
         updateOne: persistence.updateOne,
       })),
     });
+    persistence.insertOne.mockResolvedValue({ acknowledged: true });
+    persistence.materializeMediaPrerequisite.mockResolvedValue({});
     persistence.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   });
 
@@ -75,6 +97,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
       projectService.prepareProjectGeneratedCompositionV1(USER_ID, PROJECT_ID, {
         kind: "INSERT",
         expectedRevision: REVISION,
+        actorKind: "AGENT",
         draft: draft(),
       }));
 
@@ -90,6 +113,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
       .toMatch(/^gcp-state-v1:[a-f0-9]{64}$/);
     expect(receipt.revision.value).toBe(8);
     expect(captured.receipts).toEqual([receipt]);
+    expect(captured.value.timelineChangeReceipt).toBeNull();
     const [filter, update] = persistence.updateOne.mock.calls[0];
     expect(filter).toMatchObject({
       projectId: PROJECT_ID,
@@ -113,6 +137,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
       {
         kind: "REVISE",
         expectedRevision: REVISION,
+        actorKind: "AGENT",
         expectedBaseStateToken: `gcp-state-v1:${"9".repeat(64)}`,
         draft: draft(),
       },
@@ -125,6 +150,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
       {
         kind: "REVISE",
         expectedRevision: REVISION,
+        actorKind: "AGENT",
         expectedBaseStateToken: TOKEN_A,
         draft: draft(),
       },
@@ -136,18 +162,29 @@ describe("ProjectService generated-composition lifecycle V1", () => {
 
   it("promotes only the exact prepared passing candidate", async () => {
     const pending = pendingState(TOKEN_A);
-    persistence.findOne.mockResolvedValue(project([entry(null, pending)]));
+    persistence.findOne
+      .mockResolvedValueOnce(project([entry(null, pending)]))
+      .mockResolvedValueOnce(null);
     const terminal = passingState(pending);
 
     const result = await projectService.finalizeProjectGeneratedCompositionV1(
       USER_ID,
       PROJECT_ID,
-      { expectedRevision: REVISION, terminalState: terminal },
+      { expectedRevision: REVISION, actorKind: "SYSTEM", terminalState: terminal },
     );
 
     expect(result.entry.activeState).toEqual(terminal);
     expect(result.entry.candidateState).toBeNull();
     expect(result.receipt.revision.value).toBe(8);
+    expect(result.timelineChangeReceipt).toMatchObject({
+      operation: "FINALIZE_GENERATED_COMPOSITION",
+      actorKind: "SYSTEM",
+      affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 60 }],
+      wholeStateMediaPrerequisite: { mediaEntryCount: 0 },
+      downstreamInvalidation: {
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+      },
+    });
     expect(persistence.updateOne.mock.calls[0][0]).toMatchObject({
       generatedCompositions: {
         $elemMatch: {
@@ -157,6 +194,19 @@ describe("ProjectService generated-composition lifecycle V1", () => {
         },
       },
     });
+    expect(persistence.materializeMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "FINALIZE_GENERATED_COMPOSITION",
+        projectRevision: REVISION,
+        overlays: [],
+      }),
+      expect.anything(),
+      "editron_prev.media_assets",
+    );
+    expect(persistence.materializeMediaPrerequisite.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.insertOne.mock.invocationCallOrder[0]!);
+    expect(persistence.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.updateOne.mock.invocationCallOrder[0]!);
   });
 
   it("rejects a terminal result that changes prepared creative material", async () => {
@@ -171,7 +221,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
     await expect(projectService.finalizeProjectGeneratedCompositionV1(
       USER_ID,
       PROJECT_ID,
-      { expectedRevision: REVISION, terminalState: terminal },
+      { expectedRevision: REVISION, actorKind: "SYSTEM", terminalState: terminal },
     )).rejects.toBeInstanceOf(ProjectGeneratedCompositionStateConflictErrorV1);
     expect(persistence.updateOne).not.toHaveBeenCalled();
   });
@@ -185,11 +235,44 @@ describe("ProjectService generated-composition lifecycle V1", () => {
     const result = await projectService.finalizeProjectGeneratedCompositionV1(
       USER_ID,
       PROJECT_ID,
-      { expectedRevision: REVISION, terminalState: terminal },
+      { expectedRevision: REVISION, actorKind: "SYSTEM", terminalState: terminal },
     );
 
     expect(result.entry.activeState).toEqual(active);
     expect(result.entry.candidateState).toEqual(terminal);
+    expect(result.timelineChangeReceipt).toBeNull();
+    expect(persistence.materializeMediaPrerequisite).not.toHaveBeenCalled();
+    expect(persistence.insertOne).not.toHaveBeenCalled();
+  });
+
+  it("blocks unauthenticated generated-composition media before promotion side effects", async () => {
+    const sourceDraft = draft();
+    sourceDraft.sourceBindings = [{
+      slotId: "source-1",
+      asset: artifact("source-asset", "4"),
+      rightsReceipt: artifact("source-rights", "5"),
+      mediaKind: "IMAGE",
+      coordinateDomain: "STATIC",
+    }];
+    const pending = createPendingProjectGeneratedCompositionStateV1(
+      PROJECT_ID,
+      TOKEN_A,
+      sourceDraft,
+    );
+    persistence.findOne.mockResolvedValue(project([entry(null, pending)]));
+
+    await expect(projectService.finalizeProjectGeneratedCompositionV1(
+      USER_ID,
+      PROJECT_ID,
+      {
+        expectedRevision: REVISION,
+        actorKind: "SYSTEM",
+        terminalState: passingState(pending),
+      },
+    )).rejects.toThrow(/live source and rights authority/);
+    expect(persistence.materializeMediaPrerequisite).not.toHaveBeenCalled();
+    expect(persistence.insertOne).not.toHaveBeenCalled();
+    expect(persistence.updateOne).not.toHaveBeenCalled();
   });
 
   it("closes the post-read race with the writer-issued current revision", async () => {
@@ -201,7 +284,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
     await expect(projectService.prepareProjectGeneratedCompositionV1(
       USER_ID,
       PROJECT_ID,
-      { kind: "INSERT", expectedRevision: REVISION, draft: draft() },
+      { kind: "INSERT", expectedRevision: REVISION, actorKind: "AGENT", draft: draft() },
     )).rejects.toMatchObject({
       code: "PROJECT_REVISION_CONFLICT",
       currentRevision: { value: 8 },
@@ -235,8 +318,8 @@ function project(
     userId: USER_ID,
     name: "Project",
     overlays: [],
-    aspectRatio: "16:9",
-    playerDimensions: { width: 1920, height: 1080 },
+    aspectRatio: "9:16",
+    playerDimensions: { width: 1080, height: 1920 },
     fps: 30,
     durationInFrames: 60,
     createdAt: new Date("2026-08-15T09:00:00.000Z"),
