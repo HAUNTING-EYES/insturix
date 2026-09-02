@@ -1634,6 +1634,20 @@ describe("Editron project save payload compaction", () => {
         unionFrameRange: { startFrame: 0, endFrame: 30 },
       },
     });
+    const timelineReceipts = [addUpdate, directUpdate, deleteUpdate]
+      .map((update) => update.$push.timelineRangeChangeReceipts.$each[0]);
+    for (let index = 0; index < timelineReceipts.length; index += 1) {
+      expect(timelineReceipts[index].downstreamInvalidation).toMatchObject({
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+        projectRenderSnapshotInvalidation: {
+          beforeRevision: { value: 7 + index },
+          afterRevision: { value: 8 + index },
+        },
+      });
+      expect(persistenceMocks.insertOne.mock.invocationCallOrder[index])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[index]!);
+    }
+    expect(persistenceMocks.insertOne).toHaveBeenCalledTimes(3);
   });
 
   it("adds an overlay only at the caller-bound project revision", async () => {
