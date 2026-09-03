@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const body = await req.json();
-    const { brandId, decision, notes } = body;
+    const { brandId, decision, notes, publishNow } = body;
     if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     if (!DECISIONS.includes(decision)) {
       return NextResponse.json({ error: "Invalid decision" }, { status: 400 });
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     let publishTarget: PublishTarget | null = null;
     if (decision === "approved") {
-      const resolution = await resolveApprovedPublishTarget(deliverable, brandId);
+      const resolution = await resolveApprovedPublishTarget(deliverable, brandId, publishNow);
       if ("error" in resolution) {
         return NextResponse.json({ error: resolution.error }, { status: 409 });
       }
@@ -116,6 +116,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             brandId,
             publishTarget,
             session,
+            publishNow,
           );
         });
       } catch (e) {
@@ -206,7 +207,11 @@ const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
   tiktok: "TikTok",
 };
 
-function publishAtFor(deliverable: ICalosDeliverable): Date {
+function publishAtFor(deliverable: ICalosDeliverable, publishNow?: boolean): Date {
+  /* §13 "ship this now": an approval may carry publishNow — the occurrence
+   * enqueues for immediate execution instead of its planned date. The
+   * authorization is still THIS decision; only the timing moves. */
+  if (publishNow) return new Date();
   const scheduled = deliverable.plannedDates?.[0] ?? deliverable.card?.date;
   const parsed = scheduled ? new Date(scheduled) : new Date();
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
@@ -219,6 +224,7 @@ function publishCopyFor(deliverable: ICalosDeliverable): string {
 async function resolveApprovedPublishTarget(
   deliverable: ICalosDeliverable,
   brandId: string,
+  publishNow?: boolean,
 ): Promise<{ target: PublishTarget | null } | { error: string }> {
   const platform = String(deliverable.platform || "").toLowerCase();
   if (!isCalosAutoPublishPlatform(platform)) return { target: null };
@@ -258,7 +264,7 @@ async function resolveApprovedPublishTarget(
     };
   }
   const health = (
-    await loadCalosAssignmentHealth(assignments, publishAtFor(deliverable).getTime())
+    await loadCalosAssignmentHealth(assignments, publishAtFor(deliverable, publishNow).getTime())
   )[platform];
   if (!health || health.state !== "assigned") {
     return {
@@ -293,8 +299,9 @@ async function enqueueApprovedPublish(
   brandId: string,
   target: PublishTarget,
   session: ClientSession,
+  publishNow?: boolean,
 ): Promise<void> {
-  const publishAt = publishAtFor(deliverable);
+  const publishAt = publishAtFor(deliverable, publishNow);
 
   const caption = publishCopyFor(deliverable);
   // Bind execution to the exact reviewed version and its typed media requirement.

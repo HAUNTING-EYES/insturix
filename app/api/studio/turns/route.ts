@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { StudioTurnRequestSchema, type StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
+import { runShipTurn, shipTurnIntent } from "@/lib/studio/orchestrator/ship";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runStoryboardTurn, storyboardTurnIntent } from "@/lib/studio/orchestrator/storyboard";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
@@ -141,11 +142,14 @@ export async function POST(req: Request) {
    * 3. default → WRITE */
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
   const editProjectId = reelAttachment?.ref ?? null;
-  const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
+  /* §13 ship commands outrank generic distribute keywords ("post it now" is
+   * a deliberate publish of accepted entries, not a cadence plan) */
+  const wantsShip = shipTurnIntent(request.text) && !editProjectId;
+  const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId && !wantsShip;
   /* storyboard outranks plain design: "storyboard this" is a scene-batch
    * pipeline command (§17 Phase 5), not a single canvas generation */
-  const wantsStoryboard = storyboardTurnIntent(request.text) && !editProjectId && !wantsDistribute;
-  const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsStoryboard;
+  const wantsStoryboard = storyboardTurnIntent(request.text) && !editProjectId && !wantsDistribute && !wantsShip;
+  const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsStoryboard && !wantsShip;
   /* A2: a composer media attachment routes to the auto-edit pipeline
    * (unless a real project is already the target via a reel attachment). */
   const mediaAttachment = request.attachments.find((a) => a.role === "media");
@@ -184,15 +188,17 @@ export async function POST(req: Request) {
         };
         const events = editProjectId || mediaAttachment
           ? editingComingSoon()
-          : wantsDistribute
-            ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
-            : wantsStoryboard
-              ? runStoryboardTurn({ userId, orgId: orgId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-              : wantsDesign
-                ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-                : wantsAnalyze
-                  ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-                  : runWriteTurn(
+          : wantsShip
+            ? runShipTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
+            : wantsDistribute
+              ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
+              : wantsStoryboard
+                ? runStoryboardTurn({ userId, orgId: orgId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+                : wantsDesign
+                  ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+                  : wantsAnalyze
+                    ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+                    : runWriteTurn(
                     {
                       userId,
                       orgId: orgId ?? null,

@@ -440,3 +440,23 @@ derives ALL nine §6 priorities from real records — Publishing · platform
 m / Published · n of n (delivery receipts). Lifecycle test walks the full
 arc on real collections. Gates: tsc 0, eslint 0, studio 84/84 × 2, calos
 308/308. Next: Phase 7 Distribution.
+
+## 2026-09-03 (Phase 7a) — "ship this now" from Project chat (§13)
+
+Ship orchestrator + intent branch: "ship it / post it now / publish this
+now" outranks cadence keywords. §12 intact end-to-end — the turn presents
+the publish card (approval IS CalOS's editorial decision); on the user's
+yes it approves each unapproved card through the DECISION ROUTE (the
+single publish authorization) with publishNow (new flag: occurrence
+enqueues for immediate execution instead of its planned date — only the
+timing moves, the transactional approval+enqueue+account-snapshot stays
+in one place). Receipts read back from queue rows (postUrl/lastError) —
+one post artifact per ship turn, all receipts in prose, queue rows stay
+the durable record. No entries accepted → honest capability gap. Sim
+test: gate-first (nothing enqueued without the yes), then the yes →
+decision POST body asserted (approved + publishNow + brandId), receipt
+lands in the thread and survives reload as a post artifact.
+Gates: tsc 0, eslint 0, studio 86/86 × 2, calos 308/308.
+Remaining §13 commands (next slice): "why did X fail?" + "retry X" (read
+queue lastError/attempts; deliberate retry refuses AMBIGUOUS rows — the
+cron's ambiguity terminalization rule).
