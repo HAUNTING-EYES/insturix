@@ -475,3 +475,24 @@ Gates: tsc 0, eslint 0, studio 87/87 × 2. §13 chat commands complete:
 ship / why-failed / retry. Remaining Phase 7 items (stable media refs,
 transactional finalization consolidation, connected-account consolidation)
 are engine-side records work queued for the next session.
+
+## 2026-09-03 (Phase 8a) — Alyzitron honesty fixes (billing, polling, report 404)
+
+Explorer forensics: the analyze card quoted 2 cr flat while the route
+charges getCreditCost(alyzitron.video_analysis) × actual minutes (base
+8/min) — a 5-min video charged ~40 against a 2-cr quote; the polling
+branch read a list shape the endpoint never returns ({data:[...]}) so
+analysis artifacts NEVER resolved from running; the report iframe 404s
+while the task is listed/processing (report page serves completed/failed
+only). All three fixed:
+- quote prices the RATE via getCreditCost (the charge resolver) — card
+  reads "N cr per video minute · final charge by actual length"; the
+  receipt states the basis (creditsConsumed 0 + rate line) instead of
+  fabricating a total — the real charge lands on the task's billing doc.
+- polling points at the single-task endpoint (owner-gated), correct shape.
+- AnalyzeView shows the honest running stage until the task completes —
+  no 404 iframe.
+Remaining Phase 8 (queued): same-conversation follow-up questions (bridge
+the existing chat endpoints), org-aware ownership on chat, JSON export
+parity, status-enum unification (listed vs queued).
+Gates: tsc 0, eslint 0, studio 87/87 × 2.

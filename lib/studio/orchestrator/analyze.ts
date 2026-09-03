@@ -1,12 +1,16 @@
 /**
- * Studio orchestrator — ANALYZE capability (Phase 5).
+ * Studio orchestrator — ANALYZE capability (Phase 5/8).
  *
  * URL teardown via the real Alyzitron analyze bridge. Same serverless-safe
  * spend gate as design: quote ends the stream; the accepted continuation
- * re-derives it. Cost is 2cr/min — quoted as a 1-minute minimum, honestly
- * labeled "from".
+ * re-derives it. §8 honesty fix: the card prices the RATE via getCreditCost
+ * (the same resolver the analyze route charges) — alyzitron bills
+ * per-minute by ACTUAL duration, which is only known after the route reads
+ * the media, so the card shows the per-minute rate with a 1-minute minimum
+ * and the receipt states the basis instead of fabricating a total.
  */
 
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { listAuthorizedBrandScopes } from "@/lib/shared/brand-scope";
 import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
@@ -20,7 +24,8 @@ const TOOL = (name: string) => {
 };
 
 const URL_RE = /https?:\/\/[^\s)]+/i;
-const COST_PER_MINUTE = 2;
+/** the honest rate — the same resolver the analyze route charges with */
+const ratePerMinute = () => getCreditCost("alyzitron", "video_analysis", { durationMinutes: 1 });
 
 export interface AnalyzeTurnContext {
   userId: string;
@@ -31,6 +36,7 @@ export interface AnalyzeTurnContext {
 }
 
 function quote(turnId: string): StudioTurnCostQuote {
+  const rate = ratePerMinute();
   return {
     quoteId: "q_analyze_url_v1",
     turnId,
@@ -38,16 +44,16 @@ function quote(turnId: string): StudioTurnCostQuote {
     lines: [
       {
         service: "alyzitron",
-        action: "analysis",
+        action: "video_analysis",
         pool: "main",
-        unitCost: COST_PER_MINUTE,
+        unitCost: rate,
         quantity: 1,
         multiplier: 1,
-        subtotal: COST_PER_MINUTE,
-        display: `analysis · from ${COST_PER_MINUTE} cr (2 cr/min)`,
+        subtotal: rate,
+        display: `${rate} cr per video minute · final charge by actual length`,
       },
     ],
-    totalByPool: { main: COST_PER_MINUTE, media: 0 },
+    totalByPool: { main: rate, media: 0 },
     expiresAt: new Date(Date.now() + 120000).toISOString(),
   };
 }
@@ -96,7 +102,7 @@ export async function* runAnalyzeTurn(
     turnId,
     planId: `${turnId}_p`,
     summary: "Tearing it down — intent-aware, brand-grounded.",
-    steps: [{ stepId: "a1", capability: "analyze", toolName: analyze.name, label: analyze.label, riskLevel: analyze.riskLevel, quotedCost: COST_PER_MINUTE }],
+    steps: [{ stepId: "a1", capability: "analyze", toolName: analyze.name, label: analyze.label, riskLevel: analyze.riskLevel, quotedCost: ratePerMinute() }],
   };
   yield { type: "step.start", turnId, stepId: "a1", toolName: analyze.name, loadingMessage: analyze.loadingMessages[0] };
 
@@ -140,12 +146,15 @@ export async function* runAnalyzeTurn(
       return;
     }
     const artifact = analysisArtifact(taskId);
-    yield { type: "step.done", turnId, stepId: "a1", receipt: { label: analyze.receiptLabel, detail: taskId.slice(0, 12), artifactIds: [artifact.id], creditsConsumed: COST_PER_MINUTE } };
+    /* the real charge lands on the task doc (billing.chargedCredits) once
+     * the route measures the media — the receipt states the basis, never a
+     * fabricated total */
+    yield { type: "step.done", turnId, stepId: "a1", receipt: { label: analyze.receiptLabel, detail: `${taskId.slice(0, 12)} · ${ratePerMinute()} cr/min by actual length`, artifactIds: [artifact.id], creditsConsumed: 0 } };
     yield {
       type: "turn.done",
       turnId,
       summary: "Teardown queued — transcribing and scoring. The report lands in this deliverable; I'll show it when it's done.",
-      creditsConsumedTotal: COST_PER_MINUTE,
+      creditsConsumedTotal: 0,
       artifactIds: [artifact.id],
       artifactPayload: artifact,
       stageFocus: { artifactId: artifact.id, why: "analysis queued" },

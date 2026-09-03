@@ -728,6 +728,22 @@ function ScheduleView() {
 function AnalyzeView({ artifact }: { artifact: StudioArtifact }) {
   if (studioRealTurnsEnabled && artifact.sourceRef.engine === "alyzitron" && artifact.sourceRef.externalId) {
     const taskId = artifact.sourceRef.externalId.includes(",") ? artifact.sourceRef.externalId.split(",")[0] : artifact.sourceRef.externalId;
+    /* the report page only serves completed/failed tasks — while the task
+     * runs, an iframe would 404. Honest state instead: what stage it's in. */
+    if (artifact.status === "running" || artifact.status === "queued") {
+      return (
+        <>
+          <div className="stu-chips">
+            <span className="stu-chip">analyzing</span>
+            {artifact.progress?.stage && <span className="stu-chip">{artifact.progress.stage}</span>}
+          </div>
+          <div className="stu-doc" style={{ textAlign: "left", maxWidth: 680 }}>
+            <div className="stu-mlabel" style={{ marginBottom: 14 }}>the report unlocks here the moment scoring finishes</div>
+            <div className="stu-hint">{artifact.progress?.stage ?? "queued"} — transcribing, then scoring against your brand. No progress is invented; this updates from the real task.</div>
+          </div>
+        </>
+      );
+    }
     return <StageIframe href={`/dashboard/alyzitron/report/${taskId}`} label="analysis report" />;
   }
   return (

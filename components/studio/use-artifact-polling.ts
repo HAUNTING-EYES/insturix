@@ -71,12 +71,13 @@ async function pollOne(artifact: StudioArtifact): Promise<Partial<StudioArtifact
   }
   if (artifact.sourceRef.engine === "alyzitron") {
     try {
-      const res = await fetch("/api/services/alyzitron/analyses?page=1&limit=50");
+      /* the single-task endpoint (owner-or-public gated) — the LIST route
+       * returns {data: [...]} and was never read correctly, so artifacts
+       * never resolved; one task is all we want anyway */
+      const res = await fetch(`/api/services/alyzitron/analyses/${artifact.sourceRef.externalId}`);
       if (!res.ok) return null;
-      const data = (await res.json()) as { analyses?: AlyzitronTask[]; tasks?: AlyzitronTask[] } | AlyzitronTask[];
-      const list = Array.isArray(data) ? data : (data.analyses ?? data.tasks ?? []);
-      const task = list.find((t) => (t.id ?? t.taskId) === artifact.sourceRef.externalId);
-      if (!task) return null;
+      const data = (await res.json()) as AlyzitronTask & { task?: AlyzitronTask };
+      const task = data.task ?? data;
       if (task.status === "completed") return { status: "done", progress: null };
       if (task.status === "failed" || task.status === "error") return { status: "error", progress: null };
       return { progress: { stage: task.status ?? "processing", percent: null } };
