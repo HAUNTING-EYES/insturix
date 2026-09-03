@@ -9,7 +9,7 @@
 
 import type { StudioThreadItem } from "@/lib/studio/contracts/objects";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
-import { CAPABILITY_COLOR } from "@/lib/studio/mock/data";
+import { CAPABILITY_COLOR } from "@/lib/studio/contracts/objects";
 
 export function Spark({ size = 13 }: { size?: number }) {
   return (

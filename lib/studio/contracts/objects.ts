@@ -149,6 +149,16 @@ export const StudioEdgeSchema = z.object({
 });
 export type StudioEdge = z.infer<typeof StudioEdgeSchema>;
 
+/** Capability accent colors (audit: real code must not import from mock
+ *  fixtures — this is a UI constant, not demo data). */
+export const CAPABILITY_COLOR: Record<string, string> = {
+  write: "var(--c-write)",
+  edit: "var(--c-edit)",
+  design: "var(--c-design)",
+  analyze: "var(--c-analyze)",
+  distribute: "var(--c-distribute)",
+};
+
 /* ─── Stage focus (the auto-following stage) ─── */
 
 export const StudioStageFocusSchema = z.object({

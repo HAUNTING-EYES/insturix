@@ -694,3 +694,13 @@ fix, NOT a bar change: graderSystem rule 2 gains (d) HARD RULE
 trustBreak requires correct=false — speculation beyond a matching key is
 confusion, never a break. The bars themselves are untouched. v10 running
 (55 cells) to settle it under the consistent grader.
+
+## 2026-09-04 (cleanups) — latent demo views walled; last mock import moved
+
+CAPABILITY_COLOR lives in contracts now (thread.tsx no longer imports from
+mock fixtures). The two latent scripted views — the reel timeline and the
+6-variation canvas grid — render ONLY in demo mode; real mode shows honest
+placeholders ("editing is coming soon" / "no canvas yet"). Wall placement
+bug caught + fixed: the first cut shadowed the real ReelEmbed branch
+(dead code) — moved after it; the real editor path is intact.
+Gates: tsc 0, eslint 0, studio 104/104 × 2.

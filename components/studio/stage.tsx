@@ -93,6 +93,16 @@ function ReelView({ artifact }: { artifact: StudioArtifact }) {
       </>
     );
   }
+  /* audit latent-mock: the scripted reel timeline below is DEMO ONLY —
+   * real mode renders an honest empty reel state until the editor lifts */
+  if (studioRealTurnsEnabled) {
+    return (
+      <div className="stu-doc" style={{ textAlign: "left" }}>
+        <div className="stu-mlabel" style={{ marginBottom: 12 }}>reel</div>
+        <div className="stu-hint">No editor embedded yet — editing is coming soon. The artifact and its receipts live below; nothing is faked here.</div>
+      </div>
+    );
+  }
   return (
     <>
       <div className="stu-chips">
@@ -573,6 +583,10 @@ function StoryboardView({ artifact }: { artifact: StudioArtifact }) {
 function CanvasView({ artifact, projectId, onAskAbout }: { artifact: StudioArtifact; projectId?: string | null; onAskAbout?: (text: string) => void }) {
   if (studioRealTurnsEnabled && artifact.sourceRef.engine === "clickatron") {
     return <CandidateGallery artifact={artifact} projectId={projectId} onAskAbout={onAskAbout} />;
+  }
+  /* audit latent-mock: the scripted 6-variation grid below is DEMO ONLY */
+  if (studioRealTurnsEnabled) {
+    return <div className="stu-hint">no canvas yet — ask for a visual and real candidates land here</div>;
   }
   const done = artifact.status === "done" ? 6 : 3;
   return (
