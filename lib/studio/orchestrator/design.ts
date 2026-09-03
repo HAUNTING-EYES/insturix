@@ -21,12 +21,11 @@ const TOOL = (name: string) => {
   return tool;
 };
 
-/** Mirrors lib/config multipliers: nano-banana-class models cost 6x base. */
-const MODEL_MULTIPLIER: Record<string, number> = {
-  "fal-ai/nano-banana-pro": 6,
-  "fal-ai/nano-banana-pro-edit": 6,
-};
-const GENERATION_REQUEST_MULTIPLIER = 1.5;
+/** The bridge posts ONE prompt per design turn — the session route bills
+ * quantity 1 for plain prompts (only carousel fan-out raises it), and
+ * regenerating is a new turn with its own quote. The quote must say exactly
+ * that: 1 variation, priced by the SAME resolver the charge path uses. */
+const DESIGN_QUANTITY = 1;
 const DEFAULT_MODEL = "fal-ai/flux-2/flash";
 
 export interface DesignTurnContext {
@@ -37,10 +36,12 @@ export interface DesignTurnContext {
   origin: string;
 }
 
-function quote(turnId: string, stepId: string, quantity: number, modelId: string): StudioTurnCostQuote {
-  const unit = getCreditCost("clickatron", "variation");
-  const multiplier = (MODEL_MULTIPLIER[modelId] ?? 1) * GENERATION_REQUEST_MULTIPLIER;
-  const subtotal = Math.ceil(unit * quantity * multiplier);
+/** Pure — priced via getCreditCost (the exact resolver checkCredits uses),
+ * so the card can never disagree with the deduction. */
+export function designCanvasQuote(turnId: string, stepId: string, quantity = DESIGN_QUANTITY, modelId = DEFAULT_MODEL): StudioTurnCostQuote {
+  const base = getCreditCost("clickatron", "variation", { quantity: 1 });
+  const unit = getCreditCost("clickatron", "variation", { model: modelId, quantity: 1 });
+  const subtotal = getCreditCost("clickatron", "variation", { model: modelId, quantity });
   return {
     quoteId: "q_design_canvas_v1",
     turnId,
@@ -52,9 +53,9 @@ function quote(turnId: string, stepId: string, quantity: number, modelId: string
         pool: getCreditPool("clickatron", "variation"),
         unitCost: unit,
         quantity,
-        multiplier,
+        multiplier: unit / base,
         subtotal,
-        display: `${quantity} variations · ${modelId.split("/").pop()}`,
+        display: `${quantity} variation${quantity > 1 ? "s" : ""} · ${modelId.split("/").pop()}`,
       },
     ],
     totalByPool: { main: 0, media: subtotal },
@@ -88,9 +89,9 @@ export async function* runDesignTurn(
   const job = TOOL("create-image-job");
   yield { type: "turn.received", turnId, deliverableId: "del_live" };
 
-  const quantity = 6;
+  const quantity = DESIGN_QUANTITY;
   const modelId = DEFAULT_MODEL;
-  const stepQuote = quote(turnId, "g2", quantity, modelId);
+  const stepQuote = designCanvasQuote(turnId, "g2", quantity, modelId);
 
   yield {
     type: "turn.plan",
@@ -191,12 +192,12 @@ export async function* runDesignTurn(
     type: "step.done",
     turnId,
     stepId: "g2",
-    receipt: { label: job.receiptLabel, detail: `${quantity} variations · queued`, artifactIds: [artifact.id], creditsConsumed: stepQuote.lines[0].subtotal },
+    receipt: { label: job.receiptLabel, detail: `${quantity} variation${quantity > 1 ? "s" : ""} · queued`, artifactIds: [artifact.id], creditsConsumed: stepQuote.lines[0].subtotal },
   };
   yield {
     type: "turn.done",
     turnId,
-    summary: `Canvas is live — ${quantity} variations queued in the media pool. Showing it; the lab link takes over any time.`,
+    summary: `Canvas is live — 1 variation queued in the media pool. Showing it; the lab link takes over any time.`,
     creditsConsumedTotal: stepQuote.lines[0].subtotal,
     artifactIds: [artifact.id],
     artifactPayload: artifact,
