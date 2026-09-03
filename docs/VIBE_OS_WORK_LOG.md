@@ -209,3 +209,9 @@ rubric (harness fix, logged), plus the '✓ scan ran · your press' state chip
 killing the pre-consent-crawl reading. Surface verdicts now: T2, T4, T5, T8,
 T10 PASS; T3 pending (v6 in flight — testing derived-provenance chips after
 the v5 regression taught the three-kind taxonomy).
+
+## 2026-09-03 (Write stage) — Phase 4 §10 affordances live
+
+Editable body + select-to-ask + versions strip + brand/sources drawers +
+hand-off actions (design/analyze/schedule prefills). Branch pushed to
+haunting/vibe-content-os going forward (founder: "pls keep pushing").
