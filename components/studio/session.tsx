@@ -320,6 +320,15 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           const payload = ev.artifactPayload;
           setArtifacts((prev) => (prev.some((a) => a.id === payload.id) ? prev.map((a) => (a.id === payload.id ? payload : a)) : [...prev, payload]));
         }
+        if (ev.artifactPayloads) {
+          setArtifacts((prev) => {
+            let next = prev;
+            for (const payload of ev.artifactPayloads ?? []) {
+              next = next.some((a) => a.id === payload.id) ? next.map((a) => (a.id === payload.id ? payload : a)) : [...next, payload];
+            }
+            return next;
+          });
+        }
         if (ev.stageFocus) {
           setFocus({ artifactId: ev.stageFocus.artifactId, reason: "agent_working", why: ev.stageFocus.why, since: new Date().toISOString() });
         }

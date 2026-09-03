@@ -52,7 +52,7 @@ export function shipTurnIntent(text: string): boolean {
 function postArtifact(row: QueueRow): StudioArtifact {
   const nowIso = new Date().toISOString();
   return {
-    id: `art_post_${row.id}`,
+    id: `art_post_${String(row._id)}`,
     kind: "post",
     status: row.status === "published" ? "done" : "queued",
     title: `${row.platform ?? "post"} ${row.status === "published" ? "receipt" : "queued"}`,
@@ -178,12 +178,10 @@ export async function* runShipTurn(
 
   queue = await queueAll();
   const live = queue.filter((q) => q.status !== "superseded");
-  /* one delivery artifact per ship turn (the contract carries a single
-   * payload); every receipt rides the summary prose — the queue rows are
-   * the durable record either way */
-  const primary = live[live.length - 1];
-  const artifact = primary ? postArtifact(primary) : null;
-  const artifactIds = artifact ? [artifact.id] : [];
+  /* one post artifact PER queue row — every delivery gets its own receipt
+   * artifact (published rows carry their postUrl as the manualHref) */
+  const artifacts = live.map(postArtifact);
+  const artifactIds = artifacts.map((a) => a.id);
 
   if (failures.length > 0 && live.length === 0) {
     yield { type: "turn.error", turnId, message: `nothing shipped — ${failures.join(" · ")}`, retryable: true, refundIssued: false };
@@ -212,7 +210,7 @@ export async function* runShipTurn(
     ].join("\n"),
     creditsConsumedTotal: 0,
     artifactIds,
-    artifactPayload: artifact ?? undefined,
-    stageFocus: artifact ? { artifactId: artifact.id, why: "delivery" } : undefined,
+    artifactPayloads: artifacts.length > 0 ? artifacts : undefined,
+    stageFocus: artifacts.length > 0 ? { artifactId: artifacts[artifacts.length - 1].id, why: "delivery" } : undefined,
   };
 }

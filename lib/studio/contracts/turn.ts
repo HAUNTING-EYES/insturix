@@ -211,6 +211,8 @@ export const StudioTurnEventSchema = z.discriminatedUnion("type", [
     /** Phase 2: full artifact payload when the turn created/changed one
      *  (written content rides here so the client can render immediately) */
     artifactPayload: StudioArtifactSchema.nullable().optional(),
+    /** one payload PER artifact when a turn lands several (ship receipts) */
+    artifactPayloads: z.array(StudioArtifactSchema).optional(),
     /** next stage focus, if the agent moved the stage */
     stageFocus: z
       .object({ artifactId: z.string(), why: z.string() })

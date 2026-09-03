@@ -704,3 +704,20 @@ placeholders ("editing is coming soon" / "no canvas yet"). Wall placement
 bug caught + fixed: the first cut shadowed the real ReelEmbed branch
 (dead code) — moved after it; the real editor path is intact.
 Gates: tsc 0, eslint 0, studio 104/104 × 2.
+
+## 2026-09-04 (engineering queue) — tz windows + per-post receipt artifacts
+
+1. TIMEZONE WINDOWS (58a47a0df): clientContext.timezone from the browser;
+   distribute computes next-Monday in the USER's zone via pure Intl offsets
+   (no new deps; DST-safe one-pass — a double-offset bug was caught by the
+   IST test). No zone → UTC neutral, unchanged.
+2. PER-POST RECEIPTS: contract gains artifactPayloads[]; ship emits one post
+   artifact per live queue row (published rows carry postUrl); replay
+   rebuilds BOTH single and plural payloads (early-continue bug that ate
+   single payloads caught by the suite); session applyEvent handles plural.
+   Ship sim now lands two platforms and asserts TWO post artifacts on
+   reload. (Also fixed postArtifact keying: lean rows carry _id, not id —
+   two rows had deduped into art_post_undefined.)
+Gates: tsc 0, eslint 0, studio 106/106 × 2.
+Next: Alyzitron grounding (full report payload + URL types), then the
+media-asset/finalization/credentials chunk.

@@ -70,11 +70,18 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       decisionCalls.push({ url, body });
       await CalosDeliverable.updateOne({ _id: DELIV }, { editorialStatus: "approved" });
-      await CalosScheduledPublish.create({
-        deliverableId: CARD_ID, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim",
-        platform: "instagram", approvalVersion: 1, idempotencyKey: `${DELIV}:instagram:v1:now`,
-        publishAt: new Date(), status: "pending", attempts: 0, maxAttempts: 3,
-      });
+      await CalosScheduledPublish.create([
+        {
+          deliverableId: CARD_ID, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim",
+          platform: "instagram", approvalVersion: 1, idempotencyKey: `${CARD_ID}:instagram:v1:now`,
+          publishAt: new Date(), status: "pending", attempts: 0, maxAttempts: 3,
+        },
+        {
+          deliverableId: CARD_ID, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim",
+          platform: "linkedin", approvalVersion: 1, idempotencyKey: `${CARD_ID}:linkedin:v1:now`,
+          publishAt: new Date(Date.now() + 3600_000), status: "pending", attempts: 0, maxAttempts: 3,
+        },
+      ]);
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }));
   });
@@ -113,20 +120,23 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     const done = events.find((e) => e.type === "turn.done");
     expect(done?.summary).toContain("Shipped");
     expect(done?.summary).toContain("instagram: queued");
+    expect(done?.summary).toContain("linkedin: queued");
     expect(done?.artifactIds?.length).toBeGreaterThan(0);
 
     /* the receipt survives reload (§3) — a post artifact rebuilt from the log */
     const { listEvents } = await import("@/lib/studio/persist/db");
     const { artifactsFromEvents } = await import("@/lib/studio/persist/replay");
     const rebuilt = artifactsFromEvents(await listEvents(PROJECT, 0));
-    expect(rebuilt.some((a) => a.kind === "post")).toBe(true);
+    /* per-post receipt artifacts — one per queue row (§13 receipts) */
+    const posts = rebuilt.filter((a) => a.kind === "post");
+    expect(posts).toHaveLength(2);
   });
 
   it("§13 diagnostics: why-failed reads the rows; retry resets CLEAN failures, refuses ambiguous ones", async () => {
     const CalosScheduledPublish = (await import("@/schemas/calos-scheduled-publish")).default;
 
     /* a clean provider failure */
-    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "instagram container expired", attempts: 1 } });
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID, platform: "instagram" }, { $set: { status: "failed", lastError: "instagram container expired", attempts: 1 } });
 
     const why = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "why did instagram fail?", mode: "direct", operationId: crypto.randomUUID() }));
     expect(why.status).toBe(200);
@@ -139,24 +149,24 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     const retryEvents = parseSse(await retry.text()) as Array<{ type: string; summary?: string }>;
     expect(retryEvents.find((e) => e.type === "turn.done")?.summary).toContain("Retrying instagram");
 
-    const afterClean = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string; lastError?: string | null };
+    const afterClean = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID, platform: "instagram" }).lean()) as unknown as { status?: string; lastError?: string | null };
     expect(afterClean.status).toBe("pending");
     expect(afterClean.lastError).toBeNull();
 
     /* ambiguous failure: the provider may already have posted — refusal, no reset */
-    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "ambiguous outcome — check the platform" } });
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID, platform: "instagram" }, { $set: { status: "failed", lastError: "ambiguous outcome — check the platform" } });
     const retryAmbiguous = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
     const ambEvents = parseSse(await retryAmbiguous.text()) as Array<{ type: string; summary?: string }>;
     expect(ambEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
-    const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string };
+    const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID, platform: "instagram" }).lean()) as unknown as { status?: string };
     expect(afterAmbiguous.status).toBe("failed"); // untouched — never auto-retried
 
     /* audit 6b: the STRUCTURED flag alone refuses a retry — no prose needed */
-    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "connection reset", outcomeAmbiguous: true } });
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID, platform: "instagram" }, { $set: { status: "failed", lastError: "connection reset", outcomeAmbiguous: true } });
     const retryFlagged = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
     const flagEvents = parseSse(await retryFlagged.text()) as Array<{ type: string; summary?: string }>;
     expect(flagEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
-    const afterFlag = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string };
+    const afterFlag = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID, platform: "instagram" }).lean()) as unknown as { status?: string };
     expect(afterFlag.status).toBe("failed"); // flag refuses, even with clean prose
   });
 });

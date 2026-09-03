@@ -90,6 +90,17 @@ export function artifactsFromEvents(events: PersistedSpineEvent[]): StudioArtifa
     });
   };
   for (const ev of events) {
+    if (ev.kind === "turn.done") {
+      /* a turn may land ONE artifact or SEVERAL (ship receipts) — collect all */
+      const payload = ev.payload as { artifactPayload?: StudioArtifact; artifactPayloads?: StudioArtifact[] } | null;
+      const landed = [payload?.artifactPayload, ...(payload?.artifactPayloads ?? [])];
+      for (const artifact of landed) {
+        if (!artifact?.id) continue;
+        if (!byId.has(artifact.id)) order.push(artifact.id);
+        byId.set(artifact.id, artifact);
+      }
+      continue;
+    }
     if (ev.kind === "artifact.selected") {
       const p = ev.payload as { artifactId?: string; candidateId?: string } | null;
       if (p?.artifactId && p.candidateId) select(p.artifactId, p.candidateId);
