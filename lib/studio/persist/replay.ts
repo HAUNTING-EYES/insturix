@@ -1,4 +1,4 @@
-import type { StudioThreadItem } from "@/lib/studio/contracts/objects";
+import type { StudioArtifact, StudioThreadItem } from "@/lib/studio/contracts/objects";
 import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 
 /**
@@ -65,6 +65,22 @@ export interface PersistedSpineEvent {
   kind: string;
   payload: unknown;
   createdAt?: string | null;
+}
+
+/** Artifacts rebuilt from the persisted log (plan §3 reload): the LAST
+ *  in-band artifactPayload per id wins — exactly what the live reducer was
+ *  showing when the page went away. Ordered by first appearance. */
+export function artifactsFromEvents(events: PersistedSpineEvent[]): StudioArtifact[] {
+  const order: string[] = [];
+  const byId = new Map<string, StudioArtifact>();
+  for (const ev of events) {
+    const payload = ev.payload as { artifactPayload?: StudioArtifact } | null;
+    const artifact = payload?.artifactPayload;
+    if (!artifact?.id) continue;
+    if (!byId.has(artifact.id)) order.push(artifact.id);
+    byId.set(artifact.id, artifact);
+  }
+  return order.map((id) => byId.get(id) as StudioArtifact);
 }
 
 function ts(ev: PersistedSpineEvent): string {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replayEventsToItems, replayOpenConfirm, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
+import { artifactsFromEvents, replayEventsToItems, replayOpenConfirm, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
 
 const ev = (seq: number, kind: string, payload: unknown, createdAt = `2026-09-02T10:00:${String(seq).padStart(2, "0")}Z`): PersistedSpineEvent => ({
   seq,
@@ -126,5 +126,27 @@ describe("replayOpenConfirm — §3 reload reconstructs the approval gate", () =
     expect(open?.turnId).toBe("t2");
     expect(replayOpenConfirm([user(1)])).toBeNull();
     expect(replayOpenConfirm([])).toBeNull();
+  });
+});
+
+describe("artifactsFromEvents — the reload path rebuilds the stage (plan §3)", () => {
+  const art = (id: string, title: string) => ({ id, kind: "script", status: "done", title, sourceRef: { engine: "thinkforge", externalId: `x:${id}`, manualHref: null }, revisions: [], updatedAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z" });
+
+  it("collects in-band artifactPayloads, last write per id wins, first-appearance order", () => {
+    const events = [
+      ev(1, "user", { kind: "user", id: "u1", text: "write it" }),
+      ev(2, "turn.done", { type: "turn.done", turnId: "t1", summary: "one", artifactIds: ["a1"], artifactPayload: art("a1", "v1") }),
+      ev(3, "turn.done", { type: "turn.done", turnId: "t2", summary: "two", artifactIds: ["a2"], artifactPayload: art("a2", "first") }),
+      ev(4, "turn.done", { type: "turn.done", turnId: "t3", summary: "three", artifactIds: ["a1"], artifactPayload: art("a1", "v2 — revised") }),
+    ];
+    const artifacts = artifactsFromEvents(events);
+    expect(artifacts.map((a) => a.id)).toEqual(["a1", "a2"]);
+    expect(artifacts[0]?.title).toBe("v2 — revised");
+    expect(artifacts[1]?.title).toBe("first");
+  });
+
+  it("events without payloads contribute nothing — an empty log is an empty stage, never a phantom", () => {
+    expect(artifactsFromEvents([ev(1, "user", { kind: "user", id: "u1", text: "hi" }), ev(2, "turn.plan", { type: "turn.plan", turnId: "t1", planId: "p", summary: "s", steps: [] })])).toEqual([]);
+    expect(artifactsFromEvents([])).toEqual([]);
   });
 });

@@ -288,3 +288,26 @@ zero legacy-file churn.
 
 Gates: tsc 0, eslint 0, studio suite 47/47 × 2. PHASE 4 EXIT MET: users
 plan and write in one persistent Project conversation.
+
+## 2026-09-03 (§3 hole + Phase 5 opener) — spine stages survive reload; design quote honest
+
+1. RELOAD HOLE FOUND + FIXED: spine projects (every proj_* minted by a
+   studio turn) lost their artifacts on refresh — deliverables/[id] only
+   knew TF session_* and Editron ids, so the stage went empty. New spine
+   branch: org-scoped ownership check (same pattern as the events route),
+   artifacts rebuilt from the persisted log via artifactsFromEvents
+   (last payload per id wins, first-appearance order). Sim test now
+   drives the full cycle WITH an artifact payload and asserts the stage
+   hydrates + 403 for another org.
+2. DESIGN QUOTE = CHARGE (6966e4451): quantity 6→1 (the bridge posts one
+   prompt; session route bills qty 1), local MODEL/REQUEST multiplier
+   mirrors deleted — designCanvasQuote calls getCreditCost with the same
+   options checkCredits uses. Card could overstate 9×; now exact.
+3. Clickatron surface mapped (sub-agent): job creation split across
+   session POST / variation POST / create-image-job primitive; candidates
+   are embedded variations; carousel = per-variation metadata; storyboard
+   = separate lib/pipeline pipeline; studio bridge exists (design.ts).
+
+Next slice: candidate gallery natively in the stage + PERSISTED selection
+(§11: gallery, selected candidate, refine/regenerate/use this, open
+canvas) — selection today lives only in lab client state.

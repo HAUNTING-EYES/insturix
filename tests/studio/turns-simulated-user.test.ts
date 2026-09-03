@@ -51,7 +51,24 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
         yield { type: "turn.plan", turnId: "t_sim", planId: "p_sim", summary: "writing it", steps: [{ stepId: "s_sim", capability: "write", toolName: "thinkforge", label: "write script", riskLevel: "low" }] };
         yield { type: "step.start", turnId: "t_sim", stepId: "s_sim", toolName: "thinkforge" };
         yield { type: "step.done", turnId: "t_sim", stepId: "s_sim", receipt: { label: "script drafted", creditsConsumed: 5, artifactIds: [] } };
-        yield { type: "turn.done", turnId: "t_sim", summary: "script ready", creditsConsumedTotal: 5, artifactIds: [] };
+        yield {
+          type: "turn.done",
+          turnId: "t_sim",
+          summary: "script ready",
+          creditsConsumedTotal: 5,
+          artifactIds: ["art_sim_script"],
+          artifactPayload: {
+            id: "art_sim_script",
+            kind: "script",
+            status: "done",
+            title: "Launch script",
+            sourceRef: { engine: "thinkforge", externalId: "session_sim:sim_1", manualHref: null },
+            contentMarkdown: "# Launch\n\nhook first",
+            revisions: [],
+            updatedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        };
       }) as unknown as typeof runWriteTurn,
     );
   });
@@ -97,6 +114,25 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     const res = await POST(postTurn({ deliverableId: projectId, threadId: `th_${projectId}`, text: "make a launch reel", mode: "direct", operationId }));
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe("operation_already_done");
+  });
+
+  it("a reload rebuilds the STAGE too — deliverable GET returns the artifact from the log (plan §3)", async () => {
+    const { GET: getDeliverable } = await import("@/app/api/studio/deliverables/[id]/route");
+    const res = await getDeliverable(new Request(`http://local/api/studio/deliverables/${projectId}`), { params: Promise.resolve({ id: projectId }) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deliverable: { id: string; title: string; artifacts: { id: string; kind: string; contentMarkdown?: string }[] } };
+    expect(body.deliverable.id).toBe(projectId);
+    expect(body.deliverable.artifacts.map((a) => a.id)).toContain("art_sim_script");
+    const script = body.deliverable.artifacts.find((a) => a.id === "art_sim_script");
+    expect(script?.contentMarkdown).toContain("hook first");
+  });
+
+  it("another organization cannot hydrate the deliverable (403, no leak)", async () => {
+    const { GET: getDeliverable } = await import("@/app/api/studio/deliverables/[id]/route");
+    sim.auth = { userId: "user_sim_2", orgId: "org_OTHER", has: async () => false };
+    const res = await getDeliverable(new Request(`http://local/api/studio/deliverables/${projectId}`), { params: Promise.resolve({ id: projectId }) });
+    expect(res.status).toBe(403);
+    sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
   });
 
   it("another organization cannot read the project (403)", async () => {

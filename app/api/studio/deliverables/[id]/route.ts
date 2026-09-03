@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
 import { projectService } from "@/lib/editron/services/project-service";
+import { connectSpine, getProject, listEvents } from "@/lib/studio/persist/db";
+import { artifactsFromEvents } from "@/lib/studio/persist/replay";
 import type { StudioArtifact, StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 export const runtime = "nodejs";
@@ -65,6 +67,40 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       console.error("[studio/deliverables/:id] tf hydrate failed:", error);
       return NextResponse.json({ error: "hydrate_failed" }, { status: 500 });
     }
+  }
+
+  /* spine project (vibe_projects) → artifacts rebuilt from the persisted
+   * event log — plan §3 reload reconstructs the conversation AND the stage
+   * it produced; ownership is org-scoped exactly like the events route */
+  try {
+    await connectSpine();
+    const project = await getProject(id);
+    if (project) {
+      if (project.organizationId !== (orgId ?? null)) {
+        return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      }
+      const events = await listEvents(id, 0);
+      const artifacts: StudioArtifact[] = artifactsFromEvents(events);
+      const deliverable: StudioDeliverable = {
+        id,
+        title: project.title,
+        brandId: project.brandId ?? "unbranded",
+        orgId: project.organizationId,
+        campaignId: null,
+        threadId: `th_${id}`,
+        artifacts,
+        edges: [],
+        stageFocus: artifacts.length
+          ? { artifactId: artifacts[artifacts.length - 1].id, reason: "agent_working", why: "reloaded", since: ISO() }
+          : null,
+        createdAt: project.createdAt ?? ISO(),
+        updatedAt: project.updatedAt ?? ISO(),
+      };
+      return NextResponse.json({ deliverable });
+    }
+  } catch (error) {
+    console.error("[studio/deliverables/:id] spine hydrate failed:", error);
+    return NextResponse.json({ error: "hydrate_failed" }, { status: 500 });
   }
 
   /* Editron project → reel artifact (stage mounts the real editor).
