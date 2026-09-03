@@ -9,6 +9,7 @@ import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runStoryboardTurn, storyboardTurnIntent } from "@/lib/studio/orchestrator/storyboard";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { analysisFollowupIntent, runAnalysisFollowupTurn } from "@/lib/studio/orchestrator/analyze-followup";
+import { runSocializeCommandTurn, socializeCommandIntent } from "@/lib/studio/orchestrator/socialize";
 import { appendTurnEvent, claimOperation, connectSpine, drainOutbox, enqueueOutbox, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 import { authorizeBrandScope, BrandScopeAuthorizationError } from "@/lib/shared/brand-scope";
@@ -162,6 +163,8 @@ export async function POST(req: Request) {
    * the report-bound chat — the LAST intent before the write fallback */
   const wantsAnalysisFollowup =
     analysisFollowupIntent(request.text) && !editProjectId && !wantsDistribute && !wantsShip && !wantsDeliveryStatus && !wantsStoryboard && !wantsDesign && !wantsAnalyze && !mediaAttachment;
+  /* §17 Phase 9: low-risk profile commands ("set my status to …") */
+  const wantsSocialize = socializeCommandIntent(request.text) && !editProjectId && !wantsDistribute && !wantsShip && !wantsDeliveryStatus && !wantsStoryboard && !wantsDesign && !wantsAnalyze && !wantsAnalysisFollowup;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
   const forwardHeaders: Record<string, string> = {};
@@ -210,7 +213,9 @@ export async function POST(req: Request) {
                     ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
                     : wantsAnalysisFollowup
                       ? runAnalysisFollowupTurn({ projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal)
-                      : runWriteTurn(
+                      : wantsSocialize
+                        ? runSocializeCommandTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, projectId: spineProjectId }, request.text)
+                        : runWriteTurn(
                     {
                       userId,
                       orgId: orgId ?? null,

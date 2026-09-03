@@ -534,3 +534,24 @@ Gates: tsc 0, eslint 0, studio 94/94 × 2. Remaining Phase 9: profile
 backfill script + low-risk chat commands (e.g. status updates) — next.
 Also: founder audit of phases 4-8 via external reviewer (Claude Code)
 queued — prompt delivered.
+
+## 2026-09-03 (Phase 9 exit) — profile backfill + low-risk chat commands
+
+- scripts/migrate-socialize-brand-ownership.ts: deterministic backfill — a
+  legacy user profile is stamped brandId ONLY when its owner has exactly
+  ONE authorized brand scope; zero/multiple scopes = ambiguous, logged,
+  left for deliberate assignment in Brands. Idempotent.
+- socialize orchestrator + intent: "set my status to …" / "update the bio
+  to …" from the project conversation. Vault-scope authority; brand
+  without a public page gets the honest claim-a-username answer (no
+  half-profiles); value-less asks explain the shape; field limits
+  enforced (status 50 / bio 256); reversible one-field writes, no spend.
+- Sim: status lands + says where it lives, bio truncates to 256, value-
+  less ask writes nothing.
+
+PHASE 9 EXIT MET: each brand can own a public profile (9a route+editor),
+the page is live at /profile/<username>, QR downloads work, and profiles
+are manageable from both Brands and chat. Gates: tsc 0, eslint 0, studio
+97/97 × 2. Remaining migration phases are Phase 10 items (backfill old
+service records, kill-switches, pilot, retire legacy routes, delete mock
+UI — all gated on usage evidence per the plan).
