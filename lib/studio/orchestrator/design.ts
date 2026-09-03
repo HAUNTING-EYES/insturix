@@ -14,6 +14,7 @@ import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
 import { DESIGN_DOMAIN_MANIFEST } from "./manifests/design";
+import { carouselIntent, planCarouselFromText } from "./design-carousel";
 
 const TOOL = (name: string) => {
   const tool = DESIGN_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
@@ -63,11 +64,11 @@ export function designCanvasQuote(turnId: string, stepId: string, quantity = DES
   };
 }
 
-function canvasArtifact(sessionId: string, title: string): StudioArtifact {
+function canvasArtifact(sessionId: string, title: string, kind: "image_canvas" | "carousel" = "image_canvas"): StudioArtifact {
   const nowIso = new Date().toISOString();
   return {
     id: `art_cv_${sessionId}`,
-    kind: "image_canvas",
+    kind,
     status: "running",
     title,
     sourceRef: { engine: "clickatron", externalId: sessionId, manualHref: `/dashboard/clickatron/lab/${sessionId}` },
@@ -89,7 +90,22 @@ export async function* runDesignTurn(
   const job = TOOL("create-image-job");
   yield { type: "turn.received", turnId, deliverableId: "del_live" };
 
-  const quantity = DESIGN_QUANTITY;
+  /* §11 carousels: slide copy comes from the USER — a carousel ask without
+   * per-slide beats asks for them; we never invent slide copy */
+  const carousel = carouselIntent(text) ? planCarouselFromText(text) : null;
+  if (carousel && "need" in carousel) {
+    yield {
+      type: "turn.needs_clarification",
+      turnId,
+      question: "Carousels run 2–10 slides. Give me one line per slide — the beat you want on each — and I'll design them.",
+      options: [{ id: "type_slides", label: "I'll type the slide beats" }],
+    };
+    return;
+  }
+
+  /* per-slide quantity for carousels (the session route charges per slide);
+   * the quote says exactly what the fan-out will bill */
+  const quantity = carousel && "slides" in carousel ? carousel.slides.length : DESIGN_QUANTITY;
   const modelId = DEFAULT_MODEL;
   const stepQuote = designCanvasQuote(turnId, "g2", quantity, modelId);
 
@@ -148,6 +164,9 @@ export async function* runDesignTurn(
   form.set("modelId", modelId);
   form.set("brandId", brandId);
   form.set("aspectRatio", "16:9");
+  if (carousel && "slides" in carousel) {
+    form.set("metadata", JSON.stringify({ clickatron: { creativeSpec: { kind: "carousel", renderPlan: { slides: carousel.slides } } } }));
+  }
 
   let sessionId: string | null = null;
   try {
@@ -187,7 +206,7 @@ export async function* runDesignTurn(
     return;
   }
 
-  const artifact = canvasArtifact(sessionId, "Canvas");
+  const artifact = canvasArtifact(sessionId, carousel && "slides" in carousel ? "Carousel" : "Canvas", carousel && "slides" in carousel ? "carousel" : "image_canvas");
   yield {
     type: "step.done",
     turnId,
@@ -197,7 +216,7 @@ export async function* runDesignTurn(
   yield {
     type: "turn.done",
     turnId,
-    summary: `Canvas is live — 1 variation queued in the media pool. Showing it; the lab link takes over any time.`,
+    summary: `Canvas is live — ${quantity} variation${quantity > 1 ? "s" : ""} queued in the media pool. Showing it; the lab link takes over any time.`,
     creditsConsumedTotal: stepQuote.lines[0].subtotal,
     artifactIds: [artifact.id],
     artifactPayload: artifact,
