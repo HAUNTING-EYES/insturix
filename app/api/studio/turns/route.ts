@@ -90,7 +90,17 @@ export async function POST(req: Request) {
       brandId: request.brandId ?? null,
       title: request.text.trim().slice(0, 80) || "Studio draft",
       acceptedBrandRevision,
+      ownerUserId: userId,
     });
+    /* audit P0 (§19 every route checks access): the caller must own this
+     * project BEFORE any write — org projects by organization, personal
+     * (org-null) projects by their owner of record. Legacy ownerless rows
+     * keep their old org-null semantics until backfilled. */
+    const orgMatch = project.organizationId === (orgId ?? null);
+    const personalMatch = project.organizationId === null && (!project.ownerUserId || project.ownerUserId === userId);
+    if (!orgMatch || (project.organizationId === null && !personalMatch)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     /* old TF sessions: their chat history enters the log BEFORE this turn's
      * first event, so imported and new messages stay in true order; the drain
      * first lands anything a previous turn parked in the outbox */

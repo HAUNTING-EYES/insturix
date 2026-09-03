@@ -17,6 +17,11 @@ export type SpineProject = {
   organizationId: string | null;
   brandId: string | null;
   acceptedBrandRevision: string | null; // Brand Vault stamp — context loader fills it (Phase 2)
+  /** audit P0: personal (org-null) projects have an owner — the caller of
+   *  record. Org projects authorize by organizationId alone. Legacy rows
+   *  created before this field have null and keep their old semantics
+   *  until backfilled (scripts/migrate-spine-owners). */
+  ownerUserId: string | null;
   title: string;
   phase: string;
   createdAt?: string;
@@ -37,6 +42,7 @@ const ProjectSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
     organizationId: { type: String, default: null, index: true },
+    ownerUserId: { type: String, default: null, index: true },
     brandId: { type: String, default: null },
     acceptedBrandRevision: { type: String, default: null },
     title: { type: String, required: true },
@@ -132,6 +138,7 @@ type ProjectLean = {
   organizationId?: string | null;
   brandId?: string | null;
   acceptedBrandRevision?: string | null;
+  ownerUserId?: string | null;
   title?: string;
   phase?: string;
 };
@@ -142,6 +149,7 @@ function toSpineProject(doc: ProjectLean): SpineProject {
     organizationId: doc.organizationId ?? null,
     brandId: doc.brandId ?? null,
     acceptedBrandRevision: doc.acceptedBrandRevision ?? null,
+    ownerUserId: doc.ownerUserId ?? null,
     title: doc.title ?? "Studio draft",
     phase: doc.phase ?? "planning",
   };
@@ -155,6 +163,8 @@ export async function getOrCreateProject(input: {
   /** exact accepted Brand Vault record — plan §17 Phase 4 first bullet:
    *  the project pins the brand truth it was created against */
   acceptedBrandRevision?: string | null;
+  /** audit P0: stamped on insert — the org-null ownership anchor */
+  ownerUserId?: string | null;
 }): Promise<SpineProject> {
   await connectSpine();
   const projectId = input.projectId ?? `proj_${crypto.randomUUID()}`;
@@ -162,7 +172,7 @@ export async function getOrCreateProject(input: {
   /* $setOnInsert keeps creation idempotent; a NEWER accepted revision on a
    * later turn refreshes the stamp only when the caller actually re-verified
    * it against the vault (routes pass the record they just authorized) */
-  const setOnInsert: Record<string, unknown> = { organizationId: input.organizationId, brandId: input.brandId, title: input.title, phase: "planning" };
+  const setOnInsert: Record<string, unknown> = { organizationId: input.organizationId, brandId: input.brandId, title: input.title, phase: "planning", ownerUserId: input.ownerUserId ?? null };
   /* $set (not $setOnInsert) for the stamp: Mongo forbids the same path in
    * both operators, and $set applies on insert AND update — so creation
    * stamps it and a later re-verified revision refreshes it */

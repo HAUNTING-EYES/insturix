@@ -148,6 +148,27 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
   });
 
+  it("audit P0: another organization cannot WRITE a turn on this project (403)", async () => {
+    sim.auth = { userId: "user_sim_2", orgId: "org_OTHER", has: async () => false };
+    const res = await POST(postTurn({ deliverableId: projectId, threadId: `th_${projectId}`, text: "hello", mode: "direct", operationId: crypto.randomUUID() }));
+    expect(res.status).toBe(403);
+    sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
+  });
+
+  it("audit P0: a personal (org-null) project rejects a different orgless user (403)", async () => {
+    const { getOrCreateProject } = await import("@/lib/studio/persist/db");
+    const personal = `proj_personal_${crypto.randomUUID().slice(0, 6)}`;
+    await getOrCreateProject({ projectId: personal, organizationId: null, brandId: null, title: "personal", ownerUserId: "user_sim_1" });
+    sim.auth = { userId: "user_sim_2", orgId: null as unknown as string, has: async () => false };
+    const res = await POST(postTurn({ deliverableId: personal, threadId: `th_${personal}`, text: "hello", mode: "direct", operationId: crypto.randomUUID() }));
+    expect(res.status).toBe(403);
+    /* the OWNER still can */
+    sim.auth = { userId: "user_sim_1", orgId: null as unknown as string, has: async () => false };
+    const own = await POST(postTurn({ deliverableId: personal, threadId: `th_${personal}`, text: "hello", mode: "direct", operationId: crypto.randomUUID() }));
+    expect(own.status).toBe(200);
+    sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
+  });
+
   it("a brand the caller has no accepted vault record for is denied (403, no fallback)", async () => {
     const res = await POST(
       postTurn({

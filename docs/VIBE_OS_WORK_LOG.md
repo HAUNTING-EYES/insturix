@@ -566,3 +566,32 @@ wasn't on that line. Fixed in the mockup: the receipt now says "— 30fps
 was derived from your footage, not asked". Recaptured chat.png; v9
 running (55 cells). v8 arc: 0.75 (v6, stale keys) → 1.0 core (v7 keys) →
 0 core breaks (v8 drawer+rule) → v9 (receipt provenance).
+
+## 2026-09-04 (audit remediation begins) — external audit accepted; P0 security closed
+
+Founder ran the Claude Code adversarial audit (range 28c92667d..503617165,
+report at repo root VIBE_OS_AUDIT_PHASES_4-8_2026-08-31.md). All findings
+accepted — three of my claims were REFUTED and are now the fix queue:
+carousel bridge dead (spec non-compliant), ship/queue ID-namespace
+mismatch (decision route + queue rows key by card.id, ship + §6 status
+key by _id), turns route had NO ownership check. Plus 8 real-mode
+fabrications, 2 reload gaps (clarification invisible, declines not
+persisted), order-flaky suite (threads-pool env collision), and hardening
+items (prose ambiguity contract, two-flag split).
+
+SLICE 1 (P0 security) DONE: spine projects gain ownerUserId (stamped on
+create; legacy org-null rows keep old semantics until backfill). The
+turns route now 403s before ANY write unless organizationId matches OR
+(org-null AND owner of record); events route gains the same personal-
+project check. Closes: cross-org turn writes, delivery-status leaks +
+retry-to-publish via foreign projectIds, TF chat exfiltration, org-null
+hole going forward. Tests: cross-org write 403; orgless stranger 403 on
+a personal project while the owner still writes.
+
+Remaining queue: (2) ID-namespace standardization on the deliverable PK
+(decision lookup + queue keys + §6 linkage + honest ship test), (3)
+carousel spec compliance w/ validator-tested spec, (4) 8-fabrication
+purge, (5) clarification render + decline persistence, (6) sequential
+studio suite (flake), (7) structured ambiguity flag + two-flag guard,
+(8) T3-v9 verdict when it lands.
+Gates: tsc 0, eslint 0, studio 99/99 × 2.

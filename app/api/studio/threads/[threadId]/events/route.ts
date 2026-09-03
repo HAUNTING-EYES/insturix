@@ -50,6 +50,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     if (project.organizationId !== (orgId ?? null)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
+    /* audit P0: personal (org-null) projects belong to their owner of
+     * record — legacy ownerless rows keep the old org-null semantics */
+    if (project.organizationId === null && project.ownerUserId && project.ownerUserId !== userId) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     /* recovery read: anything a dropped turn parked in the outbox finishes
      * landing HERE, before the client sees the log — a reload is the heal */
     await drainOutbox(projectId).catch((error) => console.error("[spine] outbox drain failed on read", error));
