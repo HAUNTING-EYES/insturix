@@ -37,7 +37,9 @@ const artifacts: StudioArtifact[] = [
     kind: "reel",
     status: "done",
     title: "Reel",
-    sourceRef: { engine: "editron", externalId: "proj_8801", manualHref: "/dashboard/editron/project/proj_8801" },
+    /* plan §1 + §17 Phase 3 exit: no routes out to legacy dashboards from
+     * migrated surfaces — Editron is deferred, and the studio IS the surface */
+    sourceRef: { engine: "editron", externalId: "proj_8801", manualHref: null },
     revisions: [{ id: "rev4", createdAt: iso(2 * 60000), checkpointRef: "ckpt_55c1", summary: "re-cut open 00:00–00:03" }],
     updatedAt: iso(2 * 60000),
     createdAt: iso(48 * 60000),
@@ -47,7 +49,7 @@ const artifacts: StudioArtifact[] = [
     kind: "thumbnail",
     status: "running",
     title: "Thumbnail",
-    sourceRef: { engine: "clickatron", externalId: "cv_31f", manualHref: "/dashboard/clickatron/lab/cv_31f" },
+    sourceRef: { engine: "clickatron", externalId: "cv_31f", manualHref: null },
     progress: { stage: "stage 2/4 · variations", percent: null },
     revisions: [],
     updatedAt: iso(4 * 60000),
@@ -58,7 +60,7 @@ const artifacts: StudioArtifact[] = [
     kind: "schedule",
     status: "queued",
     title: "Schedule",
-    sourceRef: { engine: "calos", externalId: "cal_d_77", manualHref: "/dashboard/calos" },
+    sourceRef: { engine: "calos", externalId: "cal_d_77", manualHref: null },
     revisions: [],
     updatedAt: iso(46 * 60000),
     createdAt: iso(46 * 60000),

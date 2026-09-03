@@ -14,7 +14,7 @@ import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import { MOCK_DELIVERABLE, MOCK_THREAD, MOCK_WALLET } from "@/lib/studio/mock/data";
 import { runMockTurn, type MockTurnHandle } from "@/lib/studio/mock/orchestrator";
-import { runRealTurn, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { fetchWalletBalance, runRealTurn, studioRealTurnsEnabled, type StudioWalletBalance } from "@/lib/studio/client/turnClient";
 import { replayEventsToItems, replayOpenConfirm, type PersistedSpineEvent } from "@/lib/studio/persist/replay";
 import { useArtifactPolling } from "./use-artifact-polling";
 import { ComposerMedia, type ComposerAttachment } from "./composer-media";
@@ -44,7 +44,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const [mode, setMode] = useState<"ask" | "direct">("direct");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [realWallet, setRealWallet] = useState<{ main: number; media: number }>({ main: MOCK_WALLET.main, media: MOCK_WALLET.media });
+  /* real mode starts with an UNKNOWN wallet (null) — a mock number must
+   * never stand in for the user's real balance on a quote card */
+  const [realWallet, setRealWallet] = useState<StudioWalletBalance | null>(REAL ? null : MOCK_WALLET);
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [clarifyEv, setClarifyEv] = useState<Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null>(null);
@@ -61,6 +63,12 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [items, pendingConfirm, busy]);
+
+  /* real mode: know the balance up front — quote cards compare against it */
+  useEffect(() => {
+    if (!REAL) return;
+    fetchWalletBalance().then((w) => setRealWallet(w));
+  }, []);
 
   /* real mode: hydrate an existing deliverable (Home row → its artifacts) */
   useEffect(() => {
@@ -358,15 +366,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
                * instance — close it; the card's answer re-posts the original
                * ask with the accepted quote and the turn continues there. */
               if (ev.quote) {
-                try {
-                  const cr = await fetch("/api/user/credits?wallet=auto");
-                  if (cr.ok) {
-                    const w = (await cr.json()) as { balance?: { totalCredits?: number; totalMediaCredits?: number }; totalCredits?: number; totalMediaCredits?: number };
-                    setRealWallet({ main: w.balance?.totalCredits ?? w.totalCredits ?? 0, media: w.balance?.totalMediaCredits ?? w.totalMediaCredits ?? 0 });
-                  }
-                } catch {
-                  /* card falls back to the last known wallet */
-                }
+                const w = await fetchWalletBalance();
+                if (w) setRealWallet(w);
               }
               abort.abort();
               break;
@@ -436,7 +437,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           <span className="dn">{deliverable.title}</span>
         </nav>
         <div className="stu-topright">
-          <span className="stu-credits">{realWallet.main} cr</span>
+          {realWallet && <span className="stu-credits">{realWallet.main} cr</span>}
           <div className="stu-seg" role="group" aria-label="Mode">
             <button className={mode === "ask" ? "on" : ""} onClick={() => setMode("ask")}>Ask</button>
             <button className={mode === "direct" ? "on" : ""} onClick={() => setMode("direct")}>Direct</button>
@@ -478,8 +479,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
                 pendingConfirm?.kind === "spend" && pendingConfirm.quote ? (
                   <ConfirmSpendCard
                     quote={pendingConfirm.quote}
-                    walletMain={realWallet.main}
-                    walletMedia={realWallet.media}
+                    walletMain={realWallet?.main ?? 0}
+                    walletMedia={realWallet?.media ?? 0}
                     answered={pendingConfirm.answered}
                     onAnswer={answerConfirm}
                   />

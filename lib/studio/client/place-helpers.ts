@@ -78,3 +78,32 @@ export function deliverableState(d: StudioDeliverable): ProjectStatusPayload {
   if (s.length === 0 || s.every((x) => x === "empty")) return { state: "planning", label: "planning" };
   return { state: "done", label: "done" };
 }
+
+export type BrandGroup = { id: string; name: string; list: StudioDeliverable[] };
+
+/** Home "Your work" grouping. Real mode keys every deliverable by its
+ *  resolved brand name (one group per real brand — no baked-in demo brands).
+ *  Mock mode keeps the two demo brands plus an "Other brands" catch-all.
+ *  Callers drop empty groups. */
+export function buildBrandGroups(
+  deliverables: StudioDeliverable[],
+  realBrands: Record<string, string>,
+  real: boolean,
+  demoBrands: ReadonlyArray<{ id: string; name: string }> = [],
+): BrandGroup[] {
+  if (!real) {
+    const groups = demoBrands.map((b) => ({ id: b.id, name: b.name, list: deliverables.filter((d) => d.brandId === b.id) }));
+    const demoIds = new Set(demoBrands.map((b) => b.id));
+    const rest = deliverables.filter((d) => !demoIds.has(d.brandId));
+    if (rest.length > 0) groups.push({ id: "rest", name: "Other brands", list: rest });
+    return groups;
+  }
+  const byName = new Map<string, StudioDeliverable[]>();
+  for (const d of deliverables) {
+    const name = realBrands[d.brandId] ?? d.brandId;
+    const list = byName.get(name);
+    if (list) list.push(d);
+    else byName.set(name, [d]);
+  }
+  return [...byName.entries()].map(([name, list]) => ({ id: name, name, list }));
+}

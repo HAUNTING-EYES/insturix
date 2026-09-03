@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayBucket, deliverableState, publishStatusChip, weekGrid } from "@/lib/studio/client/place-helpers";
+import { buildBrandGroups, dayBucket, deliverableState, publishStatusChip, weekGrid } from "@/lib/studio/client/place-helpers";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 function isoDaysAgo(days: number): string {
@@ -99,5 +99,51 @@ describe("weekGrid — stage ScheduleView layout", () => {
     const grid = weekGrid([row(0, 23, "linkedin")], 2, now);
     expect(grid[0].posts[0]?.time).toMatch(/11:00|23:00/);
     expect(grid[1].posts).toHaveLength(0);
+  });
+});
+
+describe("buildBrandGroups", () => {
+  const mk = (id: string, brandId: string): StudioDeliverable => ({
+    id,
+    title: id,
+    brandId,
+    threadId: `th_${id}`,
+    artifacts: [],
+    edges: [],
+    stageFocus: null,
+    createdAt: isoDaysAgo(1),
+    updatedAt: isoDaysAgo(1),
+  });
+
+  it("real mode groups by resolved brand name — one group per brand, unknown ids fall back to the raw id", () => {
+    const groups = buildBrandGroups(
+      [mk("d1", "br_a"), mk("d2", "br_a"), mk("d3", "br_b")],
+      { br_a: "Nike", br_b: "Alo Yoga" },
+      true,
+    );
+    expect(groups.map((g) => g.name)).toEqual(["Nike", "Alo Yoga"]);
+    expect(groups[0]?.list.map((d) => d.id)).toEqual(["d1", "d2"]);
+    const unknown = buildBrandGroups([mk("d9", "br_unmapped")], {}, true);
+    expect(unknown.map((g) => g.name)).toEqual(["br_unmapped"]);
+  });
+
+  it("real mode never injects demo brands — empty input means zero groups", () => {
+    expect(buildBrandGroups([], { br_nike: "Nike" }, true, [{ id: "br_nike", name: "Nike" }])).toEqual([]);
+  });
+
+  it("mock mode keeps demo brands first and catches the rest under Other brands", () => {
+    const groups = buildBrandGroups(
+      [mk("d1", "br_nike"), mk("d2", "br_other"), mk("d3", "br_nike")],
+      {},
+      false,
+      [{ id: "br_nike", name: "Nike" }, { id: "br_alo", name: "Alo Yoga" }],
+    );
+    expect(groups.map((g) => [g.id, g.list.length])).toEqual([["br_nike", 2], ["br_alo", 0], ["rest", 1]]);
+    expect(groups[2]?.name).toBe("Other brands");
+  });
+
+  it("mock mode drops the catch-all when everything belongs to a demo brand", () => {
+    const groups = buildBrandGroups([mk("d1", "br_alo")], {}, false, [{ id: "br_nike", name: "Nike" }, { id: "br_alo", name: "Alo Yoga" }]);
+    expect(groups.some((g) => g.id === "rest")).toBe(false);
   });
 });

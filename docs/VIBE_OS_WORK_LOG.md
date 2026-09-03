@@ -215,3 +215,36 @@ the v5 regression taught the three-kind taxonomy).
 Editable body + select-to-ask + versions strip + brand/sources drawers +
 hand-off actions (design/analyze/schedule prefills). Branch pushed to
 haunting/vibe-content-os going forward (founder: "pls keep pushing").
+
+## 2026-09-03 (stub purge) — deferred-product routes + real-mode mock leftovers out
+
+Founder flagged stubs visible in the interface. Audit found three real-mode
+leaks plus deferred-product exposure in the flag-off demo:
+
+- `lib/studio/mock/data.ts`: ALL legacy manualHrefs stripped (editron,
+  clickatron, calos) — §1 defer + §17 Phase 3 exit "no legacy new-tab
+  requirement in migrated surfaces". The studio IS the surface.
+- `components/studio/home.tsx`: mock demo no longer offers "upload footage"
+  → /dashboard/editron or "make music" → /dashboard/musitron chips
+  (replaced by an honest "video editing · live soon" chip). REAL mode now:
+  credits fetched live (`fetchWalletBalance`, hidden until answered — never
+  the 328 mock), "Producing now" renders REAL running deliverables instead
+  of the hardcoded demo row (mock row only when flag off), brand count from
+  real groups instead of MOCK_BRANDS.length.
+- `components/studio/session.tsx`: wallet state starts null in real mode
+  (was seeded from MOCK_WALLET until a quote card appeared), fetched on
+  mount, null-safe header/quote-card props.
+- `lib/studio/client/turnClient.ts`: shared `parseWalletCredits` /
+  `fetchWalletBalance` (accepts nested + flat credit shapes, returns null
+  on unknown — the UI hides rather than fakes).
+- `lib/studio/client/place-helpers.ts`: `buildBrandGroups` extracted from
+  Home's inline grouping (real: one group per resolved brand name; mock:
+  demo brands + catch-all).
+
+Gates: tsc 0, eslint 0, studio suite 44/44 × 2 consecutive (places 14,
+wallet 3 new). Unreachable-in-practice note: stage.tsx real-mode ReelView
+"live editor" branch cannot trigger today (edit turns route to
+capability_gap) and activates only when the founder lifts the Editron defer.
+
+Next: T3-v6 scorecard (51/55 at log time), then Phase 4 remainder — remove
+ThinkForge UI from the normal path after Write-stage parity check.

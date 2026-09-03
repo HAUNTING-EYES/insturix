@@ -53,3 +53,32 @@ export async function* runRealTurn(request: StudioTurnRequest, signal?: AbortSig
 }
 
 export const studioRealTurnsEnabled = process.env.NEXT_PUBLIC_STUDIO_REAL_TURNS === "1";
+
+export interface StudioWalletBalance {
+  main: number;
+  media: number;
+}
+
+/** /api/user/credits responses come in two shapes (nested balance or flat) —
+ *  accept both; anything without a numeric main balance is "unknown", so the
+ *  UI hides the number instead of guessing. */
+export function parseWalletCredits(body: unknown): StudioWalletBalance | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as { balance?: { totalCredits?: unknown; totalMediaCredits?: unknown }; totalCredits?: unknown; totalMediaCredits?: unknown };
+  const main = b.balance?.totalCredits ?? b.totalCredits;
+  const media = b.balance?.totalMediaCredits ?? b.totalMediaCredits;
+  if (typeof main !== "number") return null;
+  return { main, media: typeof media === "number" ? media : 0 };
+}
+
+/** Real credit balance for headers and quote cards. Returns null on any
+ * failure — real mode never falls back to a mock number. */
+export async function fetchWalletBalance(): Promise<StudioWalletBalance | null> {
+  try {
+    const res = await fetch("/api/user/credits?wallet=auto");
+    if (!res.ok) return null;
+    return parseWalletCredits(await res.json());
+  } catch {
+    return null;
+  }
+}
