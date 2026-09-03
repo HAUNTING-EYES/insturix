@@ -386,3 +386,16 @@ with hard-coded Tue/Thu weekdays. Replaced, not patched:
 Gates: tsc 0, eslint 0, vitest studio 82/82 × 2.
 Next: real calendar projection in the Calendar place (§12 rules), then
 three-axis status (#5) unblocks with the write-side records now landing.
+
+## 2026-09-03 (Phase 6 exit) — real CalOS calendar projection
+
+Calendar place now shows BOTH honest layers (§12): planned (editorial
+pipeline — plannedDates on idea/draft deliverables, one row per date,
+clearly "not yet scheduled") and scheduled (the delivery queue, as
+before). Deleted rows vanish from the projection; org-scoped; window
+past 7d + next 45d. Sim test proves both layers + deleted exclusion +
+other-org absence. PHASE 6 EXIT MET: adapter repaired (replaced), Plan
+artifact + proposal review live, accepted proposals compile to content
+items, calendar runs on real CalOS projection. Next: remediation #5
+(three-axis status) — its write-side records now exist — then Phases 7-9.
+Gates: tsc 0, eslint 0, vitest studio 83/83 × 2.

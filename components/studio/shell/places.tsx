@@ -255,6 +255,9 @@ function PlaceFrame({ crumb, title, sub, children }: { crumb: string; title: str
 type OverviewPayload = { deliverables: StudioDeliverable[]; brands?: Record<string, string> };
 type CalendarPayload = {
   scheduled: Array<{ id: string; deliverableId: string; platform: string; status: string; publishAt: string; postUrl: string | null; lastError: string | null }>;
+  /** §12 projection: editorial pipeline (planned dates on idea/draft cards).
+   *  A planned item is NOT a scheduled post — approval moves it across. */
+  planned?: Array<{ id: string; deliverableId: string; platform: string; plannedAt: string; editorialStatus: string; title: string }>;
 };
 
 export function CalendarPlace() {
@@ -298,6 +301,16 @@ export function CalendarPlace() {
   }
   const schedTotal = scheduled.length;
 
+  /* §12: the plan layer — planned dates on editorial-pipeline cards, grouped
+   * by day, clearly not-yet-scheduled */
+  const planned = REAL ? (cal?.planned ?? []) : [];
+  const plannedBuckets = new Map<string, NonNullable<CalendarPayload["planned"]>>();
+  for (const p of planned) {
+    const k = dayBucket(p.plannedAt);
+    if (!plannedBuckets.has(k)) plannedBuckets.set(k, []);
+    plannedBuckets.get(k)!.push(p);
+  }
+
   return (
     <PlaceFrame
       crumb="Calendar"
@@ -331,9 +344,22 @@ export function CalendarPlace() {
           })}
         </section>
       ))}
-      {REAL && schedTotal === 0 && !error && (
+      {REAL && schedTotal === 0 && planned.length === 0 && !error && (
         <p className="stu-placeempty">nothing scheduled yet — approved work lands here with its publish day; nothing ever posts without approval</p>
       )}
+      {[...plannedBuckets.entries()].map(([day, rows]) => (
+        <section key={`p_${day}`} className="stu-daygroup">
+          <div className="stu-mlabel">{day} · planned</div>
+          {rows.map((p) => (
+            <span key={p.id} className="stu-dayrow">
+              <span className="stu-daytitle">{p.title}</span>
+              <span className="stu-daysub">
+                {p.platform} · {new Date(p.plannedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })} · {p.editorialStatus} — not yet scheduled
+              </span>
+            </span>
+          ))}
+        </section>
+      ))}
       {[...buckets.entries()].map(([day, rows]) => (
         <section key={day} className="stu-daygroup">
           <div className="stu-mlabel">{day} · recent work</div>
