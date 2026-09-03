@@ -424,6 +424,7 @@ export function BrandsPlace() {
                 ))
               )}
             </div>
+            {REAL && <BrandProfileEditor brandId={b.brandId} />}
           </div>
         </section>
       ))}
@@ -476,5 +477,119 @@ export function LibraryPlace() {
       ))}
       {groups.size === 0 && !error && <p className="stu-placeempty">nothing yet — start something from Home</p>}
     </PlaceFrame>
+  );
+}
+
+/* §17 Phase 9: the brand's OWNED public profile, edited right in the Brands
+ * place (vault-scope auth on the route). The public page is the existing
+ * /profile/<username>; the QR is generated client-side from the real URL —
+ * loading/error states honest, download is a plain file. */
+import QRCode from "qrcode";
+
+function BrandProfileEditor({ brandId }: { brandId: string }) {
+  type Profile = { username: string; bio: string; status: string; accentColor: string; links: Array<{ platform: string; url: string; title?: string }> };
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [form, setForm] = useState({ username: "", bio: "", status: "", accentColor: "gold" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/studio/brands/${brandId}/profile`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { profile: Profile | null }) => {
+        if (cancelled) return;
+        if (d.profile) {
+          setProfile(d.profile);
+          setForm({ username: d.profile.username, bio: d.profile.bio ?? "", status: d.profile.status ?? "", accentColor: d.profile.accentColor ?? "gold" });
+        } else {
+          setMissing(true);
+        }
+      })
+      .catch(() => setMsg("couldn't load the profile"));
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId]);
+
+  useEffect(() => {
+    if (!profile?.username) return;
+    setQr(null);
+    setQrError(null);
+    QRCode.toDataURL(`${typeof window === "undefined" ? "" : window.location.origin}/profile/${profile.username}`)
+      .then((url) => setQr(url))
+      .catch(() => setQrError("QR generation failed — the link still works"));
+  }, [profile?.username]);
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/studio/brands/${brandId}/profile`, {
+        method: "PUT",
+        headers: { "content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const d = (await res.json().catch(() => null)) as { profile?: Profile; error?: string } | null;
+      if (!res.ok || !d?.profile) {
+        setMsg(d?.error === "username_taken" ? "that username is taken" : d?.error === "invalid_username" ? "3–30 chars: lowercase letters, digits, dashes" : `save failed (${res.status})`);
+        return;
+      }
+      setProfile(d.profile);
+      setMissing(false);
+      setMsg("saved — the public page is live");
+    } catch {
+      setMsg("network — try again");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stu-brandprofile" style={{ marginTop: 10 }}>
+      <div className="stu-mlabel" style={{ marginBottom: 6 }}>public page</div>
+      {profile ? (
+        <div className="stu-chips">
+          <a className="stu-chip" href={`/profile/${profile.username}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            /profile/{profile.username} ↗
+          </a>
+        </div>
+      ) : (
+        <div className="stu-needssub" style={{ marginBottom: 6 }}>{missing ? "no public page yet — claim a username below" : "…"}</div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+        <input className="stu-placeinput" style={{ flex: "1 1 120px" }} placeholder="username (lowercase)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} />
+        <input className="stu-placeinput" style={{ flex: "2 1 180px" }} placeholder="status — one line" maxLength={50} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} />
+      </div>
+      <textarea className="stu-placeinput" style={{ width: "100%", marginTop: 6, minHeight: 48, resize: "vertical" }} placeholder="bio — what this brand posts" maxLength={256} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+      <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <select className="stu-placeinput" value={form.accentColor} onChange={(e) => setForm({ ...form, accentColor: e.target.value })}>
+          {["gold", "cyan", "rose", "green", "purple", "coral"].map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+        <button className="stu-btn" onClick={() => void save()} disabled={busy}>
+          {busy ? "saving…" : profile ? "save changes" : "create public page"}
+        </button>
+        {msg && <span className="stu-needssub">{msg}</span>}
+      </div>
+      {profile?.username && (
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+          {qr && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element -- data URL generated client-side */}
+              <img src={qr} alt={`QR for /profile/${profile.username}`} style={{ width: 72, height: 72, borderRadius: 8 }} />
+              <a className="stu-btn" href={qr} download={`insturix-${profile.username}-qr.png`}>download QR</a>
+            </>
+          )}
+          {qrError && <span className="stu-needssub">{qrError}</span>}
+          {!qr && !qrError && <span className="stu-needssub">generating QR…</span>}
+        </div>
+      )}
+    </div>
   );
 }

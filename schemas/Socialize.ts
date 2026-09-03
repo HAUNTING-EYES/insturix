@@ -27,6 +27,10 @@ interface INotification {
 
 interface ISocialize extends Document {
   clerkUserId: string;
+  /** §17 Phase 9: a profile may be BRAND-owned. brandId set ⇒ the studio
+   *  Brands place owns this profile (vault-scope auth); null ⇒ the legacy
+   *  user-owned dashboard profile, untouched. */
+  brandId: string | null;
   username: string;
   profileImage: string;
   bio: string;
@@ -134,6 +138,11 @@ const socializeSchema = new Schema<ISocialize>(
     clerkUserId: {
       type: String,
       required: true,
+      index: true,
+    },
+    brandId: {
+      type: String,
+      default: null,
       index: true,
     },
     username: {

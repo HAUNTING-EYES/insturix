@@ -515,3 +515,22 @@ met: analysis survives reload (artifact + polling fixed in 8a) and
 follow-ups stay bound to authoritative results (8b). Remaining nice-to-
 haves queued: org-aware chat ownership, JSON export parity, status-enum
 cleanup (listed vs queued).
+
+## 2026-09-03 (Phase 9a) — brand-owned public profiles (§17 Phase 9)
+
+Socialize.brandId added (null = legacy user-owned profiles, untouched).
+New route /api/studio/brands/[brandId]/profile: GET/PUT, authorized by the
+Brand Vault scope (the same authority every studio route uses — NOT the
+profile creator). Upsert by brandId; username validated ([a-z0-9-]{3,30})
+and never stolen (409 on collision with another doc); omitted fields
+untouched on update; legacy user profiles invisible to this route.
+Brands place gains the editor: username/status/bio/accent + save, link to
+the live /profile/<username>, and a real QR (qrcode lib, client-side, from
+the actual page URL) with honest generating/error states + download.
+Mock mode untouched (editor renders in real mode only). Sim: create→read-
+back exact, idempotent upsert (same doc), collision 409 (owner unchanged),
+out-of-scope brand 403, invalid username 400.
+Gates: tsc 0, eslint 0, studio 94/94 × 2. Remaining Phase 9: profile
+backfill script + low-risk chat commands (e.g. status updates) — next.
+Also: founder audit of phases 4-8 via external reviewer (Claude Code)
+queued — prompt delivered.

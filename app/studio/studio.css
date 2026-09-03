@@ -359,3 +359,18 @@
 .stu-drawer { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--deeper); display: flex; flex-direction: column; gap: 6px; }
 .stu-drow { color: var(--soft); font-size: 12.5px; }
 .stu-doc .body:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--bs); border-radius: 4px; }
+
+/* §17 Phase 9 — brand public-page editor inputs (Brands place) */
+.stu-placeinput {
+  background: var(--bg, #14110c);
+  border: 1px solid var(--line, #2c251a);
+  color: var(--text, #f4ead8);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.stu-placeinput:focus {
+  border-color: var(--gold, #d4a652);
+}
