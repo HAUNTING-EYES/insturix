@@ -200,3 +200,12 @@ Bare creation leaves the stamp null — never a guess.
 Next per Phase 4 order: the Vibe-native Write stage (clean editor, versions,
 selection edits, brand-context drawer) and removing the current ThinkForge
 UI from the normal path.
+
+## 2026-09-03 (MatrAIx) — T10 PASSES (0.33 → 0.67 → 0.67 → 1.0)
+
+T10-v4: core median 1.0, 0 trust breaks (core+adv), 0 ungraded, 55/55 cells.
+What closed it: the honest-decline probe was reworded to test its own full
+rubric (harness fix, logged), plus the '✓ scan ran · your press' state chip
+killing the pre-consent-crawl reading. Surface verdicts now: T2, T4, T5, T8,
+T10 PASS; T3 pending (v6 in flight — testing derived-provenance chips after
+the v5 regression taught the three-kind taxonomy).
