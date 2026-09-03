@@ -214,7 +214,7 @@ export async function POST(req: Request) {
             : wantsShip
               ? runShipTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
               : wantsDistribute
-              ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
+              ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, timezone: request.clientContext?.timezone ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
               : wantsStoryboard
                 ? runStoryboardTurn({ userId, orgId: orgId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
                 : wantsDesign

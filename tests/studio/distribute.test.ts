@@ -24,3 +24,18 @@ describe("parsePlanWindow — the user's words set the window, never a guess", (
     expect(parsePlanWindow("99 posts", wednesday).count).toBeNull(); // out of range — not a guess we honor
   });
 });
+
+describe("parsePlanWindow — the user's Monday, not UTC's", () => {
+  const wednesday = new Date("2026-09-02T15:00:00Z"); // Wednesday
+
+  it("IST users get Monday 00:00 Asia/Kolkata (Sunday 18:30Z)", () => {
+    const w = parsePlanWindow("plan four posts next week", wednesday, "Asia/Kolkata");
+    expect(w.from.toISOString()).toBe("2026-09-06T18:30:00.000Z"); // their Monday
+    expect(w.from.toISOString()).not.toBe("2026-09-07T00:00:00.000Z"); // not UTC Monday
+  });
+
+  it("no zone given keeps the UTC-neutral behavior", () => {
+    const w = parsePlanWindow("plan four posts next week", wednesday);
+    expect(w.from.toISOString()).toBe("2026-09-07T00:00:00.000Z");
+  });
+});

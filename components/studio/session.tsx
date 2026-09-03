@@ -372,7 +372,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               mode,
               attachments: [...attachment, ...composerAttachments.map((a) => ({ ref: a.ref, role: a.role }))],
               mentions: [],
-              clientContext: { focusedArtifactId: focus?.artifactId ?? null },
+              clientContext: { focusedArtifactId: focus?.artifactId ?? null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
               operationId: opId,
               confirmAcceptedQuoteId: confirmQuoteId ?? null,
               confirmAccepted: confirmAccepted ?? undefined,

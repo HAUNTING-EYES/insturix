@@ -30,6 +30,9 @@ export interface DistributeTurnContext {
   userId: string;
   orgId: string | null;
   brandId?: string | null;
+  /** the user's wall-clock zone (IANA), when the client sent it — "next
+   *  week" computes in THEIR Monday, not UTC */
+  timezone?: string | null;
   forwardHeaders: Record<string, string>;
   origin: string;
 }
@@ -92,7 +95,7 @@ export async function* runDistributeTurn(
 
   /* §12: CalOS owns dates and cadence — the slots come from its projector,
    * capped to the user's stated count when they named one */
-  const { from, to, count } = parsePlanWindow(text);
+  const { from, to, count } = parsePlanWindow(text, new Date(), ctx.timezone);
   let proposals = proposeCadenceCards(suggestion.rules, { from, to });
   if (count !== null) proposals = proposals.slice(0, count);
   if (proposals.length === 0) {

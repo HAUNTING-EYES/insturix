@@ -29,6 +29,8 @@ import { StudioArtifactSchema, StudioCapabilitySchema } from "./objects";
 export const StudioTurnClientContextSchema = z.object({
   /** which artifact the stage is showing, if any */
   focusedArtifactId: z.string().nullable().optional(),
+  /** the user's IANA timezone from the browser — plan windows compute here */
+  timezone: z.string().nullable().optional(),
   selectedArtifactId: z.string().nullable().optional(),
   /** current playback position for reel artifacts */
   timecodeMs: z.number().nullable().optional(),
