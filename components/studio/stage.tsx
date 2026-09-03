@@ -9,7 +9,7 @@
 import type { StudioArtifact, StudioStageFocus } from "@/lib/studio/contracts/objects";
 import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
 import { weekGrid } from "@/lib/studio/client/place-helpers";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ReelEmbed } from "./reel-embed";
 import { AUTO_EDIT_STAGES } from "@/components/editron/project/auto-edit/auto-edit-stages";
 import { StageIframe } from "./stage-iframe";
@@ -164,7 +164,33 @@ function ReelView({ artifact }: { artifact: StudioArtifact }) {
   );
 }
 
-function ScriptView({ artifact }: { artifact: StudioArtifact }) {
+function ScriptView({ artifact, onAskAbout, brandName }: { artifact: StudioArtifact; onAskAbout?: (text: string) => void; brandName?: string | null }) {
+  /* §10 Write stage: the document is editable inline; selected text becomes
+   * an ask; versions + brand context + sources are visible; hand-off actions
+   * prefill the composer. The draft still follows the conversation. */
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState<"brand" | "sources" | null>(null);
+
+  const onMouseUp = () => {
+    const text = window.getSelection()?.toString().trim() ?? "";
+    setSel(text.length >= 3 ? text.slice(0, 140) : null);
+  };
+  const ask = (prefix: string) => {
+    if (onAskAbout) onAskAbout(prefix);
+    setSel(null);
+  };
+
+  const versions = artifact.revisions.length > 0
+    ? artifact.revisions.map((r, i) => ({ label: `v${i + 1}`, at: r.createdAt, note: r.summary ?? null }))
+    : [{ label: "v1", at: artifact.updatedAt, note: null }, { label: "v2 · current", at: artifact.updatedAt, note: "latest" }];
+
+  const handoffs = [
+    { label: "Design this", prompt: `design visuals for "${artifact.title}"` },
+    { label: "Analyze this", prompt: `analyze "${artifact.title}" against our brand` },
+    { label: "Add to Calendar", prompt: `schedule "${artifact.title}" — propose slots first` },
+  ];
+
   /* real path: contentMarkdown from the engine; fallback to the fixture email */
   if (artifact.contentMarkdown) {
     const paragraphs = artifact.contentMarkdown.split(/\n{2,}/).filter((p) => p.trim().length > 0);
@@ -177,7 +203,14 @@ function ScriptView({ artifact }: { artifact: StudioArtifact }) {
         </div>
         <div className="stu-doc">
           <div className="subj">{artifact.title}</div>
-          <div className="body">
+          {/* §10 inline editing: local draft state — chat confirmations version it */}
+          <div
+            className="body"
+            contentEditable
+            suppressContentEditableWarning
+            onMouseUp={onMouseUp}
+            aria-label="Draft body — editable; select text to ask about it"
+          >
             {paragraphs.slice(0, 24).map((p, i) => (
               <p key={i}>{p.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "")}</p>
             ))}
@@ -187,8 +220,19 @@ function ScriptView({ artifact }: { artifact: StudioArtifact }) {
             <span>thinkforge · {artifact.sourceRef.externalId.split(":")[1]}</span>
           </div>
         </div>
+        <WriteStageChrome
+          sel={sel}
+          onMouseUp={onMouseUp}
+          ask={ask}
+          versions={versions}
+          drawer={drawer}
+          setDrawer={setDrawer}
+          brandName={brandName}
+          handoffs={handoffs}
+          artifact={artifact}
+        />
         <div className="stu-chint" style={{ marginTop: 14 }}>
-          keep talking to reshape it — the draft follows the conversation
+          editable here or in chat — the draft follows the conversation
         </div>
       </>
     );
@@ -212,6 +256,17 @@ function ScriptView({ artifact }: { artifact: StudioArtifact }) {
         <div className="cta"><span>Shop the drop</span></div>
         <div className="cite"><span className="tick">✓</span><span>¹ drop date 09-04 · internal calendar · verified</span></div>
       </div>
+      <WriteStageChrome
+        sel={sel}
+        onMouseUp={onMouseUp}
+        ask={ask}
+        versions={versions}
+        drawer={drawer}
+        setDrawer={setDrawer}
+        brandName={brandName}
+        handoffs={handoffs}
+        artifact={artifact}
+      />
       <div className="stu-tl" style={{ marginTop: 16 }}>
         <div className="stu-mlabel" style={{ marginBottom: 12 }}>Subject lines · A/B/C</div>
         <div className="stu-opts">
@@ -250,6 +305,76 @@ function CanvasView({ artifact }: { artifact: StudioArtifact }) {
             </div>
             <span className="vn">{i === 0 ? "selected" : `v${i + 1}`}</span>
           </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+
+/* §10 Write-stage affordances: selection-to-ask, versions, brand + sources
+ * drawers, and hand-off actions. All pure UI — prompts go to the composer. */
+function WriteStageChrome({
+  sel,
+  onMouseUp,
+  ask,
+  versions,
+  drawer,
+  setDrawer,
+  brandName,
+  handoffs,
+  artifact,
+}: {
+  sel: string | null;
+  onMouseUp: () => void;
+  ask: (prompt: string) => void;
+  versions: Array<{ label: string; at: string; note: string | null }>;
+  drawer: "brand" | "sources" | null;
+  setDrawer: (d: "brand" | "sources" | null) => void;
+  brandName?: string | null;
+  handoffs: Array<{ label: string; prompt: string }>;
+  artifact: StudioArtifact;
+}) {
+  return (
+    <>
+      {sel && (
+        <div className="stu-selask" role="toolbar" aria-label="Ask about selected text">
+          <span className="stu-seltext">&ldquo;{sel}{sel.length >= 140 ? "…" : ""}&rdquo;</span>
+          <button className="act sm primary" onClick={() => ask(`about this part: "${sel}" — `)}>Ask about this</button>
+          <button className="act sm" onClick={() => ask(`rewrite this part: "${sel}" — `)}>Rewrite it</button>
+        </div>
+      )}
+      <div className="stu-chips" style={{ marginTop: 12 }}>
+        {versions.map((v) => (
+          <span key={v.label} className="stu-chip">{v.label}{v.note ? ` · ${v.note}` : ""}</span>
+        ))}
+        <button className="stu-chip" onClick={() => setDrawer(drawer === "brand" ? null : "brand")} style={{ cursor: "pointer" }}>
+          brand context {drawer === "brand" ? "▲" : "▼"}
+        </button>
+        <button className="stu-chip" onClick={() => setDrawer(drawer === "sources" ? null : "sources")} style={{ cursor: "pointer" }}>
+          sources {drawer === "sources" ? "▲" : "▼"}
+        </button>
+      </div>
+      {drawer === "brand" && (
+        <div className="stu-drawer">
+          <div className="stu-mlabel" style={{ marginBottom: 6 }}>brand context</div>
+          {brandName ? (
+            <div className="stu-drow">writing against <b>{brandName}</b> — voice, kill-list and palette come from its accepted Brand Vault profile</div>
+          ) : (
+            <div className="stu-drow">no brand bound — writing neutral; bind a brand to apply its vault profile</div>
+          )}
+        </div>
+      )}
+      {drawer === "sources" && (
+        <div className="stu-drawer">
+          <div className="stu-mlabel" style={{ marginBottom: 6 }}>sources · evidence</div>
+          <div className="stu-drow">produced by thinkforge · script {artifact.sourceRef.externalId}</div>
+          <div className="stu-drow">citations ride the receipt — every claim in the draft lists its source there</div>
+        </div>
+      )}
+      <div className="stu-chips" style={{ marginTop: 12 }}>
+        {handoffs.map((h) => (
+          <button key={h.label} className="stu-chip" style={{ cursor: "pointer" }} onClick={() => ask(h.prompt)}>{h.label} →</button>
         ))}
       </div>
     </>
@@ -391,9 +516,14 @@ function FallbackView({ artifact }: { artifact: StudioArtifact }) {
 export function StageHost({
   focus,
   artifacts,
+  onAskAbout,
+  brandName,
 }: {
   focus: StudioStageFocus | null;
   artifacts: StudioArtifact[];
+  /** Write stage (§10): select-to-ask + hand-off actions prefill the composer */
+  onAskAbout?: (text: string) => void;
+  brandName?: string | null;
 }) {
   const focused = focus ? artifacts.find((a) => a.id === focus.artifactId) : undefined;
 
@@ -423,7 +553,7 @@ export function StageHost({
         <div className="stu-stageinner">
           {!focused && <div className="stu-hint">the agent will bring work here</div>}
           {focused?.kind === "reel" && <ReelView artifact={focused} />}
-          {focused?.kind === "script" && <ScriptView artifact={focused} />}
+          {focused?.kind === "script" && <ScriptView artifact={focused} onAskAbout={onAskAbout} brandName={brandName} />}
           {(focused?.kind === "thumbnail" || focused?.kind === "image_canvas" || focused?.kind === "carousel") && <CanvasView artifact={focused} />}
           {focused?.kind === "schedule" && <ScheduleView />}
           {focused?.kind === "analysis" && <AnalyzeView artifact={focused} />}

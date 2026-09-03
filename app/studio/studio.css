@@ -352,3 +352,10 @@
 .stu-brandcard { display: flex; flex-direction: column; gap: 8px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 7px; background: var(--raised); }
 .stu-brandrow { display: flex; align-items: center; gap: 12px; }
 .stu-brandconn { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* ── §10 Write stage affordances ── */
+.stu-selask { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 9px 12px; border: 1px solid rgba(212,166,82,.4); border-radius: 7px; background: rgba(212,166,82,.06); flex-wrap: wrap; }
+.stu-seltext { color: var(--soft); font-size: 12.5px; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+.stu-drawer { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--deeper); display: flex; flex-direction: column; gap: 6px; }
+.stu-drow { color: var(--soft); font-size: 12.5px; }
+.stu-doc .body:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--bs); border-radius: 4px; }

@@ -524,7 +524,16 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
             <div className="stu-chint">you never pick a tool · the agent shows you what it&apos;s on</div>
           </div>
         </div>
-        <StageHost focus={focus} artifacts={artifacts} />
+        <StageHost
+          focus={focus}
+          artifacts={artifacts}
+          brandName={wsBrand?.name ?? null}
+          onAskAbout={(text) => {
+            /* §10 Write stage: selection-to-ask + hand-offs land in the composer */
+            setInput(text);
+            document.querySelector<HTMLInputElement>(".stu-composer input, textarea")?.focus();
+          }}
+        />
       </div>
     </div>
   );
