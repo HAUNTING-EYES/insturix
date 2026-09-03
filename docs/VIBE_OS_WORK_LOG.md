@@ -331,3 +331,31 @@ route. Sim test drives the full cycle incl. ghost-candidate refusal and
 cross-org denial.
 
 Gates: tsc 0, eslint 0, vitest studio 59/59 × 2.
+
+## 2026-09-03 (Phase 5) — carousel command + storyboard command + stage
+
+- CAROUSEL (fb070ecc2): design-carousel planner — numbered slide beats from
+  the ask, floor 2 / cap 10; a carousel ask WITHOUT copy clarifies (slide
+  copy is never invented). Quantity = slide count so the quote equals the
+  per-slide charge; metadata field carries the creativeSpec renderPlan for
+  the session route's existing fan-out; artifact kind carousel.
+- STORYBOARD: lib/studio/orchestrator/storyboard.ts — "storyboard this"
+  routes via a new intent branch (outranks plain design). Scene beats come
+  from the user (same honesty rule); quote prices pipeline.storyboard_
+  image_generation with the SAME resolver/options the generate route
+  deducts; SPEND confirm gate; bridge into the pipeline batch generate
+  (QStash worker generates scene images); artifact kind storyboard, engine
+  pipeline, born running. Stage: StoryboardView renders scene cards off
+  the real storyboard record (image or honest generating state; workspace
+  link for approve/regenerate). Polling: pipeline branch in
+  use-artifact-polling (scenes done/total).
+- Contracts already reserved kind/storyboard + engine/pipeline + stage
+  view — no schema changes needed.
+- Sim test: storyboard turn routes to the orchestrator, clarification
+  persists to the spine. Unit: planner + card==charge.
+
+Gates: tsc 0, eslint 0, vitest studio 70/70 × 2. Phase 5 §11 surface:
+typed Design command ✓ (design turn), candidate groups/selection ✓
+(gallery + persisted selection), carousel slides ✓, canvas in stage ✓
+(gallery + explicit iframe), storyboard command+stage ✓, one billing/job
+path ✓ (both quotes resolve through getCreditCost — the charge resolver).

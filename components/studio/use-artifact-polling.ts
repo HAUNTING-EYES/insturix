@@ -22,6 +22,11 @@ interface AlyzitronTask {
   status?: string;
 }
 
+interface PipelineStoryboard {
+  status?: string;
+  scenes?: Array<{ status?: string }>;
+}
+
 async function pollOne(artifact: StudioArtifact): Promise<Partial<StudioArtifact> | null> {
   if (artifact.sourceRef.engine === "editron") {
     try {
@@ -75,6 +80,21 @@ async function pollOne(artifact: StudioArtifact): Promise<Partial<StudioArtifact
       if (task.status === "completed") return { status: "done", progress: null };
       if (task.status === "failed" || task.status === "error") return { status: "error", progress: null };
       return { progress: { stage: task.status ?? "processing", percent: null } };
+    } catch {
+      return null;
+    }
+  }
+  if (artifact.sourceRef.engine === "pipeline") {
+    try {
+      const res = await fetch(`/api/services/pipeline/storyboard/${artifact.sourceRef.externalId}`);
+      if (!res.ok) return null;
+      const data = (await res.json()) as { storyboard?: PipelineStoryboard } & PipelineStoryboard;
+      const sb = data.storyboard ?? data;
+      const scenes = sb.scenes ?? [];
+      const done = scenes.filter((s) => s.status === "generated" || s.status === "approved").length;
+      if (scenes.length > 0 && done === scenes.length) return { status: "done", progress: null };
+      if (sb.status === "error" || scenes.every((s) => s.status === "rejected")) return { status: "error", progress: null };
+      return { progress: { stage: `scenes ${done}/${scenes.length}`, percent: scenes.length ? Math.round((done / scenes.length) * 100) : null } };
     } catch {
       return null;
     }

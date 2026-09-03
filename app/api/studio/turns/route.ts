@@ -4,6 +4,7 @@ import { StudioTurnRequestSchema, type StudioTurnEvent } from "@/lib/studio/cont
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
+import { runStoryboardTurn, storyboardTurnIntent } from "@/lib/studio/orchestrator/storyboard";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { appendTurnEvent, claimOperation, connectSpine, drainOutbox, enqueueOutbox, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
@@ -141,7 +142,10 @@ export async function POST(req: Request) {
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
   const editProjectId = reelAttachment?.ref ?? null;
   const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
-  const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute;
+  /* storyboard outranks plain design: "storyboard this" is a scene-batch
+   * pipeline command (§17 Phase 5), not a single canvas generation */
+  const wantsStoryboard = storyboardTurnIntent(request.text) && !editProjectId && !wantsDistribute;
+  const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsStoryboard;
   /* A2: a composer media attachment routes to the auto-edit pipeline
    * (unless a real project is already the target via a reel attachment). */
   const mediaAttachment = request.attachments.find((a) => a.role === "media");
@@ -182,11 +186,13 @@ export async function POST(req: Request) {
           ? editingComingSoon()
           : wantsDistribute
             ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
-            : wantsDesign
-              ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-              : wantsAnalyze
-                ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-                : runWriteTurn(
+            : wantsStoryboard
+              ? runStoryboardTurn({ userId, orgId: orgId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+              : wantsDesign
+                ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+                : wantsAnalyze
+                  ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+                  : runWriteTurn(
                     {
                       userId,
                       orgId: orgId ?? null,

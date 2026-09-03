@@ -27,6 +27,10 @@ vi.mock("@/lib/studio/orchestrator/write", () => ({ runWriteTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/distribute", () => ({ runDistributeTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/design", () => ({ runDesignTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/analyze", () => ({ runAnalyzeTurn: vi.fn() }));
+vi.mock("@/lib/studio/orchestrator/storyboard", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/studio/orchestrator/storyboard")>()), // storyboardTurnIntent is pure routing — keep the real one
+  runStoryboardTurn: vi.fn(),
+}));
 
 const parseSse = (raw: string): unknown[] =>
   raw.split("\n\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
@@ -38,6 +42,7 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
   let POST: typeof import("@/app/api/studio/turns/route").POST;
   let GET: typeof import("@/app/api/studio/threads/[threadId]/events/route").GET;
   let runWriteTurn: typeof import("@/lib/studio/orchestrator/write").runWriteTurn;
+  let runStoryboardTurn: typeof import("@/lib/studio/orchestrator/storyboard").runStoryboardTurn;
   const operationId = crypto.randomUUID();
   let projectId = "";
 
@@ -45,6 +50,7 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     ({ POST } = await import("@/app/api/studio/turns/route"));
     ({ GET } = await import("@/app/api/studio/threads/[threadId]/events/route"));
     ({ runWriteTurn } = await import("@/lib/studio/orchestrator/write"));
+    ({ runStoryboardTurn } = await import("@/lib/studio/orchestrator/storyboard"));
     vi.mocked(runWriteTurn).mockImplementation(
       (async function* () {
         yield { type: "turn.received", turnId: "t_sim", deliverableId: "del_live" };
@@ -184,6 +190,32 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     const items = replayEventsToItems(body.events as unknown as Parameters<typeof replayEventsToItems>[0]);
     const decline = items.find((i) => i.kind === "prose" && i.id.endsWith("_gap"));
     expect(decline).toBeTruthy();
+  });
+
+  it("a storyboard command routes to the storyboard orchestrator and its clarification persists (§17 Phase 5)", async () => {
+    vi.mocked(runStoryboardTurn).mockImplementationOnce(
+      (async function* () {
+        yield { type: "turn.received", turnId: "t_sb", deliverableId: "del_live" };
+        yield { type: "turn.needs_clarification", turnId: "t_sb", question: "A storyboard is 2–20 scenes. Give me one line per scene.", options: [{ id: "type_beats", label: "I'll type the scene beats" }] };
+      }) as unknown as typeof runStoryboardTurn,
+    );
+    const res = await POST(
+      postTurn({
+        deliverableId: projectId,
+        threadId: `th_${projectId}`,
+        text: "storyboard this:\nscene 1: opening\nscene 2: hook",
+        mode: "direct",
+        operationId: crypto.randomUUID(),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runStoryboardTurn)).toHaveBeenCalledTimes(1);
+    const events = parseSse(await res.text()) as { type: string }[];
+    expect(events.map((e) => e.type)).toEqual(["turn.received", "turn.needs_clarification"]);
+    /* the question survives reload — the spine is the record */
+    const read = await GET(new Request(`http://local/api/studio/threads/${projectId}/events`), { params: Promise.resolve({ threadId: projectId }) });
+    const body = (await read.json()) as { events: { kind: string; payload: { type?: string } }[] };
+    expect(body.events.map((e) => (e.kind === "user" ? "user" : e.payload.type))).toContain("turn.needs_clarification");
   });
 
   it("real turns stay gated when the flag is off (503)", async () => {

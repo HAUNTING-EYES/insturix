@@ -378,6 +378,81 @@ function CandidateGallery({ artifact, projectId, onAskAbout }: { artifact: Studi
   );
 }
 
+/* §17 Phase 5 storyboard stage: scene cards straight off the pipeline's
+ * real record — image when it exists, honest generating state when it
+ * doesn't. Approve/regenerate actions stay in the storyboard workspace
+ * (the manualHref chip); this is the in-conversation board. */
+function StoryboardView({ artifact }: { artifact: StudioArtifact }) {
+  interface Scene {
+    sceneIndex?: number;
+    status?: string;
+    imageUrl?: string;
+    descriptor?: { narration?: string; durationSeconds?: number };
+  }
+  const [scenes, setScenes] = useState<Scene[] | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/services/pipeline/storyboard/${artifact.sourceRef.externalId}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { storyboard?: { scenes?: Scene[]; title?: string } & Scene[]; scenes?: Scene[]; title?: string };
+        const sb = data.storyboard ?? data;
+        if (!cancelled) {
+          setScenes(sb.scenes ?? []);
+          setTitle(sb.title ?? null);
+        }
+      } catch {
+        /* keep the last known board */
+      }
+    };
+    void load();
+    if (artifact.status !== "running") return () => { cancelled = true; };
+    const timer = setInterval(load, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [artifact.sourceRef.externalId, artifact.status]);
+
+  return (
+    <>
+      <div className="stu-chips">
+        <span className="stu-chip">{scenes ? `${scenes.length} scenes` : "loading board"}</span>
+        {title && <span className="stu-chip">{title}</span>}
+        <a className="stu-chip" href={artifact.sourceRef.manualHref ?? `/dashboard/storyboard/${artifact.sourceRef.externalId}`} style={{ textDecoration: "none" }}>
+          open workspace ↗
+        </a>
+      </div>
+      {scenes && scenes.length === 0 && <div className="stu-hint">no scenes on this board yet</div>}
+      <div className="stu-vargrid">
+        {(scenes ?? []).map((s, i) => {
+          const ready = s.status === "generated" || s.status === "approved";
+          return (
+            <div key={s.sceneIndex ?? i} className={`stu-var ${ready ? "" : ""}`} style={ready ? undefined : { opacity: 0.45 }}>
+              <div className="vh">
+                {s.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- pipeline R2 CDN URL, not a bundled asset
+                  <img src={s.imageUrl} alt={`scene ${(s.sceneIndex ?? i) + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <span className="disc" style={{ position: "absolute", right: "14%", top: "16%", width: "26%", aspectRatio: "1", borderRadius: 99, background: "#2a241a", display: "block" }} />
+                )}
+              </div>
+              <span className="vn">
+                scene {(s.sceneIndex ?? i) + 1}
+                {s.descriptor?.durationSeconds ? ` · ${s.descriptor.durationSeconds}s` : ""}
+                {ready ? "" : s.status === "rejected" ? " · rejected" : " · generating"}
+              </span>
+              {s.descriptor?.narration && (
+                <div className="sub" style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, lineHeight: 1.4 }}>{s.descriptor.narration.slice(0, 120)}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function CanvasView({ artifact, projectId, onAskAbout }: { artifact: StudioArtifact; projectId?: string | null; onAskAbout?: (text: string) => void }) {
   if (studioRealTurnsEnabled && artifact.sourceRef.engine === "clickatron") {
     return <CandidateGallery artifact={artifact} projectId={projectId} onAskAbout={onAskAbout} />;
@@ -657,8 +732,9 @@ export function StageHost({
             <CanvasView artifact={focused} projectId={projectId} onAskAbout={onAskAbout} />
           )}
           {focused?.kind === "schedule" && <ScheduleView />}
+          {focused?.kind === "storyboard" && <StoryboardView artifact={focused} />}
           {focused?.kind === "analysis" && <AnalyzeView artifact={focused} />}
-          {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "analysis"].includes(focused.kind) && (
+          {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "storyboard", "analysis"].includes(focused.kind) && (
             <FallbackView artifact={focused} />
           )}
         </div>
