@@ -399,3 +399,23 @@ artifact + proposal review live, accepted proposals compile to content
 items, calendar runs on real CalOS projection. Next: remediation #5
 (three-axis status) — its write-side records now exist — then Phases 7-9.
 Gates: tsc 0, eslint 0, vitest studio 83/83 × 2.
+
+## 2026-09-03 (MatrAIx) — T3-v7: 0.75→1.0 core median; the real gap was the drawer
+
+v7 (honest keys): core median 1.0, 0 ungraded, probes 1-3 at 35/35,
+35/35, 34/35. The remaining failure concentrated in probe 4 ("a week
+later, where do you check") at 21/35 + 3 adv breaks on the ask-vs-assume
+rationale. Forensics: the settings DRAWER existed and was captured
+(settings.png) but was never in T3's screens — personas couldn't see the
+durable record — AND its "Assumptions" card still spoke v1 language
+("Duration: assumed · never asked") contradicting the v6 chips.
+
+Fixes for v8 (running): drawer rewritten to the three-kind record
+("Decisions · this project" — assumed 9:16 / you said :30 / derived 30fps
++ −14 LUFS, each with source, plus the durable-record sentence); the
+chat explainer now states the rule verbatim ("we ask when a wrong guess
+is expensive; we assume-and-mark when it's cheap to fix") and points to
+project settings as the durable record; T3 target now grades against
+BOTH screens (chat + settings). The single v7 "core break" was a grader
+contradiction (correct:true + trustBreak:true on a hedge) — expected to
+clear with the rule stated on-surface.
