@@ -23,6 +23,22 @@ import { StageHost } from "./stage";
 
 const REAL = studioRealTurnsEnabled;
 
+/* audit F8: the honest real-mode shell before hydration — no invented
+ * titles, no mock artifacts */
+const UNTITLED_DELIVERABLE: StudioDeliverable = {
+  id: "live",
+  title: "New project",
+  brandId: "unbranded",
+  orgId: null,
+  campaignId: null,
+  threadId: "th_live",
+  artifacts: [],
+  edges: [],
+  stageFocus: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
 /* spine identity: a real project id (TF session_, Editron, proj_*) or null
  * while the first turn is still on the "live"/"del_live" placeholder */
 const spineId = (id: string | null | undefined) => (!id || id === "live" || id === "del_live" ? null : id);
@@ -37,7 +53,9 @@ interface PendingConfirm {
 }
 
 export function StudioSession({ deliverableId }: { deliverableId?: string }) {
-  const [deliverable, setDeliverable] = useState<StudioDeliverable>(MOCK_DELIVERABLE);
+  /* audit F8: no mock deliverable as real-mode fallback — hydrate or an
+   * honest untitled shell, never "Summer drop — launch" */
+  const [deliverable, setDeliverable] = useState<StudioDeliverable>(REAL ? UNTITLED_DELIVERABLE : MOCK_DELIVERABLE);
   const [items, setItems] = useState<StudioThreadItem[]>(REAL ? [] : MOCK_THREAD);
   const [artifacts, setArtifacts] = useState<StudioArtifact[]>(REAL ? [] : MOCK_DELIVERABLE.artifacts);
   const [focus, setFocus] = useState<StudioStageFocus | null>(REAL ? null : MOCK_DELIVERABLE.stageFocus ?? null);
@@ -442,7 +460,6 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
             <button className={mode === "ask" ? "on" : ""} onClick={() => setMode("ask")}>Ask</button>
             <button className={mode === "direct" ? "on" : ""} onClick={() => setMode("direct")}>Direct</button>
           </div>
-          <div className="stu-credits" style={{ borderRadius: 99, width: 32, height: 32, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>NJ</div>
         </div>
       </header>
       {wsBrand && (

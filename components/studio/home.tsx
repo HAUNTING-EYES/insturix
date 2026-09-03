@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { MOCK_BRANDS, MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL, MOCK_WALLET } from "@/lib/studio/mock/data";
 import { fetchWalletBalance, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
-import { buildBrandGroups } from "@/lib/studio/client/place-helpers";
+import { buildBrandGroups, dayBucket, deliverableState } from "@/lib/studio/client/place-helpers";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -94,7 +94,7 @@ export function StudioHome() {
         <div className="stu-topright">
           {!REAL && <span className="stu-credits">{MOCK_WALLET.main} cr</span>}
           {REAL && credits !== null && <span className="stu-credits">{credits} cr</span>}
-          <div className="stu-credits" style={{ borderRadius: 99, width: 32, height: 32, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>NJ</div>
+          {/* audit F7: no invented user initials — a neutral account mark */}
         </div>
       </header>
       <div className="stu-homebody">
@@ -214,7 +214,8 @@ export function StudioHome() {
                   <button className="bn" style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }} onClick={() => setBrand(g.id)}>{g.name}</button>
                 </div>
                 {g.list.map((d) => {
-                  const producing = d.artifacts.some((a) => a.status === "running");
+                  const state = deliverableState(d); // honest state (audit F6) — never a blanket "shipped"
+                  const producing = state.state === "running";
                   return (
                     <div className="stu-drow" key={d.id} onClick={() => go(d.id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && go(d.id)}>
                       <div>
@@ -227,10 +228,11 @@ export function StudioHome() {
                         ))}
                       </div>
                       <div className={`state ${producing ? "stu-s-producing" : "stu-s-shipped"}`}>
-                        <i style={{ background: producing ? "var(--gold)" : "var(--green)" }} />
-                        {producing ? "producing" : "shipped"}
+                        <i style={{ background: producing ? "var(--gold)" : state.state === "error" ? "var(--red)" : "var(--green)" }} />
+                        {state.label}
                       </div>
-                      <div className="upd">{producing ? "2m ago" : "Tue"}</div>
+                      {/* audit F5: real recency from the record — no invented "2m ago" */}
+                      <div className="upd">{dayBucket(d.updatedAt)}</div>
                       <span className="ch">→</span>
                     </div>
                   );

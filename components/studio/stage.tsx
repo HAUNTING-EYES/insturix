@@ -181,9 +181,10 @@ function ScriptView({ artifact, onAskAbout, brandName }: { artifact: StudioArtif
     setSel(null);
   };
 
+  /* audit F4: no invented versions — an empty revision list is the truth */
   const versions = artifact.revisions.length > 0
     ? artifact.revisions.map((r, i) => ({ label: `v${i + 1}`, at: r.createdAt, note: r.summary ?? null }))
-    : [{ label: "v1", at: artifact.updatedAt, note: null }, { label: "v2 · current", at: artifact.updatedAt, note: "latest" }];
+    : [];
 
   const handoffs = [
     { label: "Design this", prompt: `design visuals for "${artifact.title}"` },
@@ -234,6 +235,35 @@ function ScriptView({ artifact, onAskAbout, brandName }: { artifact: StudioArtif
         <div className="stu-chint" style={{ marginTop: 14 }}>
           editable here or in chat — the draft follows the conversation
         </div>
+      </>
+    );
+  }
+  /* audit F3: the fixture email is the flag-off design demo — real mode
+   * renders an honest empty state, never invented content */
+  if (studioRealTurnsEnabled) {
+    return (
+      <>
+        <div className="stu-chips">
+          <span className="stu-chip">draft</span>
+          <span className="stu-chip">no written content yet</span>
+        </div>
+        <div className="stu-doc" style={{ textAlign: "left" }}>
+          <div className="subj">{artifact.title}</div>
+          <div className="stu-hint" style={{ marginTop: 12 }}>
+            Nothing written yet — ask in chat and the draft lands here, editable, with real versions as it evolves.
+          </div>
+        </div>
+        <WriteStageChrome
+          sel={sel}
+          onMouseUp={onMouseUp}
+          ask={ask}
+          versions={versions}
+          drawer={drawer}
+          setDrawer={setDrawer}
+          brandName={brandName}
+          handoffs={handoffs}
+          artifact={artifact}
+        />
       </>
     );
   }
@@ -603,6 +633,7 @@ function WriteStageChrome({
         </div>
       )}
       <div className="stu-chips" style={{ marginTop: 12 }}>
+        {versions.length === 0 && <span className="stu-chip">no versions yet — the first chat confirm versions it</span>}
         {versions.map((v) => (
           <span key={v.label} className="stu-chip">{v.label}{v.note ? ` · ${v.note}` : ""}</span>
         ))}

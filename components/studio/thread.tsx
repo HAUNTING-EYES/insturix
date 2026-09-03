@@ -174,7 +174,8 @@ export function ConfirmPublishCard({
         {targets.map((t, i) => (
           <div className="stu-srow" key={i}>
             <span className="st">{fmt(t.scheduledAt)}</span>
-            <span>Summer drop — launch</span>
+            {/* no invented post titles (audit F1) — platform + slot are what
+             * the gate actually promises */}
             <span className="sc">{t.platform}</span>
           </div>
         ))}

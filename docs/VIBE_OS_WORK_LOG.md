@@ -625,3 +625,22 @@ own default). Gated by the strongest possible test: the REAL
 admitClickatronCarouselPlan runs over the exact spec the bridge posts —
 admission returns the slides verbatim; a count mismatch still throws.
 Gates: tsc 0, eslint 0, studio 101/101 × 2.
+
+## 2026-09-04 (audit item 4) — all 8 real-mode fabrications purged
+
+F1 publish card: no invented post titles — platform + slot only (the gate
+promises exactly that). F2 design receipt: creditsConsumed 0 + explicit
+"quoted N cr · billed per variation by the engine" basis (the route
+returns no charged figure; the engine's records settle it). F3 fixture
+email: flag-off demo ONLY — real mode renders the honest "nothing written
+yet" state for contentless drafts. F4 versions: empty revision lists show
+"no versions yet", never fabricated v1/v2 chips. F5 Home timestamps:
+real dayBucket(updatedAt), no "2m ago"/"Tue" literals. F6 Home status:
+deliverableState() (planning/queued/working/failed/done), no blanket
+green "shipped". F7 invented "NJ" initials gone from both headers.
+F8 real-mode session starts from an honest untitled empty shell — a
+hydration failure can never show "Summer drop — launch" as the project.
+
+Gates: tsc 0, eslint 0, studio 101/101 × 2.
+Next: item 5 (needs_clarification visible + declines persist), item 7
+(structured ambiguity flag, two-flag guard, spine-owner backfill).

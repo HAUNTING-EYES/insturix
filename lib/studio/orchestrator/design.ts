@@ -207,17 +207,21 @@ export async function* runDesignTurn(
   }
 
   const artifact = canvasArtifact(sessionId, carousel && "slides" in carousel ? "Carousel" : "Canvas", carousel && "slides" in carousel ? "carousel" : "image_canvas");
+  /* audit F2: the session route returns no charged figure, and per-variation
+   * deduction failures can make the quote overstate — the receipt states the
+   * BASIS, never a fabricated total (the engine's own records settle it) */
+  const chargeBasis = `${quantity} variation${quantity > 1 ? "s" : ""} · quoted ${stepQuote.lines[0].subtotal} cr · billed per variation by the engine`;
   yield {
     type: "step.done",
     turnId,
     stepId: "g2",
-    receipt: { label: job.receiptLabel, detail: `${quantity} variation${quantity > 1 ? "s" : ""} · queued`, artifactIds: [artifact.id], creditsConsumed: stepQuote.lines[0].subtotal },
+    receipt: { label: job.receiptLabel, detail: chargeBasis, artifactIds: [artifact.id], creditsConsumed: 0 },
   };
   yield {
     type: "turn.done",
     turnId,
-    summary: `Canvas is live — ${quantity} variation${quantity > 1 ? "s" : ""} queued in the media pool. Showing it; the lab link takes over any time.`,
-    creditsConsumedTotal: stepQuote.lines[0].subtotal,
+    summary: `Canvas is live — ${quantity} variation${quantity > 1 ? "s" : ""} queued in the media pool (${stepQuote.lines[0].subtotal} cr quoted; the engine bills per variation). Showing it; the lab link takes over any time.`,
+    creditsConsumedTotal: 0,
     artifactIds: [artifact.id],
     artifactPayload: artifact,
     stageFocus: { artifactId: artifact.id, why: "generation queued" },
