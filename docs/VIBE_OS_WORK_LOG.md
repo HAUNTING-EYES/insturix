@@ -680,3 +680,17 @@ closed. Open by design: thread.tsx CAPABILITY_COLOR mock import (cosmetic),
 two engine-gated latent mock views (unreachable), UTC-only plan windows,
 founder desk items. Gates: tsc 0, eslint 0, studio 104/104 × 2, calos
 308/308.
+
+## 2026-09-04 (MatrAIx) — T3-v9: core PERFECT, 0 core breaks; last break is a grader self-contradiction; v10 launched
+
+v9: core median 1.0, 0 core breaks, 0 ungraded; the receipt-provenance fix
+cleared the P10 break; ask-vs-assume probe 19/20 on adversarial cells. The
+single remaining flag: P9 s1 graded {"correct": true, "trustBreak": true}
+— the grader's own note says "Matches key but ... speculation". The grader
+violated its rule 2(b) (topics the key doesn't mention are ungradeable —
+the speculation was about render costs) and produced a self-contradictory
+grade (second occurrence of this pattern; v7 P7 was the first). Harness
+fix, NOT a bar change: graderSystem rule 2 gains (d) HARD RULE
+trustBreak requires correct=false — speculation beyond a matching key is
+confusion, never a break. The bars themselves are untouched. v10 running
+(55 cells) to settle it under the consistent grader.
