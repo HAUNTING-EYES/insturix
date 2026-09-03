@@ -248,3 +248,20 @@ capability_gap) and activates only when the founder lifts the Editron defer.
 
 Next: T3-v6 scorecard (51/55 at log time), then Phase 4 remainder — remove
 ThinkForge UI from the normal path after Write-stage parity check.
+
+## 2026-09-03 (MatrAIx) — T3-v6 FAIL (0.75, 8 core breaks) — harness keys were stale; v7 launched
+
+Cell forensics: personas read the v6 surface CORRECTLY and were graded
+wrong. Probe keys + goal still described v1 chips ("assumed :30 · change?")
+and claimed "you didn't tell it a duration", while the surface honestly
+says `:30 · you said "30s" · kept`. Graders penalized the true reading
+("denies assumed :30") — a key-vs-surface contradiction, not a surface lie.
+Same on the settings probe (key demanded a gear panel that never existed).
+
+Fix: targets.json T3 rewritten against the actual surface (goal now says
+"you typed 30s; you never typed aspect/fps/loudness"; probe 1 keys the
+three-kind taxonomy with the single pure assumption = 9:16; probe 4's
+answer = the chips are the record, settings suffix is the entry point).
+v7 launched (55 cells, background). If v7 still fails on the cost-principle
+probe with honest keys, the surface fix is making that principle explicit
+in the chat explainer.
