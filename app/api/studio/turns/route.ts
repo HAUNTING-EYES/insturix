@@ -8,6 +8,7 @@ import { deliveryStatusIntent, runDeliveryStatusTurn } from "@/lib/studio/orches
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runStoryboardTurn, storyboardTurnIntent } from "@/lib/studio/orchestrator/storyboard";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
+import { analysisFollowupIntent, runAnalysisFollowupTurn } from "@/lib/studio/orchestrator/analyze-followup";
 import { appendTurnEvent, claimOperation, connectSpine, drainOutbox, enqueueOutbox, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 import { authorizeBrandScope, BrandScopeAuthorizationError } from "@/lib/shared/brand-scope";
@@ -157,6 +158,10 @@ export async function POST(req: Request) {
    * (unless a real project is already the target via a reel attachment). */
   const mediaAttachment = request.attachments.find((a) => a.role === "media");
   const wantsAnalyze = /\b(analyz|teardown|score|audit|grade)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsDesign;
+  /* §14 follow-up: a question in a project that HAS an analysis routes to
+   * the report-bound chat — the LAST intent before the write fallback */
+  const wantsAnalysisFollowup =
+    analysisFollowupIntent(request.text) && !editProjectId && !wantsDistribute && !wantsShip && !wantsDeliveryStatus && !wantsStoryboard && !wantsDesign && !wantsAnalyze && !mediaAttachment;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
   const forwardHeaders: Record<string, string> = {};
@@ -203,7 +208,9 @@ export async function POST(req: Request) {
                   ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
                   : wantsAnalyze
                     ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-                    : runWriteTurn(
+                    : wantsAnalysisFollowup
+                      ? runAnalysisFollowupTurn({ projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal)
+                      : runWriteTurn(
                     {
                       userId,
                       orgId: orgId ?? null,

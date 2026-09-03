@@ -496,3 +496,22 @@ Remaining Phase 8 (queued): same-conversation follow-up questions (bridge
 the existing chat endpoints), org-aware ownership on chat, JSON export
 parity, status-enum unification (listed vs queued).
 Gates: tsc 0, eslint 0, studio 87/87 × 2.
+
+## 2026-09-03 (Phase 8b) — §14 same-conversation report questions
+
+analyze-followup orchestrator: a question in a project that HAS an
+analysis routes to the report-bound chat endpoint — answers grounded in
+the report's own transcription + results, only for COMPLETED tasks
+(uncompleted → honest "ask again when it lands"). SSE chunks collected
+server-side, answered as one prose block in the thread. Action asks
+(write/draft/make/ship/…) never misroute here (verb exclusion in the
+intent) — "can you write me a script?" still routes to WRITE even in a
+project with an analysis. No spend gate: chat is per-token sub-credit,
+charged/refunded by the route itself. Sim: question routes to chat with
+the right taskId+message, answer lands in the thread; action-ask routing
+regression-checked.
+Gates: tsc 0, eslint 0, studio 89/89 × 2. Phase 8 exit substantially
+met: analysis survives reload (artifact + polling fixed in 8a) and
+follow-ups stay bound to authoritative results (8b). Remaining nice-to-
+haves queued: org-aware chat ownership, JSON export parity, status-enum
+cleanup (listed vs queued).
