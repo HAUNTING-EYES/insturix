@@ -104,6 +104,11 @@ export const StudioArtifactSchema = z.object({
   revisions: z.array(StudioArtifactRevisionSchema).default([]),
   /** Phase 2: rendered payload for written artifacts (markdown from the engine) */
   contentMarkdown: z.string().optional(),
+  /** §11 candidate selection: the variation the user committed to, set ONLY
+   *  by a verified select action (the candidate must exist in the engine's
+   *  own session). Candidates themselves are NEVER copied into the spine —
+   *  the Clickatron session is their single source of truth. */
+  selectedCandidateId: z.string().nullable().optional(),
   updatedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
 });

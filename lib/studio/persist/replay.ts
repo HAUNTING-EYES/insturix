@@ -69,11 +69,21 @@ export interface PersistedSpineEvent {
 
 /** Artifacts rebuilt from the persisted log (plan §3 reload): the LAST
  *  in-band artifactPayload per id wins — exactly what the live reducer was
- *  showing when the page went away. Ordered by first appearance. */
+ *  showing when the page went away. Ordered by first appearance.
+ *  artifact.selected events (§11 "use this") apply on top in log order. */
 export function artifactsFromEvents(events: PersistedSpineEvent[]): StudioArtifact[] {
   const order: string[] = [];
   const byId = new Map<string, StudioArtifact>();
+  const select = (artifactId: string, candidateId: string) => {
+    const artifact = byId.get(artifactId);
+    if (artifact) byId.set(artifactId, { ...artifact, selectedCandidateId: candidateId });
+  };
   for (const ev of events) {
+    if (ev.kind === "artifact.selected") {
+      const p = ev.payload as { artifactId?: string; candidateId?: string } | null;
+      if (p?.artifactId && p.candidateId) select(p.artifactId, p.candidateId);
+      continue;
+    }
     const payload = ev.payload as { artifactPayload?: StudioArtifact } | null;
     const artifact = payload?.artifactPayload;
     if (!artifact?.id) continue;

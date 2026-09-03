@@ -311,3 +311,23 @@ plan and write in one persistent Project conversation.
 Next slice: candidate gallery natively in the stage + PERSISTED selection
 (§11: gallery, selected candidate, refine/regenerate/use this, open
 canvas) — selection today lives only in lab client state.
+
+## 2026-09-03 (Phase 5) — §11 candidate gallery + PERSISTED selection live
+
+The design stage is no longer a bare lab iframe: a native CandidateGallery
+renders REAL variations from the Clickatron session (polled while
+generating), "use this" persists an artifact.selected event to the spine
+log (selection survives reload; a NEW generation payload honestly resets
+it — new candidates, fresh choice), "regenerate" prefills the composer,
+"open canvas" mounts the lab iframe as an explicit advanced workbench.
+Candidates themselves are never copied into the spine — the Clickatron
+session stays their single source of truth (only selectedCandidateId is
+recorded).
+
+The select route verifies before persisting (§19): artifact must be in
+the project's log AND a clickatron canvas; candidate must be a real
+variation in a task owned by the caller; org-scoped 403 like every spine
+route. Sim test drives the full cycle incl. ghost-candidate refusal and
+cross-org denial.
+
+Gates: tsc 0, eslint 0, vitest studio 59/59 × 2.

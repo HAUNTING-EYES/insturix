@@ -282,9 +282,105 @@ function ScriptView({ artifact, onAskAbout, brandName }: { artifact: StudioArtif
   );
 }
 
-function CanvasView({ artifact }: { artifact: StudioArtifact }) {
+/* §11 candidate flow: REAL variations from the engine session, a PERSISTED
+ * selection ("use this" → spine event, survives reload), regenerate via the
+ * composer, and the lab iframe as the advanced workbench — an explicit
+ * choice, never the default surface. */
+function CandidateGallery({ artifact, projectId, onAskAbout }: { artifact: StudioArtifact; projectId?: string | null; onAskAbout?: (text: string) => void }) {
+  const sessionId = artifact.sourceRef.externalId;
+  type Var = { id: string; status?: string; imageRef?: string; thumbnailRef?: string };
+  const [variations, setVariations] = useState<Var[]>([]);
+  const [selected, setSelected] = useState<string | null>(artifact.selectedCandidateId ?? null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/services/clickatron/session/${sessionId}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { session?: { details?: { canvas?: { variations?: Var[] } } }; details?: { canvas?: { variations?: Var[] } } };
+        const s = data.session ?? data;
+        if (!cancelled) setVariations(s.details?.canvas?.variations ?? []);
+      } catch {
+        /* keep the last known candidates */
+      }
+    };
+    void load();
+    if (artifact.status !== "running") return () => { cancelled = true; };
+    const timer = setInterval(load, 4000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [sessionId, artifact.status]);
+
+  const useThis = async (candidateId: string) => {
+    if (!projectId || busyId) return;
+    setBusyId(candidateId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/studio/artifacts/${artifact.id}/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, candidateId }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(j?.error ?? `select failed (${res.status})`);
+        return;
+      }
+      setSelected(candidateId);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (canvasOpen) return <StageIframe href={`/dashboard/clickatron/lab/${sessionId}`} label="canvas lab" />;
+
+  return (
+    <>
+      <div className="stu-chips">
+        <span className="stu-chip">{variations.length} candidate{variations.length === 1 ? "" : "s"}{selected ? " · one selected" : ""}</span>
+        {onAskAbout && (
+          <button className="stu-chip" style={{ cursor: "pointer" }} onClick={() => onAskAbout("regenerate the visual — same brief, fresh takes")}>regenerate</button>
+        )}
+        <button className="stu-chip" style={{ cursor: "pointer" }} onClick={() => setCanvasOpen(true)}>open canvas</button>
+      </div>
+      {variations.length === 0 && (
+        <div className="stu-hint">{artifact.status === "running" ? "generating — candidates land here" : "no candidates yet — ask for a visual"}</div>
+      )}
+      <div className="stu-vargrid">
+        {variations.map((v) => {
+          const src = v.thumbnailRef || v.imageRef;
+          const isSel = selected === v.id;
+          return (
+            <div key={v.id} className={`stu-var ${isSel ? "sel" : ""}`} style={v.status === "generating" ? { opacity: 0.4 } : undefined}>
+              <div className="vh">
+                {src ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- engine-signed R2 URL, not a bundled asset
+                  <img src={src} alt={`candidate ${v.id}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <span className="disc" style={{ position: "absolute", right: "14%", top: "16%", width: "26%", aspectRatio: "1", borderRadius: 99, background: "#2a241a", display: "block" }} />
+                )}
+              </div>
+              <span className="vn">{isSel ? "selected" : v.status === "generating" ? "generating" : v.status === "failed" ? "failed" : "candidate"}</span>
+              {v.status === "completed" && (
+                <button className="stu-btn" style={{ marginTop: 6 }} disabled={!projectId || busyId === v.id} onClick={() => void useThis(v.id)}>
+                  {isSel ? "selected ✓" : busyId === v.id ? "…" : "use this"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {error && <div className="stu-hint" style={{ color: "var(--red)" }}>{error}</div>}
+    </>
+  );
+}
+
+function CanvasView({ artifact, projectId, onAskAbout }: { artifact: StudioArtifact; projectId?: string | null; onAskAbout?: (text: string) => void }) {
   if (studioRealTurnsEnabled && artifact.sourceRef.engine === "clickatron") {
-    return <StageIframe href={`/dashboard/clickatron/lab/${artifact.sourceRef.externalId}`} label="canvas lab" />;
+    return <CandidateGallery artifact={artifact} projectId={projectId} onAskAbout={onAskAbout} />;
   }
   const done = artifact.status === "done" ? 6 : 3;
   return (
@@ -518,12 +614,15 @@ export function StageHost({
   artifacts,
   onAskAbout,
   brandName,
+  projectId,
 }: {
   focus: StudioStageFocus | null;
   artifacts: StudioArtifact[];
   /** Write stage (§10): select-to-ask + hand-off actions prefill the composer */
   onAskAbout?: (text: string) => void;
   brandName?: string | null;
+  /** spine project id — §11 "use this" persists the candidate selection to this project's log */
+  projectId?: string | null;
 }) {
   const focused = focus ? artifacts.find((a) => a.id === focus.artifactId) : undefined;
 
@@ -554,7 +653,9 @@ export function StageHost({
           {!focused && <div className="stu-hint">the agent will bring work here</div>}
           {focused?.kind === "reel" && <ReelView artifact={focused} />}
           {focused?.kind === "script" && <ScriptView artifact={focused} onAskAbout={onAskAbout} brandName={brandName} />}
-          {(focused?.kind === "thumbnail" || focused?.kind === "image_canvas" || focused?.kind === "carousel") && <CanvasView artifact={focused} />}
+          {(focused?.kind === "thumbnail" || focused?.kind === "image_canvas" || focused?.kind === "carousel") && (
+            <CanvasView artifact={focused} projectId={projectId} onAskAbout={onAskAbout} />
+          )}
           {focused?.kind === "schedule" && <ScheduleView />}
           {focused?.kind === "analysis" && <AnalyzeView artifact={focused} />}
           {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "analysis"].includes(focused.kind) && (

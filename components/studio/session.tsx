@@ -529,6 +529,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           focus={focus}
           artifacts={artifacts}
           brandName={wsBrand?.name ?? null}
+          projectId={REAL ? (deliverableId ?? null) : null}
           onAskAbout={(text) => {
             /* §10 Write stage: selection-to-ask + hand-offs land in the composer */
             setInput(text);

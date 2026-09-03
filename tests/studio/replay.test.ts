@@ -150,3 +150,30 @@ describe("artifactsFromEvents — the reload path rebuilds the stage (plan §3)"
     expect(artifactsFromEvents([])).toEqual([]);
   });
 });
+
+describe("artifactsFromEvents — §11 selection events replay onto the artifact", () => {
+  const art = (id: string) => ({ id, kind: "image_canvas", status: "done", title: "Canvas", sourceRef: { engine: "clickatron", externalId: "507f1f77bcf86cd799439011", manualHref: null }, revisions: [], updatedAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z" });
+
+  it("a newer artifactPayload supersedes an earlier selection — a new generation turn resets the choice", () => {
+    const events = [
+      ev(1, "turn.done", { type: "turn.done", turnId: "t1", summary: "canvas live", artifactIds: ["cv"], artifactPayload: art("cv") }),
+      ev(2, "artifact.selected", { type: "artifact.selected", artifactId: "cv", candidateId: "var_1" }),
+      ev(3, "turn.done", { type: "turn.done", turnId: "t2", summary: "again", artifactIds: ["cv"], artifactPayload: art("cv") }),
+    ];
+    const rebuilt = artifactsFromEvents(events);
+    expect(rebuilt[0]?.selectedCandidateId).toBeUndefined(); // a fresh payload supersedes — the engine state is the truth at that point
+  });
+
+  it("selection after the last payload sticks — reload shows what the user chose", () => {
+    const events = [
+      ev(1, "turn.done", { type: "turn.done", turnId: "t1", summary: "canvas live", artifactIds: ["cv"], artifactPayload: art("cv") }),
+      ev(2, "artifact.selected", { type: "artifact.selected", artifactId: "cv", candidateId: "var_2" }),
+    ];
+    expect(artifactsFromEvents(events)[0]?.selectedCandidateId).toBe("var_2");
+  });
+
+  it("a selection for an unknown artifact is ignored, never invented", () => {
+    const events = [ev(1, "artifact.selected", { type: "artifact.selected", artifactId: "ghost", candidateId: "var_1" })];
+    expect(artifactsFromEvents(events)).toEqual([]);
+  });
+});
