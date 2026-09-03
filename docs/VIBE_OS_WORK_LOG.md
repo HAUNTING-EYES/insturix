@@ -659,3 +659,24 @@ Next: item 5 (needs_clarification visible + declines persist), item 7
   simply a new turn. The non-declined gate still re-arms (resume intact).
 Gates: tsc 0, eslint 0, studio 104/104 × 2. Remaining: item 7 hardening
 (structured ambiguity flag, two-flag guard, spine-owner backfill).
+
+## 2026-09-04 (audit item 7 complete) — hardening closed
+
+- 7a structured ambiguity (6a4051501): CalosScheduledPublish.outcomeAmbiguous
+  stamped by every cron ambiguity writer; retry reads the FLAG (prose match
+  is legacy fallback only); flag-alone refusal sim-tested; worker
+  expectations updated.
+- 7b two-flag guard: /api/studio/mode returns the SERVER flag; the demo
+  bundle checks it on boot and renders a loud banner when server-real is on
+  while the client shows the demo (the split that served mock UI over armed
+  APIs).
+- 7c spine-owner backfill: scripts/migrate-spine-owners.ts — session_*
+  org-null projects derive ownerUserId from their TF session's owner;
+  anything else undecidable is logged untouched. Idempotent.
+
+AUDIT QUEUE COMPLETE: all P0s (ownership, ID namespace, carousel) + items
+4 (8 fabrications), 5 (clarify+decline), 6b/7 (flag, guard, backfill)
+closed. Open by design: thread.tsx CAPABILITY_COLOR mock import (cosmetic),
+two engine-gated latent mock views (unreachable), UTC-only plan windows,
+founder desk items. Gates: tsc 0, eslint 0, studio 104/104 × 2, calos
+308/308.

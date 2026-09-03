@@ -82,3 +82,17 @@ export async function fetchWalletBalance(): Promise<StudioWalletBalance | null> 
     return null;
   }
 }
+
+/** The SERVER's real-mode flag — lets the client detect a split between
+ *  STUDIO_REAL_TURNS (server) and NEXT_PUBLIC_STUDIO_REAL_TURNS (this
+ *  bundle) instead of silently running the wrong mode. */
+export async function fetchServerRealMode(): Promise<boolean | null> {
+  try {
+    const res = await fetch("/api/studio/mode");
+    if (!res.ok) return null;
+    const data = (await res.json()) as { real?: boolean };
+    return typeof data.real === "boolean" ? data.real : null;
+  } catch {
+    return null;
+  }
+}

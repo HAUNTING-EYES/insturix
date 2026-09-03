@@ -9,7 +9,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { MOCK_BRANDS, MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL, MOCK_WALLET } from "@/lib/studio/mock/data";
-import { fetchWalletBalance, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { fetchServerRealMode, fetchWalletBalance, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
 import { buildBrandGroups, dayBucket, deliverableState } from "@/lib/studio/client/place-helpers";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
@@ -31,9 +31,15 @@ export function StudioHome() {
   const [realBrands, setRealBrands] = useState<Record<string, string>>({});
   const [realError, setRealError] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
+  const [flagSplit, setFlagSplit] = useState(false);
 
   useEffect(() => {
-    if (!REAL) return;
+    if (!REAL) {
+      /* audit #8: server-on/client-off serves a demo UI over armed APIs —
+       * detect the split and say so instead of silently running the demo */
+      void fetchServerRealMode().then((serverReal) => setFlagSplit(serverReal === true));
+      return;
+    }
     /* real mode never shows a mock balance — the number appears only once
      * the wallet answers, and stays hidden if it can't */
     fetchWalletBalance().then((w) => setCredits(w?.main ?? null));
@@ -97,6 +103,11 @@ export function StudioHome() {
           {/* audit F7: no invented user initials — a neutral account mark */}
         </div>
       </header>
+      {flagSplit && (
+        <p className="stu-placeerror" style={{ margin: "0 0 12px" }}>
+          server real mode is ON but this bundle shows the demo — align NEXT_PUBLIC_STUDIO_REAL_TURNS and rebuild; the APIs are live while you see demo data
+        </p>
+      )}
       <div className="stu-homebody">
         <div className="stu-herowrap">
           <div className="stu-hi">What do you want to make?</div>
