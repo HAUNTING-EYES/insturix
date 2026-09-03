@@ -14,7 +14,7 @@ import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
 import { DESIGN_DOMAIN_MANIFEST } from "./manifests/design";
-import { carouselIntent, planCarouselFromText } from "./design-carousel";
+import { buildCarouselCreativeSpec, carouselIntent, planCarouselFromText } from "./design-carousel";
 
 const TOOL = (name: string) => {
   const tool = DESIGN_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
@@ -165,7 +165,7 @@ export async function* runDesignTurn(
   form.set("brandId", brandId);
   form.set("aspectRatio", "16:9");
   if (carousel && "slides" in carousel) {
-    form.set("metadata", JSON.stringify({ clickatron: { creativeSpec: { kind: "carousel", renderPlan: { slides: carousel.slides } } } }));
+    form.set("metadata", JSON.stringify(buildCarouselCreativeSpec(carousel.slides, text)));
   }
 
   let sessionId: string | null = null;

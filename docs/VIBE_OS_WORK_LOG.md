@@ -612,3 +612,16 @@ MONGODB_DB_NAME and wipe collections; parallel files raced each other's
 env (the audit's order-flake, reproduced live mid-fix). Sequential files;
 "passes twice" is now real and deterministic.
 Gates: tsc 0, eslint 0, studio 99/99 × 2 (deterministic).
+
+## 2026-09-04 (audit P0-3) — carousel bridge actually admits now
+
+Audit 1b confirmed: the spec I posted lacked the creative contract's
+required fields (schemaVersion, platform, aspectRatio, userIntent,
+creativeBrief, renderPlan.imagePrompt, validation) — every studio
+carousel turn 422'd at admission. Fix: buildCarouselCreativeSpec
+produces a contract-compliant spec (user's beats become the brief's
+coreMessage + per-slide imagePrompts; textPolicy left to the contract's
+own default). Gated by the strongest possible test: the REAL
+admitClickatronCarouselPlan runs over the exact spec the bridge posts —
+admission returns the slides verbatim; a count mismatch still throws.
+Gates: tsc 0, eslint 0, studio 101/101 × 2.

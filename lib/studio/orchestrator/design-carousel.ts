@@ -41,3 +41,37 @@ export function planCarouselFromText(text: string): CarouselPlan {
   if (slides.length >= CAROUSEL_MIN_SLIDES) return { slides };
   return { need: "slide_copy" };
 }
+
+/** §11 carousel bridge (audit 1b fix): the session route admits carousels
+ *  ONLY through Clickatron's own creative contract — this builds a spec
+ *  that satisfies normalizeClickatronCreativeSpec + admitClickatronCarouselPlan
+ *  (proven by the unit test that runs the REAL validator over it). */
+export function buildCarouselCreativeSpec(
+  slides: ClickatronCarouselSlideSpec[],
+  userText: string,
+): { clickatron: { creativeSpec: Record<string, unknown> } } {
+  const coreMessage = userText.trim().slice(0, 160) || "carousel";
+  return {
+    clickatron: {
+      creativeSpec: {
+        schemaVersion: 1,
+        kind: "carousel",
+        assetIntent: "carousel",
+        platform: "instagram",
+        aspectRatio: "4:5",
+        source: { sourceService: "thinkforge", sourceBlockIds: slides.map((s) => s.id) },
+        userIntent: { visualMode: "auto", wantsCarousel: true },
+        creativeBrief: {
+          objective: "carousel from the user's slide beats",
+          coreMessage,
+        },
+        renderPlan: {
+          // textPolicy intentionally omitted — the contract defaults it
+          imagePrompt: slides[0]?.imagePrompt ?? coreMessage,
+          slides,
+        },
+        validation: { status: "ready" },
+      },
+    },
+  };
+}
