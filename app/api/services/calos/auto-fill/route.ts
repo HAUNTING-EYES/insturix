@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const created = await persistDraftDeliverables(
+    const createdIds = await persistDraftDeliverables(
       fresh.map((p) => ({
         ...p,
         ...(requirementsByPlatform.get(p.platform) ?? {}),
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       })),
       { userId, brandId, orgId },
     );
-    return NextResponse.json({ created }, { status: 201 });
+    return NextResponse.json({ created: createdIds.length }, { status: 201 });
   } catch (error) {
     console.error("[CalOS] auto-fill error:", error);
     return NextResponse.json({ error: "Failed to auto-fill" }, { status: 500 });

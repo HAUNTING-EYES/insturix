@@ -419,3 +419,24 @@ project settings as the durable record; T3 target now grades against
 BOTH screens (chat + settings). The single v7 "core break" was a grader
 contradiction (correct:true + trustBreak:true on a hedge) — expected to
 clear with the rule stated on-surface.
+
+## 2026-09-03 (remediation #5 closed) — §6 three-axis status complete; Clerk aligned from Vercel
+
+Clerk: pulled env from Vercel (founder direction). PROD pair is coherent
+(pk_live/sk_live, clerk.insturix.com); the DEV environment on Vercel
+carries the SAME mismatched pair as local .env.local had — fixed local to
+the prod pair (backend API now 200s). The browser E2E gate remains
+founder-blocked by design: the spec refuses live keys (never touch a real
+user directory) and Clerk's dev-tools sign-in backdoor doesn't exist on
+live instances. Two founder options: coherent test pair from one dev
+instance, or dev-tools enabled on prod.
+
+REMEDIATION #5 CLOSED: persistDraftDeliverables now returns inserted ids
+(callers use .length — JSON contracts unchanged); the plan-entry route
+stamps deliverableIds onto plan.entry spine events; computeProjectStatus
+derives ALL nine §6 priorities from real records — Publishing · platform
+(active queue job), Reviewing (in_review deliverables), Scheduled · next
+<weekday at time> (pending future occurrence), Partially published · n of
+m / Published · n of n (delivery receipts). Lifecycle test walks the full
+arc on real collections. Gates: tsc 0, eslint 0, studio 84/84 × 2, calos
+308/308. Next: Phase 7 Distribution.

@@ -55,9 +55,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ artifac
     }
 
     let deliverablesCreated = 0;
+    let deliverableIds: string[] = [];
     if (body.action === "accept") {
       if (!project.brandId) return NextResponse.json({ error: "plan_has_no_brand" }, { status: 400 });
-      deliverablesCreated = await persistDraftDeliverables(
+      deliverableIds = await persistDraftDeliverables(
         [
           {
             title: body.title?.trim() || entry.title,
@@ -69,16 +70,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ artifac
         ],
         { userId, brandId: project.brandId, orgId: project.organizationId },
       );
+      deliverablesCreated = deliverableIds.length;
       if (deliverablesCreated !== 1) {
         return NextResponse.json({ error: "calos_write_failed" }, { status: 502 });
       }
     }
 
+    /* deliverableIds ride the spine event — §6 status computes Publishing/
+     * Scheduled/Partially-published labels from the project's OWN records
+     * (deliverable editorial state + queue outcomes), never from chat text */
     const appended = await appendTurnEvent(body.projectId, {
       actor: "user",
       kind: "plan.entry",
       turnId: null,
-      payload: { type: "plan.entry", artifactId, entryId: body.entryId, action: body.action, deliverablesCreated },
+      payload: { type: "plan.entry", artifactId, entryId: body.entryId, action: body.action, deliverablesCreated, deliverableIds },
     });
     if (!appended) return NextResponse.json({ error: "spine_write_failed" }, { status: 500 });
     return NextResponse.json({ ok: true, entryId: body.entryId, state: body.action, deliverablesCreated });

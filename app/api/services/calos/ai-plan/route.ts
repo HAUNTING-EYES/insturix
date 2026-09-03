@@ -227,10 +227,10 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const created = await persistDraftDeliverables(partials, { userId, brandId, orgId });
+    const createdIds = await persistDraftDeliverables(partials, { userId, brandId, orgId });
     return NextResponse.json(
       {
-        created,
+        created: createdIds.length,
         ideas: ideas.length,
         slots: slots.length,
         trendsUsed: trends.length,

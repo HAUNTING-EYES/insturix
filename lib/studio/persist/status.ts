@@ -1,12 +1,21 @@
-import { connectSpine, OperationModel, ProjectModel } from "./db";
+import { connectSpine, listEvents, OperationModel, ProjectModel } from "./db";
+import CalosDeliverable from "@/schemas/calos-deliverable";
+import CalosScheduledPublish from "@/schemas/calos-scheduled-publish";
 
 /**
  * Project status from REAL records (plan §6) — the chat never declares a
- * project done; operations and their states decide. Priority mirrors the
- * plan: an open user decision outranks a failure, which outranks active work;
- * quiet projects fall back through reviewing → creating → planning.
- * Delivery/scheduling states (scheduled/publishing/published) arrive with
- * Phase 6-7 occurrence + receipt records — until then the label stays honest.
+ * project done. All nine §6 priorities derive from facts:
+ *   1 open user decision (operation awaiting_confirmation)  → Needs you
+ *   2 failed/blocked operation                              → Failed/Blocked
+ *   3 active publish job (queue publishing/claimed)         → Publishing
+ *   4 active generation (operation running)                 → Creating·Working
+ *   5 content awaiting approval (in_review deliverables)    → Reviewing
+ *   6 approved future occurrences (pending queue rows)      → Scheduled
+ *   7 some delivery receipts                                → Partially published
+ *   8 all expected deliveries completed                     → Published
+ *   9 plan exists, no production started                    → Planning
+ * The project↔deliverable link is the plan.entry events stamped with
+ * deliverableIds by the plan-entry route — never inferred from chat text.
  */
 
 export type ProjectStatus = {
@@ -21,9 +30,28 @@ type OpLean = { state?: string; command?: string; error?: string | null };
 const firstWords = (s: string | null | undefined, n = 5) =>
   (s ?? "").trim().split(/\s+/).slice(0, n).join(" ").slice(0, 60) || "failed";
 
+/** Deliverable ids accepted by THIS project (plan.entry events, log order). */
+function deliverableIdsFromEvents(events: Array<{ kind: string; payload: unknown }>): string[] {
+  const ids: string[] = [];
+  for (const ev of events) {
+    if (ev.kind !== "plan.entry") continue;
+    const p = ev.payload as { action?: string; deliverableIds?: string[] } | null;
+    if (p?.action === "accept" && Array.isArray(p.deliverableIds)) ids.push(...p.deliverableIds);
+  }
+  return ids;
+}
+
+function nextWhenLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }) +
+    " at " + new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+}
+
 export async function computeProjectStatus(projectId: string): Promise<ProjectStatus> {
   await connectSpine();
-  const ops = (await OperationModel.find({ projectId }).sort({ updatedAt: -1, startedAt: -1 }).limit(50).lean()) as unknown as OpLean[];
+  const [ops, events] = await Promise.all([
+    OperationModel.find({ projectId }).sort({ updatedAt: -1, startedAt: -1 }).limit(50).lean() as unknown as Promise<OpLean[]>,
+    listEvents(projectId, 0),
+  ]);
   if (ops.some((o) => o.state === "awaiting_confirmation")) {
     return { phase: "reviewing", attention: "needs_you", activity: "idle", label: "Needs you · approve to continue" };
   }
@@ -31,9 +59,41 @@ export async function computeProjectStatus(projectId: string): Promise<ProjectSt
   if (failed) {
     return { phase: "creating", attention: "failed", activity: "idle", label: `Failed · ${firstWords(failed.error ?? failed.command)}` };
   }
-  if (ops.some((o) => o.state === "running")) {
+
+  /* §6 3/5/6/7/8 — delivery lifecycle from the project's own records */
+  const deliverableIds = deliverableIdsFromEvents(events);
+  if (deliverableIds.length > 0) {
+    const [queue, drafts] = await Promise.all([
+      CalosScheduledPublish.find({ deliverableId: { $in: deliverableIds } }).sort({ publishAt: 1 }).lean() as unknown as Promise<Array<{ status?: string; publishAt?: Date | string; platform?: string }>>,
+      CalosDeliverable.find({ _id: { $in: deliverableIds } }).lean() as unknown as Promise<Array<{ editorialStatus?: string }>>,
+    ]);
+    const publishing = queue.find((q) => q.status === "publishing" || q.status === "claimed");
+    if (publishing) {
+      return { phase: "publishing", attention: "normal", activity: "working", label: `Publishing · ${publishing.platform ?? "post"}` };
+    }
+    if (ops.some((o) => o.state === "running")) {
+      return { phase: "creating", attention: "normal", activity: "working", label: "Creating · working" };
+    }
+    const awaitingApproval = drafts.some((d) => d.editorialStatus === "in_review" || d.editorialStatus === "changes_requested");
+    if (awaitingApproval) {
+      return { phase: "reviewing", attention: "normal", activity: "idle", label: "Reviewing · content waiting on approval" };
+    }
+    const expected = queue.length;
+    const published = queue.filter((q) => q.status === "published").length;
+    if (expected > 0 && published === expected) {
+      return { phase: "complete", attention: "normal", activity: "idle", label: `Published · ${published} of ${expected}` };
+    }
+    if (published > 0) {
+      return { phase: "complete", attention: "normal", activity: "idle", label: `Partially published · ${published} of ${expected}` };
+    }
+    const next = queue.find((q) => q.status === "pending" && q.publishAt && new Date(q.publishAt) > new Date());
+    if (next?.publishAt) {
+      return { phase: "scheduled", attention: "normal", activity: "idle", label: `Scheduled · next ${nextWhenLabel(String(next.publishAt))}` };
+    }
+  } else if (ops.some((o) => o.state === "running")) {
     return { phase: "creating", attention: "normal", activity: "working", label: "Creating · working" };
   }
+
   if (ops.some((o) => o.state === "done")) {
     return { phase: "creating", attention: "normal", activity: "idle", label: "Creating" };
   }
@@ -41,7 +101,7 @@ export async function computeProjectStatus(projectId: string): Promise<ProjectSt
 }
 
 /** The Needs-you index (plan §7 Home): every project in this org with an open
- *  user decision, newest first. Derived from operation records, not chat text. */
+ * user decision, newest first. Derived from operation records, not chat text. */
 export async function listNeedsYouProjects(
   organizationId: string | null,
 ): Promise<Array<{ projectId: string; title: string; status: ProjectStatus }>> {
