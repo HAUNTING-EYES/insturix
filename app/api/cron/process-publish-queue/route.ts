@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
           status: "failed",
           lockedAt: null,
           lastError: STALE_PUBLISHING_ERROR,
+          outcomeAmbiguous: true, // stale mid-publish = unknown outcome
         },
       }
     );
@@ -192,7 +193,8 @@ export async function GET(request: NextRequest) {
               row,
               "Provider reported success without a post id; publish outcome is unknown. Check the platform before retrying to avoid a duplicate.",
               false,
-              summary
+              summary,
+              true
             );
             continue;
           }
@@ -214,7 +216,7 @@ export async function GET(request: NextRequest) {
             ? ambiguousFailureMessage(result.error || "Publish failed")
             : result.error || "Publish failed";
           if (isAmbiguous) summary.ambiguous++;
-          await markFailed(row, message, safeRetry, summary);
+          await markFailed(row, message, safeRetry, summary, isAmbiguous);
         }
       } catch (err) {
         summary.ambiguous++;
@@ -222,7 +224,8 @@ export async function GET(request: NextRequest) {
           row,
           ambiguousFailureMessage(err instanceof Error ? err.message : "Publish threw"),
           false,
-          summary
+          summary,
+          true
         );
       }
     }
@@ -445,7 +448,8 @@ async function markFailed(
   row: ICalosScheduledPublish,
   message: string,
   retryable: boolean,
-  summary: PublishSummary
+  summary: PublishSummary,
+  ambiguous = false
 ): Promise<void> {
   const willRetry = retryable && row.attempts < row.maxAttempts;
   // TODO(CALOS_LOUD): remove once stable — every publish failure must be visible in logs during testing.
@@ -457,6 +461,7 @@ async function markFailed(
   }
   row.lastError = message;
   row.lockedAt = null;
+  row.outcomeAmbiguous = ambiguous && !willRetry; // structured — retry logic reads the flag, not prose
   await row.save();
   if (!willRetry) summary.failed++;
 }

@@ -173,6 +173,7 @@ describe("CalOS publish queue worker reliability", () => {
           status: "failed",
           lockedAt: null,
           lastError: expect.stringContaining("outcome is unknown"),
+          outcomeAmbiguous: true, // audit 6b: structured flag rides the terminalization
         },
       },
     );

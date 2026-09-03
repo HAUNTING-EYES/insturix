@@ -54,6 +54,9 @@ export interface ICalosScheduledPublish extends Document {
   attempts: number;
   maxAttempts: number;
   lockedAt?: Date | null;
+  /** audit 6b: structured ambiguity — provider outcome UNKNOWN (may have
+   *  posted); such rows are never auto-retried. */
+  outcomeAmbiguous?: boolean;
   lastError?: string | null;
   postId?: string | null;
   postUrl?: string | null;
@@ -86,7 +89,14 @@ const CalosScheduledPublishSchema = new Schema<ICalosScheduledPublish>(
     attempts: { type: Number, default: 0 },
     maxAttempts: { type: Number, default: 3 }, // standard retry budget; overridable per row
     lockedAt: { type: Date, default: null },
-    lastError: { type: String, default: null },
+    /** audit 6b: structured ambiguity — the provider outcome is UNKNOWN (may
+   *  have posted); such rows are never auto-retried. Belt-and-braces with the
+   *  legacy prose marker for pre-flag rows. */
+  outcomeAmbiguous: {
+    type: Boolean,
+    default: false,
+  },
+  lastError: { type: String, default: null },
     postId: { type: String, default: null },
     postUrl: { type: String, default: null },
     idempotencyKey: { type: String, required: true, unique: true },

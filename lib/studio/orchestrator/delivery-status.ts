@@ -23,11 +23,15 @@ interface QueueRow {
   publishAt?: Date | string;
   postUrl?: string | null;
   lastError?: string | null;
+  outcomeAmbiguous?: boolean;
   attempts?: number;
   maxAttempts?: number;
 }
 
-const AMBIGUOUS = /ambiguous|check the platform/i;
+/* audit 6b: the structured flag is the authority; the prose match remains
+ * ONLY as a legacy fallback for rows written before the flag existed */
+const isAmbiguousRow = (r: QueueRow) => r.outcomeAmbiguous === true || AMBIGUOUS_PROSE.test(r.lastError ?? "");
+const AMBIGUOUS_PROSE = /ambiguous|check the platform/i;
 
 export function deliveryStatusIntent(text: string): boolean {
   return /\b(why did .*(fail|failing)|retry|failed post|delivery status)\b/i.test(text);
@@ -67,7 +71,7 @@ function rowLine(r: QueueRow): string {
     case "published":
       return `${r.platform}: published${r.postUrl ? ` — ${r.postUrl}` : ""}`;
     case "failed":
-      return `${r.platform}: failed after ${r.attempts ?? 0}/${r.maxAttempts ?? 3} tries${r.lastError ? ` — ${String(r.lastError).slice(0, 90)}` : ""}${AMBIGUOUS.test(r.lastError ?? "") ? " (outcome unclear — it may already be posted; check the platform before retrying)" : ""}`;
+      return `${r.platform}: failed after ${r.attempts ?? 0}/${r.maxAttempts ?? 3} tries${r.lastError ? ` — ${String(r.lastError).slice(0, 90)}` : ""}${isAmbiguousRow(r) ? " (outcome unclear — it may already be posted; check the platform before retrying)" : ""}`;
     default:
       return `${r.platform}: ${r.status ?? "pending"} · ${when}`;
   }
@@ -93,8 +97,8 @@ export async function* runDeliveryStatusTurn(ctx: DeliveryStatusContext, text: s
   /* "retry X" — deliberate reset of a cleanly-failed row */
   if (wantsRetry(text)) {
     const candidates = scoped.filter((r) => r.status === "failed");
-    const ambiguous = candidates.filter((r) => AMBIGUOUS.test(r.lastError ?? ""));
-    const clean = candidates.filter((r) => !AMBIGUOUS.test(r.lastError ?? ""));
+    const ambiguous = candidates.filter((r) => isAmbiguousRow(r));
+    const clean = candidates.filter((r) => !isAmbiguousRow(r));
     if (candidates.length === 0) {
       yield { type: "turn.done", turnId, summary: `Nothing to retry — no failed deliveries${platform ? ` on ${platform}` : ""}. Current state:\n${live.map(rowLine).join("\n")}`, creditsConsumedTotal: 0, artifactIds: [] };
       return;
@@ -124,8 +128,8 @@ export async function* runDeliveryStatusTurn(ctx: DeliveryStatusContext, text: s
     summary: [
       platform ? `${platform} deliveries:` : "Delivery status:",
       ...live.map(rowLine),
-      failed.length > 0 && failed.every((r) => !AMBIGUOUS.test(r.lastError ?? "")) ? "Say \"retry\" and I'll re-queue the clean failures now." : "",
-      failed.some((r) => AMBIGUOUS.test(r.lastError ?? "")) ? "Rows with unclear outcomes are never auto-retried — check the platform first." : "",
+      failed.length > 0 && failed.every((r) => !isAmbiguousRow(r)) ? "Say \"retry\" and I'll re-queue the clean failures now." : "",
+      failed.some((r) => isAmbiguousRow(r)) ? "Rows with unclear outcomes are never auto-retried — check the platform first." : "",
     ].filter(Boolean).join("\n"),
     creditsConsumedTotal: 0,
     artifactIds: [],

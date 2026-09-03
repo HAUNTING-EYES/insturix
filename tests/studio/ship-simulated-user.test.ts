@@ -150,5 +150,13 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     expect(ambEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
     const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string };
     expect(afterAmbiguous.status).toBe("failed"); // untouched — never auto-retried
+
+    /* audit 6b: the STRUCTURED flag alone refuses a retry — no prose needed */
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "connection reset", outcomeAmbiguous: true } });
+    const retryFlagged = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
+    const flagEvents = parseSse(await retryFlagged.text()) as Array<{ type: string; summary?: string }>;
+    expect(flagEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
+    const afterFlag = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string };
+    expect(afterFlag.status).toBe("failed"); // flag refuses, even with clean prose
   });
 });
