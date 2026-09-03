@@ -33,6 +33,7 @@ export const StudioArtifactKindSchema = z.enum([
   "audio", // voiceover / tts / dubbing output
   "music", // musitron task
   "analysis", // alyzitron report
+  "plan", // §12 cadence proposal: slots from CalOS, entries accepted per-item become content items
   "schedule", // calos deliverable (publishing plan)
   "avatar_video", // avatar vault render output
   "post", // a published/scheduled platform post
@@ -109,6 +110,22 @@ export const StudioArtifactSchema = z.object({
    *  own session). Candidates themselves are NEVER copied into the spine —
    *  the Clickatron session is their single source of truth. */
   selectedCandidateId: z.string().nullable().optional(),
+  /** §12 plan entries: slots projected by CalOS's own cadence engine. A
+   *  PROPOSED entry is not yet a CalOS card — only accepted entries are
+   *  written (as idea-stage deliverables) by the plan-entry route. */
+  planEntries: z
+    .array(
+      z.object({
+        id: z.string(),
+        platform: z.string(),
+        scheduledAt: z.string().datetime(),
+        title: z.string(),
+        /** filled by replay from plan.entry events — never by the client */
+        accepted: z.boolean().optional(),
+        removed: z.boolean().optional(),
+      }),
+    )
+    .optional(),
   updatedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
 });

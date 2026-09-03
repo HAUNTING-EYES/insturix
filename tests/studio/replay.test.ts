@@ -177,3 +177,23 @@ describe("artifactsFromEvents — §11 selection events replay onto the artifact
     expect(artifactsFromEvents(events)).toEqual([]);
   });
 });
+
+describe("artifactsFromEvents — §12 plan entries replay their decisions", () => {
+  const planArt = (entries: Array<{ id: string }>) => ({ id: "art_plan", kind: "plan", status: "done", title: "Week plan", sourceRef: { engine: "calos", externalId: "t1", manualHref: null }, planEntries: entries.map((e) => ({ id: e.id, platform: "instagram", scheduledAt: "2026-09-07T09:00:00.000Z", title: "launch post" })), revisions: [], updatedAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z" });
+
+  it("accept and remove decisions land on their entries only", () => {
+    const events = [
+      ev(1, "turn.done", { type: "turn.done", turnId: "t1", summary: "planned", artifactIds: ["art_plan"], artifactPayload: planArt([{ id: "pe_1" }, { id: "pe_2" }]) }),
+      ev(2, "plan.entry", { type: "plan.entry", artifactId: "art_plan", entryId: "pe_1", action: "accept", deliverablesCreated: 1 }),
+      ev(3, "plan.entry", { type: "plan.entry", artifactId: "art_plan", entryId: "pe_2", action: "remove", deliverablesCreated: 0 }),
+    ];
+    const rebuilt = artifactsFromEvents(events)[0]?.planEntries ?? [];
+    expect(rebuilt[0]).toMatchObject({ id: "pe_1", accepted: true });
+    expect(rebuilt[1]).toMatchObject({ id: "pe_2", removed: true });
+  });
+
+  it("a decision for an unknown plan is ignored", () => {
+    const events = [ev(1, "plan.entry", { type: "plan.entry", artifactId: "ghost", entryId: "pe_1", action: "accept", deliverablesCreated: 1 })];
+    expect(artifactsFromEvents(events)).toEqual([]);
+  });
+});

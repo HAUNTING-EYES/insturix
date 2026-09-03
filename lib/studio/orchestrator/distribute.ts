@@ -1,18 +1,24 @@
 /**
- * Studio orchestrator — DISTRIBUTE capability (Phase 4c).
+ * Studio orchestrator — DISTRIBUTE capability (Phase 6, §12).
  *
- * v2: cadence suggestion (real) → the PUBLISH hard gate (quote-less
- * confirm via the continuation pattern) → on accept, queues real CalOS
- * deliverables. Nothing auto-publishes: queued cards still ride CalOS's
- * own approval-before-publish cron safety.
+ * v3: "Plan four launch posts for next week" → the user's window + count
+ * parsed honestly, slots projected by CalOS's OWN cadence engine
+ * (proposeCadenceCards over the brand's suggested rules — never local
+ * weekday guesses), and a Plan artifact whose entries are PROPOSALS: a
+ * proposed entry is not yet a CalOS card. Only per-entry accepts (the
+ * plan-entry route) write idea-stage deliverables via CalOS's single draft
+ * write path. Nothing here schedules or publishes anything — CalOS
+ * editorial approval stays the only publish authorization.
  */
 
+import { proposeCadenceCards } from "@/lib/calos/cadence";
 import { suggestCadence } from "@/lib/calos/cadence-suggest";
 import { listUnifiedBrands } from "@/lib/shared/brand-registry";
 import { listAuthorizedBrandScopes } from "@/lib/shared/brand-scope";
 import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
 import { DISTRIBUTE_DOMAIN_MANIFEST } from "./manifests/distribute";
+import { parsePlanWindow } from "./distribute-plan";
 
 const TOOL = (name: string) => {
   const tool = DISTRIBUTE_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
@@ -28,29 +34,16 @@ export interface DistributeTurnContext {
   origin: string;
 }
 
-const PLATFORM_ASPECT: Record<string, string> = {
-  linkedin: "1:1",
-  instagram: "4:5",
-  tiktok: "9:16",
-  youtube: "16:9",
-  twitter: "16:9",
-};
-
-function nextWeekdayISO(weekday: number, hour: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + (((weekday - d.getDay()) + 7) % 7 || 7));
-  d.setHours(hour, 0, 0, 0);
-  return d.toISOString();
-}
-
-function scheduleArtifact(deliverableIds: string[]): StudioArtifact {
+function planArtifact(turnId: string, entries: Array<{ id: string; platform: string; scheduledAt: string; title: string }>, mix: string): StudioArtifact {
   const nowIso = new Date().toISOString();
   return {
-    id: `art_cal_${deliverableIds[0]?.slice(0, 8) ?? Date.now()}`,
-    kind: "schedule",
+    id: `art_plan_${turnId}`,
+    kind: "plan",
     status: "done",
-    title: "Schedule",
-    sourceRef: { engine: "calos", externalId: deliverableIds.join(","), manualHref: "/dashboard/calos" },
+    title: "Week plan",
+    sourceRef: { engine: "calos", externalId: turnId, manualHref: null },
+    progress: { stage: mix, percent: null },
+    planEntries: entries,
     revisions: [],
     updatedAt: nowIso,
     createdAt: nowIso,
@@ -58,14 +51,14 @@ function scheduleArtifact(deliverableIds: string[]): StudioArtifact {
 }
 
 export async function* runDistributeTurn(
-  ctx: DistributeTurnContext,
+  _ctx: DistributeTurnContext,
   text: string,
-  signal?: AbortSignal,
-  confirmAccepted?: boolean,
+  _signal?: AbortSignal,
+  _confirmAccepted?: boolean,
 ): AsyncGenerator<StudioTurnEvent> {
+  const ctx = _ctx;
   const turnId = `t_${crypto.randomUUID().slice(0, 8)}`;
   const cadence = TOOL("cadence-suggest");
-  const queue = TOOL("persist-deliverables");
   yield { type: "turn.received", turnId, deliverableId: "del_live" };
 
   let brandId = ctx.brandId ?? null;
@@ -87,11 +80,8 @@ export async function* runDistributeTurn(
     type: "turn.plan",
     turnId,
     planId: `${turnId}_p`,
-    summary: "Planning the week — cadence first, nothing publishes without you.",
-    steps: [
-      { stepId: "d1", capability: "distribute", toolName: cadence.name, label: cadence.label, riskLevel: cadence.riskLevel },
-      { stepId: "d2", capability: "distribute", toolName: queue.name, label: queue.label, riskLevel: queue.riskLevel },
-    ],
+    summary: "Planning the week on your brand's cadence — proposals first, nothing is written until you accept entries.",
+    steps: [{ stepId: "d1", capability: "distribute", toolName: cadence.name, label: cadence.label, riskLevel: cadence.riskLevel }],
   };
 
   yield { type: "step.start", turnId, stepId: "d1", toolName: cadence.name };
@@ -99,90 +89,46 @@ export async function* runDistributeTurn(
   const brand = brands.find((b) => b.brandId === brandId) ?? null;
   const suggestion = suggestCadence(brand);
   const mix = suggestion.rules.map((r) => `${r.platform} ${r.perWeek}x/wk`).join(" · ");
+
+  /* §12: CalOS owns dates and cadence — the slots come from its projector,
+   * capped to the user's stated count when they named one */
+  const { from, to, count } = parsePlanWindow(text);
+  let proposals = proposeCadenceCards(suggestion.rules, { from, to });
+  if (count !== null) proposals = proposals.slice(0, count);
+  if (proposals.length === 0) {
+    yield {
+      type: "turn.needs_clarification",
+      turnId,
+      question: `Your cadence (${mix}) has no free slot in that window. Widen the dates or adjust the brand's cadence first?`,
+      options: [
+        { id: "widen", label: "Plan the next two weeks instead" },
+        { id: "adjust", label: "Open the brand's cadence settings" },
+      ],
+    };
+    return;
+  }
+
+  const entries = proposals.map((p, i) => ({
+    id: `pe_${turnId}_${i}`,
+    platform: p.platform,
+    scheduledAt: p.plannedDates[0] ?? p.date,
+    title: p.title,
+  }));
+  const artifact = planArtifact(turnId, entries, mix);
+
   yield {
     type: "step.done",
     turnId,
     stepId: "d1",
-    receipt: { label: cadence.receiptLabel, detail: mix, artifactIds: [], creditsConsumed: 0 },
-  };
-
-  /* the PUBLISH hard gate — quote-less confirm via continuation */
-  const targets = suggestion.rules.flatMap((rule) =>
-    Array.from({ length: Math.min(rule.perWeek, 2) }, (_, i) => ({
-      platform: rule.platform,
-      scheduledAt: nextWeekdayISO(2 + i * 2, 9 + i * 3),
-    })),
-  );
-
-  if (!confirmAccepted) {
-    yield {
-      type: "turn.confirm_required",
-      turnId,
-      stepId: "d2",
-      kind: "publish",
-      quote: null,
-      publishTargets: targets,
-    };
-    yield {
-      type: "turn.done",
-      turnId,
-      summary: `Cadence: ${mix}. Confirm on the card to queue the week — nothing publishes by itself.`,
-      creditsConsumedTotal: 0,
-      artifactIds: [],
-    };
-    return;
-  }
-
-  /* accepted: queue real CalOS deliverables (idea-stage cards; CalOS's own
-   * approval-before-publish stays the final gate) */
-  yield { type: "step.start", turnId, stepId: "d2", toolName: queue.name, loadingMessage: queue.loadingMessages[0] };
-  const createdIds: string[] = [];
-  try {
-    for (const target of targets) {
-      const res = await fetch(new URL("/api/services/calos/deliverables", ctx.origin), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...ctx.forwardHeaders },
-        body: JSON.stringify({
-          brandId,
-          title: `${target.platform} post — ${new Date(target.scheduledAt).toLocaleDateString(undefined, { weekday: "short" })}`,
-          platform: target.platform,
-          plannedDates: [target.scheduledAt],
-          editorialStatus: "idea",
-          aspectRatio: PLATFORM_ASPECT[target.platform] ?? "1:1",
-        }),
-        signal,
-      });
-      if (res.ok) {
-        const data = (await res.json()) as Record<string, unknown>;
-        const id = (data.id as string) ?? (data.deliverableId as string) ?? (data._id as string);
-        if (id) createdIds.push(id);
-      }
-    }
-  } catch (error) {
-    yield { type: "turn.error", turnId, message: error instanceof Error ? error.message : "calos bridge failed", retryable: true, refundIssued: false };
-    return;
-  }
-
-  if (!createdIds.length) {
-    yield { type: "turn.error", turnId, message: "calos rejected the queue (check connections)", retryable: true, refundIssued: false };
-    return;
-  }
-
-  const artifact = scheduleArtifact(createdIds);
-  yield {
-    type: "step.done",
-    turnId,
-    stepId: "d2",
-    receipt: { label: queue.receiptLabel, detail: `${createdIds.length} cards · idea stage`, artifactIds: [artifact.id], creditsConsumed: 0 },
+    receipt: { label: cadence.receiptLabel, detail: `${entries.length} slots projected · ${mix}`, artifactIds: [artifact.id], creditsConsumed: 0 },
   };
   yield {
     type: "turn.done",
     turnId,
-    summary: `Queued ${createdIds.length} idea cards on the calendar — first one ${new Date(targets[0].scheduledAt).toLocaleString()}. Publishing still needs each card's approval.`,
+    summary: `${entries.length} slots on the board — ${mix}. Accept the ones you want; each accepted entry becomes a CalOS card. Nothing is scheduled or published by this.`,
     creditsConsumedTotal: 0,
     artifactIds: [artifact.id],
     artifactPayload: artifact,
-    stageFocus: { artifactId: artifact.id, why: `${createdIds.length} cards queued` },
+    stageFocus: { artifactId: artifact.id, why: `${entries.length} slots proposed` },
   };
-  void text;
 }

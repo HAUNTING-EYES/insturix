@@ -359,3 +359,30 @@ typed Design command ✓ (design turn), candidate groups/selection ✓
 (gallery + persisted selection), carousel slides ✓, canvas in stage ✓
 (gallery + explicit iframe), storyboard command+stage ✓, one billing/job
 path ✓ (both quotes resolve through getCreditCost — the charge resolver).
+
+## 2026-09-03 (Phase 6) — CalOS adapter repaired; §12 plan→propose→accept flow
+
+The adapter audit found the old distribute bridge contract-broken at the
+HTTP layer (flat body vs the {brandId, card} the deliverables route
+requires — every queue write 400'd) AND bypassing CalOS's slot projector
+with hard-coded Tue/Thu weekdays. Replaced, not patched:
+
+- distribute v3: user's window/count parsed honestly (parsePlanWindow —
+  "next week"=Mon–Sun UTC, count only when named); slots from CalOS's OWN
+  proposeCadenceCards over the brand's suggested rules (never local
+  weekday guesses); a PLAN artifact with proposal entries. A proposed
+  entry is not yet a CalOS card — the old all-or-nothing publish gate is
+  GONE (proposing schedules nothing).
+- plan-entry route (§12 review): accept writes EXACTLY that entry as an
+  idea-stage deliverable via CalOS's single draft write path
+  (persistDraftDeliverables — no HTTP hop); remove writes nothing;
+  idempotent per entry (log decides); org-scoped. Publishing still needs
+  CalOS editorial approval — untouched, it stays the only authorization.
+- Stage PlanView: per-entry accept/remove with decided states; replay
+  rebuilds decisions on reload (§3). Contract: kind "plan" + planEntries.
+- Sim: accept→exactly-one idea deliverable, re-act no-op, remove writes
+  nothing, 403 cross-org, 404 ghost entry, reload shows decisions.
+
+Gates: tsc 0, eslint 0, vitest studio 82/82 × 2.
+Next: real calendar projection in the Calendar place (§12 rules), then
+three-axis status (#5) unblocks with the write-side records now landing.

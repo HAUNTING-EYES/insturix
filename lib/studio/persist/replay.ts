@@ -78,10 +78,25 @@ export function artifactsFromEvents(events: PersistedSpineEvent[]): StudioArtifa
     const artifact = byId.get(artifactId);
     if (artifact) byId.set(artifactId, { ...artifact, selectedCandidateId: candidateId });
   };
+  const planEntry = (artifactId: string, entryId: string, action: string) => {
+    const artifact = byId.get(artifactId);
+    if (!artifact?.planEntries) return;
+    byId.set(artifactId, {
+      ...artifact,
+      planEntries: artifact.planEntries.map((e) =>
+        e.id === entryId ? { ...e, accepted: action === "accept" ? true : e.accepted, removed: action === "remove" ? true : e.removed } : e,
+      ),
+    });
+  };
   for (const ev of events) {
     if (ev.kind === "artifact.selected") {
       const p = ev.payload as { artifactId?: string; candidateId?: string } | null;
       if (p?.artifactId && p.candidateId) select(p.artifactId, p.candidateId);
+      continue;
+    }
+    if (ev.kind === "plan.entry") {
+      const p = ev.payload as { artifactId?: string; entryId?: string; action?: string } | null;
+      if (p?.artifactId && p.entryId && p.action) planEntry(p.artifactId, p.entryId, p.action);
       continue;
     }
     const payload = ev.payload as { artifactPayload?: StudioArtifact } | null;

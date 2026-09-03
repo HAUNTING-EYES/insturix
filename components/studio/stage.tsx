@@ -378,6 +378,93 @@ function CandidateGallery({ artifact, projectId, onAskAbout }: { artifact: Studi
   );
 }
 
+/* §12 proposal review: every entry is a PROPOSAL until accepted — accept
+ * writes exactly that entry to CalOS (idea stage), remove drops it. Only
+ * accepted entries become cards; publishing still needs CalOS approval. */
+function PlanView({ artifact, projectId }: { artifact: StudioArtifact; projectId?: string | null }) {
+  const [local, setLocal] = useState<Record<string, "accept" | "remove" | "busy">>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const stateOf = (entry: { id: string; accepted?: boolean; removed?: boolean }) =>
+    local[entry.id] ?? (entry.removed ? "remove" : entry.accepted ? "accept" : undefined);
+
+  const act = async (entryId: string, action: "accept" | "remove") => {
+    if (!projectId || local[entryId]) return;
+    setLocal((prev) => ({ ...prev, [entryId]: "busy" }));
+    setError(null);
+    try {
+      const res = await fetch(`/api/studio/artifacts/${artifact.id}/plan-entry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, entryId, action }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(j?.error ?? `plan entry failed (${res.status})`);
+        setLocal((prev) => {
+          const next = { ...prev };
+          delete next[entryId];
+          return next;
+        });
+        return;
+      }
+      setLocal((prev) => ({ ...prev, [entryId]: action }));
+    } catch {
+      setError("network — try again");
+      setLocal((prev) => {
+        const next = { ...prev };
+        delete next[entryId];
+        return next;
+      });
+    }
+  };
+
+  const entries = artifact.planEntries ?? [];
+  const accepted = entries.filter((e) => stateOf(e) === "accept").length;
+
+  return (
+    <>
+      <div className="stu-chips">
+        <span className="stu-chip">{entries.length} proposed · {accepted} accepted</span>
+        <span className="stu-chip">accepted entries become idea-stage CalOS cards</span>
+      </div>
+      <div className="stu-doc" style={{ textAlign: "left" }}>
+        {entries.length === 0 && <div className="stu-hint">no entries on this plan</div>}
+        {entries.map((e) => {
+          const state = stateOf(e);
+          return (
+            <div className="stu-drow" key={e.id} style={{ opacity: state === "remove" ? 0.45 : 1 }}>
+              <div>
+                <div className="nm">{e.title}</div>
+                <div className="sub">
+                  {e.platform} · {new Date(e.scheduledAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {state === "accept" ? (
+                  <span className="stu-chip">accepted ✓</span>
+                ) : state === "remove" ? (
+                  <span className="stu-chip">removed</span>
+                ) : (
+                  <>
+                    <button className="stu-btn" disabled={!projectId || state === "busy"} onClick={() => void act(e.id, "accept")}>
+                      {state === "busy" ? "…" : "accept"}
+                    </button>
+                    <button className="stu-btn" disabled={!projectId || state === "busy"} onClick={() => void act(e.id, "remove")}>
+                      remove
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {error && <div className="stu-hint" style={{ color: "var(--red)" }}>{error}</div>}
+      </div>
+    </>
+  );
+}
+
 /* §17 Phase 5 storyboard stage: scene cards straight off the pipeline's
  * real record — image when it exists, honest generating state when it
  * doesn't. Approve/regenerate actions stay in the storyboard workspace
@@ -732,9 +819,10 @@ export function StageHost({
             <CanvasView artifact={focused} projectId={projectId} onAskAbout={onAskAbout} />
           )}
           {focused?.kind === "schedule" && <ScheduleView />}
+          {focused?.kind === "plan" && <PlanView artifact={focused} projectId={projectId} />}
           {focused?.kind === "storyboard" && <StoryboardView artifact={focused} />}
           {focused?.kind === "analysis" && <AnalyzeView artifact={focused} />}
-          {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "storyboard", "analysis"].includes(focused.kind) && (
+          {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "plan", "storyboard", "analysis"].includes(focused.kind) && (
             <FallbackView artifact={focused} />
           )}
         </div>
