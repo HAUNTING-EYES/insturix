@@ -35,6 +35,7 @@ export function replayOpenConfirm(events: PersistedSpineEvent[]): ReplayOpenConf
     }
     if (ev.kind !== "turn.confirm_required") {
       if (ev.kind === "turn.received") open = null; // the gate was answered and the turn resumed
+      if (ev.kind === "turn.confirm_declined") open = null; // audit item 5: a decline RESOLVES the gate — no re-arm
       continue;
     }
     const p = ev.payload as {
@@ -197,6 +198,17 @@ export function replayEventsToItems(events: PersistedSpineEvent[]): StudioThread
           id: `ideas_${turn.turnId}`,
           turnId: turn.turnId,
           ideas: turn.ideas,
+          createdAt: ts(ev),
+        });
+        break;
+      case "turn.needs_clarification":
+        /* audit item 5: the question survives reload — it persisted but was
+         * invisible before; as prose it stays in the record (the live card
+         * renders while the turn is fresh) */
+        items.push({
+          kind: "prose",
+          id: `${turn.turnId}_clarify`,
+          text: `❓ ${turn.question}${turn.options?.length ? ` — ${turn.options.map((o) => o.label).join(" / ")}` : ""}`,
           createdAt: ts(ev),
         });
         break;

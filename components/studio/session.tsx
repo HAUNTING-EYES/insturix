@@ -348,6 +348,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
         { kind: "user", id: `u${Date.now()}`, text: text.trim(), attachments: [], mentions: [], createdAt: new Date().toISOString() },
       ]);
       let gap: Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null = null;
+      let clarifyEv: Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null = null;
       if (REAL) {
         /* real path: /api/studio/turns over SSE; artifact sourceRefs
          * round-trip engine ids for follow-ups (script → write, reel → edit) */
@@ -391,6 +392,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               break;
             }
             if (ev.type === "turn.capability_gap") gap = ev;
+            if (ev.type === "turn.needs_clarification") clarifyEv = ev;
           }
         } catch (error) {
           /* stream dropped (network), not one of our own aborts: pull the
@@ -402,6 +404,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           handleRef.current = null;
         }
         if (gap) setGapEv(gap);
+        /* audit item 5: real-mode clarification questions render — they were
+         * persisted but invisible before */
+        if (clarifyEv) setClarifyEv(clarifyEv);
         return;
       }
       const { events, handle } = runMockTurn(text);
@@ -430,6 +435,16 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
            * same operationId, so the server resumes the awaiting claim */
           void runTurn(pc.originalText, pc.quote?.quoteId, pc.kind === "publish" ? true : undefined, pc.operationId ?? undefined);
         } else if (pc && REAL && !accepted) {
+          /* audit item 5: a decline is a DECISION — persist it to the spine
+           * so reload never re-arms the card and Needs-you clears */
+          const projectId = projectIdRef.current;
+          if (projectId && pc.operationId) {
+            void fetch(`/api/studio/threads/${projectId}/decline`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ operationId: pc.operationId }),
+            }).catch(() => undefined);
+          }
           setItems((prev) => [
             ...prev,
             { kind: "prose", id: `decline_${pc.quote?.quoteId ?? Date.now()}`, text: "Left it — nothing generated, nothing charged.", createdAt: new Date().toISOString() },
@@ -479,14 +494,18 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               artifacts={artifacts}
               onQuickReply={runTurn}
               onShowArtifact={showArtifact}
-              clarifyCard={
+                clarifyCard={
                 clarifyEv ? (
                   <ClarifyCard
                     question={clarifyEv.question}
                     options={clarifyEv.options}
-                    onPick={() => {
+                    onPick={(id) => {
+                      /* audit item 5: the pick prefills the composer with the
+                       * user's own choice — never a canned reply */
+                      const label = clarifyEv.options.find((o) => o.id === id)?.label ?? "";
                       setClarifyEv(null);
-                      runTurn("a launch reel, 30 seconds, go");
+                      setInput(label);
+                      document.querySelector<HTMLInputElement>(".stu-composer input, textarea")?.focus();
                     }}
                   />
                 ) : null

@@ -197,3 +197,29 @@ describe("artifactsFromEvents — §12 plan entries replay their decisions", () 
     expect(artifactsFromEvents(events)).toEqual([]);
   });
 });
+
+describe("audit item 5 — clarifications survive reload; declines consume the gate", () => {
+  const gate = (seq: number, turnId: string) => ev(seq, "turn.confirm_required", { type: "turn.confirm_required", turnId, kind: "spend", quote: null, publishTargets: [] });
+
+  it("a clarification question replays as visible prose with its options", () => {
+    const items = replayEventsToItems([
+      ev(1, "user", { kind: "user", id: "u1", text: "teardown this" }),
+      ev(2, "turn.needs_clarification", { type: "turn.needs_clarification", turnId: "t9", question: "Which video?", options: [{ id: "a", label: "the reel" }, { id: "b", label: "the teaser" }] }),
+    ]);
+    const q = items.find((i) => i.kind === "prose" && i.id.endsWith("_clarify"));
+    if (q?.kind !== "prose") throw new Error("expected clarify prose");
+    expect(q.text).toContain("Which video?");
+    expect(q.text).toContain("the reel / the teaser");
+  });
+
+  it("a decline after the gate means NO open confirm on reload (no re-arm)", () => {
+    const events = [ev(1, "user", { kind: "user", id: "u1", text: "ship it" }), gate(2, "t1"), ev(3, "turn.confirm_declined", { type: "turn.confirm_declined", operationId: "op1" })];
+    expect(replayOpenConfirm(events)).toBeNull();
+  });
+
+  it("a gate with no decline still re-arms (the resume path is intact)", () => {
+    const events = [ev(1, "user", { kind: "user", id: "u1", text: "ship it" }), gate(2, "t1")];
+    const open = replayOpenConfirm(events);
+    expect(open?.turnId).toBe("t1");
+  });
+});

@@ -644,3 +644,18 @@ hydration failure can never show "Summer drop — launch" as the project.
 Gates: tsc 0, eslint 0, studio 101/101 × 2.
 Next: item 5 (needs_clarification visible + declines persist), item 7
 (structured ambiguity flag, two-flag guard, spine-owner backfill).
+
+## 2026-09-04 (audit item 5) — clarifications visible; declines are decisions
+
+- REAL loop now captures turn.needs_clarification → the ClarifyCard renders
+  (it was persisted but invisible). The pick PREFILLS the composer with the
+  user's chosen option — the old canned reply ("a launch reel, 30 seconds,
+  go") is gone. Reload replays the question as prose with its options
+  (turn.needs_clarification case in replayEventsToItems).
+- "Hold" on a confirm card persists: new decline route (org + owner
+  checked) appends turn.confirm_declined and closes the awaiting operation
+  → replayOpenConfirm treats the decline as gate-resolving (no re-arm on
+  reload), Needs-you stops pinning "approve to continue", and a retry is
+  simply a new turn. The non-declined gate still re-arms (resume intact).
+Gates: tsc 0, eslint 0, studio 104/104 × 2. Remaining: item 7 hardening
+(structured ambiguity flag, two-flag guard, spine-owner backfill).
