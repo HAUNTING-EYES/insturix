@@ -735,3 +735,14 @@ Engineering queue status: tz windows ✓, per-post receipts ✓, grounding ✓.
 Remaining: the media-asset/finalization/credentials chunk (needs its own
 exploration pass) + Phase 10 backfills (Insturix org designated pilot by
 founder; old data also sourceable from the Editron R2 CDN).
+
+## 2026-09-04 (MatrAIx) — T3-v10 partial: CLEAN; completion scheduled
+
+The Qwen token-plan WEEKLY quota exhausted mid-run (the runner's error
+string mislabels it "deepseek" — hardcoded prefix; the endpoint was the
+Alibaba gateway). 41/55 cells graded before the cutoff:
+core median 1.0 · 0 trust breaks (core AND adv) · 0 ungraded · 0 grader
+contradictions (rule 2(d) holds). The 14 ungraded cells (P9-s2..5, P10,
+P11) resume after the quota resets 2026-09-06 16:38 UTC — a scheduled
+automation (2026-09-07) re-runs JUST those cells, scores, and if the final
+table holds at zero breaks: logs the T3 PASS and pushes.
