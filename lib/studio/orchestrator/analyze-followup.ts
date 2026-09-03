@@ -41,6 +41,7 @@ export async function* runAnalysisFollowupTurn(ctx: FollowupContext, text: strin
     return;
   }
   const taskId = analysis.sourceRef.externalId.split(",")[0];
+  let grounding: { videoAnalysis: unknown; videoTitle: string | null } = { videoAnalysis: null, videoTitle: null };
 
   /* answers bind to AUTHORIZED results — only a completed task can be asked about */
   try {
@@ -49,11 +50,14 @@ export async function* runAnalysisFollowupTurn(ctx: FollowupContext, text: strin
       yield { type: "turn.error", turnId, message: `report unavailable (${res.status})`, retryable: true, refundIssued: false };
       return;
     }
-    const task = (await res.json()) as { status?: string };
+    const task = (await res.json()) as { status?: string; results?: unknown; videoUrl?: string; videoTitle?: string };
     if (task.status !== "completed") {
       yield { type: "turn.done", turnId, summary: `The report isn't finished yet (${task.status ?? "processing"}) — ask again the moment it lands.`, creditsConsumedTotal: 0, artifactIds: [] };
       return;
     }
+    /* grounding: hand the chat the FULL analysis payload — answers quote
+     * scores/sections, not just the transcript */
+    grounding = { videoAnalysis: task.results ?? null, videoTitle: task.videoTitle ?? task.videoUrl ?? null };
   } catch (error) {
     yield { type: "turn.error", turnId, message: error instanceof Error ? error.message : "report check failed", retryable: true, refundIssued: false };
     return;
@@ -72,7 +76,7 @@ export async function* runAnalysisFollowupTurn(ctx: FollowupContext, text: strin
     const res = await fetch(new URL("/api/services/alyzitron/chat", ctx.origin), {
       method: "POST",
       headers: { "content-type": "application/json", ...ctx.forwardHeaders },
-      body: JSON.stringify({ taskId, message: text }),
+      body: JSON.stringify({ taskId, message: text, ...grounding }),
       signal,
     });
     if (!res.ok || !res.body) {

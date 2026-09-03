@@ -89,7 +89,7 @@ describe.skipIf(!canRun)("simulated user — §14 report follow-up questions", (
       new Response(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join(""), { status: 200, headers: { "content-type": "text/event-stream" } });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes(`/analyses/${TASK}`)) return new Response(JSON.stringify({ status: "completed", id: TASK }), { status: 200 });
+      if (url.includes(`/analyses/${TASK}`)) return new Response(JSON.stringify({ status: "completed", id: TASK, results: { overall: 87 }, videoTitle: "competitor reel" }), { status: 200 });
       if (url.includes("/alyzitron/chat")) {
         chatCalls.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
         return sse([
@@ -117,7 +117,7 @@ describe.skipIf(!canRun)("simulated user — §14 report follow-up questions", (
     expect(res.status).toBe(200);
     const events = parseSse(await res.text()) as Array<{ type: string; summary?: string }>;
     expect(chatCalls).toHaveLength(1);
-    expect(chatCalls[0]).toMatchObject({ taskId: TASK, message: "why is the hook weak?" });
+    expect(chatCalls[0]).toMatchObject({ taskId: TASK, message: "why is the hook weak?", videoAnalysis: { overall: 87 }, videoTitle: "competitor reel" }); // grounded in the full report
     const done = events.find((e) => e.type === "turn.done");
     expect(done?.summary).toContain("hook loses 40%");
   });

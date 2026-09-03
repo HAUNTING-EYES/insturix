@@ -721,3 +721,17 @@ Gates: tsc 0, eslint 0, studio 104/104 × 2.
 Gates: tsc 0, eslint 0, studio 106/106 × 2.
 Next: Alyzitron grounding (full report payload + URL types), then the
 media-asset/finalization/credentials chunk.
+
+## 2026-09-04 (engineering queue cont.) — Alyzitron follow-ups grounded
+
+Follow-up questions now carry the FULL report payload (results + video
+title) into the chat call — answers can quote scores/sections, not just
+the transcript. Sim asserts the chat POST receives videoAnalysis +
+videoTitle. The external-URL allowlist (IG/TikTok/X + YT + own R2/GCS)
+stays AS IS — it is a deliberate SSRF guard, not a bug; extending it to
+more platforms is a product decision, not engineering debt.
+Gates: tsc 0, eslint 0, studio 106/106 × 2.
+Engineering queue status: tz windows ✓, per-post receipts ✓, grounding ✓.
+Remaining: the media-asset/finalization/credentials chunk (needs its own
+exploration pass) + Phase 10 backfills (Insturix org designated pilot by
+founder; old data also sourceable from the Editron R2 CDN).

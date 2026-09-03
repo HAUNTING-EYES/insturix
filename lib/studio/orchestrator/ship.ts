@@ -34,6 +34,7 @@ interface DeliverableRow {
 }
 
 interface QueueRow {
+  _id: unknown;
   id: string;
   deliverableId: string;
   platform?: string;
