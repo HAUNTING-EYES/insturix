@@ -4,6 +4,7 @@ import { StudioTurnRequestSchema, type StudioTurnEvent } from "@/lib/studio/cont
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runShipTurn, shipTurnIntent } from "@/lib/studio/orchestrator/ship";
+import { deliveryStatusIntent, runDeliveryStatusTurn } from "@/lib/studio/orchestrator/delivery-status";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runStoryboardTurn, storyboardTurnIntent } from "@/lib/studio/orchestrator/storyboard";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
@@ -143,9 +144,11 @@ export async function POST(req: Request) {
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
   const editProjectId = reelAttachment?.ref ?? null;
   /* §13 ship commands outrank generic distribute keywords ("post it now" is
-   * a deliberate publish of accepted entries, not a cadence plan) */
-  const wantsShip = shipTurnIntent(request.text) && !editProjectId;
-  const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId && !wantsShip;
+   * a deliberate publish of accepted entries, not a cadence plan); delivery
+   * diagnostics (why-failed / retry) are reads + deliberate resets */
+  const wantsDeliveryStatus = deliveryStatusIntent(request.text) && !editProjectId;
+  const wantsShip = shipTurnIntent(request.text) && !editProjectId && !wantsDeliveryStatus;
+  const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId && !wantsShip && !wantsDeliveryStatus;
   /* storyboard outranks plain design: "storyboard this" is a scene-batch
    * pipeline command (§17 Phase 5), not a single canvas generation */
   const wantsStoryboard = storyboardTurnIntent(request.text) && !editProjectId && !wantsDistribute && !wantsShip;
@@ -188,9 +191,11 @@ export async function POST(req: Request) {
         };
         const events = editProjectId || mediaAttachment
           ? editingComingSoon()
-          : wantsShip
-            ? runShipTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
-            : wantsDistribute
+          : wantsDeliveryStatus
+            ? runDeliveryStatusTurn({ projectId: spineProjectId }, request.text)
+            : wantsShip
+              ? runShipTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, projectId: spineProjectId, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
+              : wantsDistribute
               ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
               : wantsStoryboard
                 ? runStoryboardTurn({ userId, orgId: orgId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)

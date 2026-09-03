@@ -460,3 +460,18 @@ Gates: tsc 0, eslint 0, studio 86/86 × 2, calos 308/308.
 Remaining §13 commands (next slice): "why did X fail?" + "retry X" (read
 queue lastError/attempts; deliberate retry refuses AMBIGUOUS rows — the
 cron's ambiguity terminalization rule).
+
+## 2026-09-03 (Phase 7b) — §13 diagnostics: "why did it fail" + "retry X"
+
+delivery-status orchestrator + intent branch (outranks ship/cadence).
+"why did <platform> fail" reads the project's queue rows verbatim
+(attempts/maxAttempts, lastError, published URLs). "retry <platform>" is a
+deliberate reset of CLEANLY-failed rows to pending@now — ambiguous
+outcomes (provider may have posted) are refused with the reason, matching
+the cron's terminalization rule; a deliberate retry must never risk a
+double post. Sim covers why-failed readback, clean retry reset, ambiguous
+refusal (row untouched).
+Gates: tsc 0, eslint 0, studio 87/87 × 2. §13 chat commands complete:
+ship / why-failed / retry. Remaining Phase 7 items (stable media refs,
+transactional finalization consolidation, connected-account consolidation)
+are engine-side records work queued for the next session.

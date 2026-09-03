@@ -118,4 +118,34 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     const rebuilt = artifactsFromEvents(await listEvents(PROJECT, 0));
     expect(rebuilt.some((a) => a.kind === "post")).toBe(true);
   });
+
+  it("§13 diagnostics: why-failed reads the rows; retry resets CLEAN failures, refuses ambiguous ones", async () => {
+    const CalosScheduledPublish = (await import("@/schemas/calos-scheduled-publish")).default;
+
+    /* a clean provider failure */
+    await CalosScheduledPublish.updateOne({ deliverableId: String(DELIV) }, { $set: { status: "failed", lastError: "instagram container expired", attempts: 1 } });
+
+    const why = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "why did instagram fail?", mode: "direct", operationId: crypto.randomUUID() }));
+    expect(why.status).toBe(200);
+    const whyEvents = parseSse(await why.text()) as Array<{ type: string; summary?: string }>;
+    expect(whyEvents.find((e) => e.type === "turn.done")?.summary).toContain("instagram: failed after 1/3");
+
+    /* deliberate retry: clean failure re-queues for now */
+    const retry = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
+    expect(retry.status).toBe(200);
+    const retryEvents = parseSse(await retry.text()) as Array<{ type: string; summary?: string }>;
+    expect(retryEvents.find((e) => e.type === "turn.done")?.summary).toContain("Retrying instagram");
+
+    const afterClean = (await CalosScheduledPublish.findOne({ deliverableId: String(DELIV) }).lean()) as unknown as { status?: string; lastError?: string | null };
+    expect(afterClean.status).toBe("pending");
+    expect(afterClean.lastError).toBeNull();
+
+    /* ambiguous failure: the provider may already have posted — refusal, no reset */
+    await CalosScheduledPublish.updateOne({ deliverableId: String(DELIV) }, { $set: { status: "failed", lastError: "ambiguous outcome — check the platform" } });
+    const retryAmbiguous = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
+    const ambEvents = parseSse(await retryAmbiguous.text()) as Array<{ type: string; summary?: string }>;
+    expect(ambEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
+    const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: String(DELIV) }).lean()) as unknown as { status?: string };
+    expect(afterAmbiguous.status).toBe("failed"); // untouched — never auto-retried
+  });
 });
