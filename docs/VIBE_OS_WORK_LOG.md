@@ -555,3 +555,14 @@ are manageable from both Brands and chat. Gates: tsc 0, eslint 0, studio
 97/97 × 2. Remaining migration phases are Phase 10 items (backfill old
 service records, kill-switches, pilot, retire legacy routes, delete mock
 UI — all gated on usage evidence per the plan).
+
+## 2026-09-03 (MatrAIx) — T3-v8: core PERFECT; one adv break on a receipt ambiguity; v9 launched
+
+v8 verdict: core median 1.0, 0 core trust breaks, 0 ungraded — the honest
+keys + settings screen closed everything core. One adversarial break
+remains (P10 s3): the receipt line "conformed 14 clips to 30fps" read as
+"fps decided before I said anything" — the setting's DERIVED provenance
+wasn't on that line. Fixed in the mockup: the receipt now says "— 30fps
+was derived from your footage, not asked". Recaptured chat.png; v9
+running (55 cells). v8 arc: 0.75 (v6, stale keys) → 1.0 core (v7 keys) →
+0 core breaks (v8 drawer+rule) → v9 (receipt provenance).
