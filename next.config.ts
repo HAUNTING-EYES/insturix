@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 import { computeRemotionSiteFingerprint } from "./lib/editron/services/remotion-site-fingerprint";
+import { thinkforgeRedirects } from "./lib/studio/legacy-redirects";
 
 const remotionSiteFingerprint = computeRemotionSiteFingerprint();
 
@@ -125,6 +126,9 @@ const nextConfig: NextConfig = {
         destination: "/profile/:uniqueUsername",
         permanent: true,
       },
+      /* ThinkForge control room → studio (plan §10 / Phase 4; see
+       * lib/studio/legacy-redirects.ts for the entry list + rationale) */
+      ...thinkforgeRedirects,
     ];
   },
   // LCP fix (2026-07-01): removed the custom production splitChunks override.

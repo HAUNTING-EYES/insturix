@@ -265,3 +265,26 @@ answer = the chips are the record, settings suffix is the entry point).
 v7 launched (55 cells, background). If v7 still fails on the cost-principle
 probe with honest keys, the surface fix is making that principle explicit
 in the chat explainer.
+
+## 2026-09-03 (Phase 4 exit) — ThinkForge UI out of the normal path
+
+Parity check first (the gate): Write-stage items from §10 verified —
+document editor/inline editing/selection-ask/versions/brand+sources
+drawers/handoffs landed in c1628e9fa; word-count chip on the real Script
+view (stage.tsx:197); reload recovery proven by the simulated-user suite
+(stream → persist → reload reconstructs → idempotency → 403s) and replay
+tests. No TF control-room capability lacks a studio equivalent on the
+write path.
+
+Removal: /dashboard/thinkforge now 302s into the studio
+(lib/studio/legacy-redirects.ts + next.config.ts). ?session=/?sessionId=
+deep links (DashboardHome, CalOS calendar) land on /studio/d/<id>, which
+spine-imports the TF session; bare visits land on studio Home; the Avatar
+Vault generate flow (deferred product) lands on Home too. temporary 302 —
+Phase 10 deletes the route. Redirect entries extracted to a module and
+unit-tested (deep-link capture, all-temporary, specific-before-catchall
+ordering). Legacy surfaces keep their links: the redirect absorbs them,
+zero legacy-file churn.
+
+Gates: tsc 0, eslint 0, studio suite 47/47 × 2. PHASE 4 EXIT MET: users
+plan and write in one persistent Project conversation.
