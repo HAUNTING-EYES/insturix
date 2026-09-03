@@ -32,6 +32,7 @@ vi.mock("@/lib/studio/orchestrator/storyboard", async (importOriginal) => ({
 
 const PROJECT = "proj_ship_sim";
 const DELIV = new mongoose.Types.ObjectId();
+const CARD_ID = `card_${Date.now()}_sim${crypto.randomUUID().slice(0, 6)}`;
 const decisionCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
 
 const postTurn = (body: unknown) =>
@@ -57,7 +58,9 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     await connectSpine();
     await getOrCreateProject({ projectId: PROJECT, organizationId: "org_sim_1", brandId: "br_sim", title: "Ship sim" });
     await appendTurnEvent(PROJECT, { actor: "user", kind: "plan.entry", turnId: null, payload: { type: "plan.entry", artifactId: "a", entryId: "e1", action: "accept", deliverablesCreated: 1, deliverableIds: [String(DELIV)] } });
-    await CalosDeliverable.create({ _id: DELIV, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim", editorialStatus: "in_review", plannedDates: [new Date(Date.now() + 86_400_000)], platform: "instagram", card: { title: "launch post", id: String(DELIV) } });
+    /* production shape: card.id is its own namespace (card_<ts>_<rand>),
+     * NOT the Mongo _id — the audit caught the old seeding masking that */
+    await CalosDeliverable.create({ _id: DELIV, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim", editorialStatus: "in_review", plannedDates: [new Date(Date.now() + 86_400_000)], platform: "instagram", card: { title: "launch post", id: CARD_ID } });
 
     /* the bridge stub: plays the decision route — records the call and does
      * its transactional side-effect (approve + enqueue publishNow) */
@@ -68,7 +71,7 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
       decisionCalls.push({ url, body });
       await CalosDeliverable.updateOne({ _id: DELIV }, { editorialStatus: "approved" });
       await CalosScheduledPublish.create({
-        deliverableId: String(DELIV), ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim",
+        deliverableId: CARD_ID, ownerUserId: "user_sim_1", orgId: "org_sim_1", brandId: "br_sim",
         platform: "instagram", approvalVersion: 1, idempotencyKey: `${DELIV}:instagram:v1:now`,
         publishAt: new Date(), status: "pending", attempts: 0, maxAttempts: 3,
       });
@@ -105,7 +108,7 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     expect(res.status).toBe(200);
     const events = parseSse(await res.text()) as Array<{ type: string; artifactIds?: string[]; summary?: string }>;
     expect(decisionCalls).toHaveLength(1);
-    expect(decisionCalls[0]?.url).toContain(`/api/services/calos/deliverables/${DELIV}/decision`);
+    expect(decisionCalls[0]?.url).toContain(`/api/services/calos/deliverables/${CARD_ID}/decision`); // the card.id namespace
     expect(decisionCalls[0]?.body).toMatchObject({ decision: "approved", publishNow: true, brandId: "br_sim" });
     const done = events.find((e) => e.type === "turn.done");
     expect(done?.summary).toContain("Shipped");
@@ -123,11 +126,11 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     const CalosScheduledPublish = (await import("@/schemas/calos-scheduled-publish")).default;
 
     /* a clean provider failure */
-    await CalosScheduledPublish.updateOne({ deliverableId: String(DELIV) }, { $set: { status: "failed", lastError: "instagram container expired", attempts: 1 } });
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "instagram container expired", attempts: 1 } });
 
     const why = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "why did instagram fail?", mode: "direct", operationId: crypto.randomUUID() }));
     expect(why.status).toBe(200);
-    const whyEvents = parseSse(await why.text()) as Array<{ type: string; summary?: string }>;
+    const whyEvents = parseSse(await why.text()) as Array<{ type: string; summary?: string; reason?: string; message?: string }>;
     expect(whyEvents.find((e) => e.type === "turn.done")?.summary).toContain("instagram: failed after 1/3");
 
     /* deliberate retry: clean failure re-queues for now */
@@ -136,16 +139,16 @@ describe.skipIf(!canRun)("simulated user — §13 ship this now", () => {
     const retryEvents = parseSse(await retry.text()) as Array<{ type: string; summary?: string }>;
     expect(retryEvents.find((e) => e.type === "turn.done")?.summary).toContain("Retrying instagram");
 
-    const afterClean = (await CalosScheduledPublish.findOne({ deliverableId: String(DELIV) }).lean()) as unknown as { status?: string; lastError?: string | null };
+    const afterClean = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string; lastError?: string | null };
     expect(afterClean.status).toBe("pending");
     expect(afterClean.lastError).toBeNull();
 
     /* ambiguous failure: the provider may already have posted — refusal, no reset */
-    await CalosScheduledPublish.updateOne({ deliverableId: String(DELIV) }, { $set: { status: "failed", lastError: "ambiguous outcome — check the platform" } });
+    await CalosScheduledPublish.updateOne({ deliverableId: CARD_ID }, { $set: { status: "failed", lastError: "ambiguous outcome — check the platform" } });
     const retryAmbiguous = await POST(postTurn({ deliverableId: PROJECT, threadId: `th_${PROJECT}`, text: "retry instagram", mode: "direct", operationId: crypto.randomUUID() }));
     const ambEvents = parseSse(await retryAmbiguous.text()) as Array<{ type: string; summary?: string }>;
     expect(ambEvents.find((e) => e.type === "turn.done")?.summary).toContain("unclear");
-    const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: String(DELIV) }).lean()) as unknown as { status?: string };
+    const afterAmbiguous = (await CalosScheduledPublish.findOne({ deliverableId: CARD_ID }).lean()) as unknown as { status?: string };
     expect(afterAmbiguous.status).toBe("failed"); // untouched — never auto-retried
   });
 });

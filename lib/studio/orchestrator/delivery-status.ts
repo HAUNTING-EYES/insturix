@@ -52,7 +52,13 @@ async function projectQueueRows(projectId: string): Promise<QueueRow[]> {
     return p?.action === "accept" && Array.isArray(p.deliverableIds) ? p.deliverableIds : [];
   });
   if (deliverableIds.length === 0) return [];
-  return (await CalosScheduledPublish.find({ deliverableId: { $in: deliverableIds } }).sort({ publishAt: 1 }).lean()) as unknown as QueueRow[];
+  /* audit 1d: the spine links Mongo _ids; queue rows key by card.id —
+   * resolve the namespace before joining */
+  const CalosDeliverable = (await import("@/schemas/calos-deliverable")).default;
+  const drafts = (await CalosDeliverable.find({ _id: { $in: deliverableIds } }).lean()) as unknown as Array<{ card?: { id?: string } }>;
+  const cardIds = drafts.map((d) => String(d.card?.id ?? "")).filter(Boolean);
+  if (cardIds.length === 0) return [];
+  return (await CalosScheduledPublish.find({ deliverableId: { $in: cardIds } }).sort({ publishAt: 1 }).lean()) as unknown as QueueRow[];
 }
 
 function rowLine(r: QueueRow): string {

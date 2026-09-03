@@ -25,7 +25,8 @@ export interface ShipTurnContext {
 }
 
 interface DeliverableRow {
-  id: string;
+  id: string; // Mongo _id — the spine link (plan-entry stamps these)
+  cardId: string; // card.id — the decision route + queue-row namespace
   platform: string;
   brandId?: string;
   editorialStatus?: string;
@@ -110,10 +111,11 @@ export async function* runShipTurn(
 
   let brandId = ctx.brandId ?? null;
   const deliverables = (await CalosDeliverable.find({ _id: { $in: deliverableIds }, deletedAt: null }).lean()) as unknown as Array<{
-    _id: unknown; platform?: string; brandId?: string; editorialStatus?: string; title?: string;
+    _id: unknown; card?: { id?: string }; platform?: string; brandId?: string; editorialStatus?: string; title?: string;
   }>;
   const rows: DeliverableRow[] = deliverables.map((d) => ({
     id: String(d._id),
+    cardId: String(d.card?.id ?? ""),
     platform: d.platform ?? "unknown",
     brandId: d.brandId,
     editorialStatus: d.editorialStatus,
@@ -125,8 +127,11 @@ export async function* runShipTurn(
     return;
   }
 
+  /* audit 1d: the decision route and the queue rows key by card.id, NOT the
+   * Mongo _id the spine stamps — resolve the namespace at read time */
+  const cardIds = rows.map((r) => r.cardId).filter(Boolean);
   const queueAll = async () =>
-    (await CalosScheduledPublish.find({ deliverableId: { $in: deliverableIds } }).sort({ publishAt: 1 }).lean()) as unknown as QueueRow[];
+    (await CalosScheduledPublish.find(cardIds.length > 0 ? { deliverableId: { $in: cardIds } } : { _id: { $in: [] } }).sort({ publishAt: 1 }).lean()) as unknown as QueueRow[];
 
   let queue = await queueAll();
   const unapproved = rows.filter((d) => {
@@ -160,7 +165,7 @@ export async function* runShipTurn(
   const failures: string[] = [];
   for (const d of unapproved) {
     try {
-      const res = await fetch(new URL(`/api/services/calos/deliverables/${d.id}/decision`, ctx.origin), {
+      const res = await fetch(new URL(`/api/services/calos/deliverables/${encodeURIComponent(d.cardId || d.id)}/decision`, ctx.origin), {
         method: "POST",
         headers: { "content-type": "application/json", ...ctx.forwardHeaders },
         body: JSON.stringify({ brandId, decision: "approved", publishNow: true }),

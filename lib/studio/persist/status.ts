@@ -60,13 +60,15 @@ export async function computeProjectStatus(projectId: string): Promise<ProjectSt
     return { phase: "creating", attention: "failed", activity: "idle", label: `Failed · ${firstWords(failed.error ?? failed.command)}` };
   }
 
-  /* §6 3/5/6/7/8 — delivery lifecycle from the project's own records */
+  /* §6 3/5/6/7/8 — delivery lifecycle from the project's own records.
+   * Audit 1d: the spine links Mongo _ids, but queue rows key by the
+   * deliverable's card.id — resolve the namespace before joining. */
   const deliverableIds = deliverableIdsFromEvents(events);
   if (deliverableIds.length > 0) {
-    const [queue, drafts] = await Promise.all([
-      CalosScheduledPublish.find({ deliverableId: { $in: deliverableIds } }).sort({ publishAt: 1 }).lean() as unknown as Promise<Array<{ status?: string; publishAt?: Date | string; platform?: string }>>,
-      CalosDeliverable.find({ _id: { $in: deliverableIds } }).lean() as unknown as Promise<Array<{ editorialStatus?: string }>>,
-    ]);
+    const drafts = (await CalosDeliverable.find({ _id: { $in: deliverableIds } }).lean()) as unknown as Array<{ editorialStatus?: string; card?: { id?: string } }>;
+    const cardIds = drafts.map((d) => String(d.card?.id ?? "")).filter(Boolean);
+    const queueRaw = cardIds.length > 0 ? await CalosScheduledPublish.find({ deliverableId: { $in: cardIds } }).sort({ publishAt: 1 }).lean() : [];
+    const queue = queueRaw as unknown as Array<{ status?: string; publishAt?: Date | string; platform?: string }>;
     const publishing = queue.find((q) => q.status === "publishing" || q.status === "claimed");
     if (publishing) {
       return { phase: "publishing", attention: "normal", activity: "working", label: `Publishing · ${publishing.platform ?? "post"}` };

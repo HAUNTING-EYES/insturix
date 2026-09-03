@@ -91,7 +91,7 @@ describe.skipIf(!canRun)("status — labels computed from real operation records
     await appendTurnEvent(id, { actor: "user", kind: "plan.entry", turnId: null, payload: { type: "plan.entry", artifactId: "a", entryId: "e1", action: "accept", deliverablesCreated: 1, deliverableIds: [String(d1)] } });
     await appendTurnEvent(id, { actor: "user", kind: "plan.entry", turnId: null, payload: { type: "plan.entry", artifactId: "a", entryId: "e2", action: "accept", deliverablesCreated: 1, deliverableIds: [String(d2)] } });
 
-    const mkDraft = (oid: mongoose.Types.ObjectId) => ({ _id: oid, ownerUserId: "u_st", orgId: "org_st", brandId: "br_st", editorialStatus: "idea", plannedDates: [new Date()], platform: "instagram", card: { title: "x" } });
+    const mkDraft = (oid: mongoose.Types.ObjectId) => ({ _id: oid, ownerUserId: "u_st", orgId: "org_st", brandId: "br_st", editorialStatus: "idea", plannedDates: [new Date()], platform: "instagram", card: { title: "x", id: `card_${oid}` } });
     const mkQueue = (deliverableId: string, status: string, publishAt: Date) => ({
       deliverableId, ownerUserId: "u_st", orgId: "org_st", brandId: "br_st", platform: "instagram",
       approvalVersion: 1, idempotencyKey: `${deliverableId}:instagram:v1:${status}:${publishAt.getTime()}`,
@@ -106,19 +106,19 @@ describe.skipIf(!canRun)("status — labels computed from real operation records
 
     /* 6 — approved future occurrence: Scheduled · next <weekday> at <time> */
     await CalosDeliverable.updateOne({ _id: d1 }, { editorialStatus: "approved" });
-    await CalosScheduledPublish.create(mkQueue(String(d1), "pending", new Date(Date.now() + 3 * 86_400_000)));
+    await CalosScheduledPublish.create(mkQueue(`card_${d1}`, "pending", new Date(Date.now() + 3 * 86_400_000)));
     expect((await computeProjectStatus(id))).toMatchObject({ phase: "scheduled" });
     expect((await computeProjectStatus(id)).label).toMatch(/^Scheduled · next \w+ at \d/);
 
     /* 3 — active publish job outranks scheduled */
-    await CalosScheduledPublish.updateOne({ deliverableId: String(d1) }, { status: "claimed" });
+    await CalosScheduledPublish.updateOne({ deliverableId: `card_${d1}` }, { status: "claimed" });
     expect((await computeProjectStatus(id))).toMatchObject({ phase: "publishing", label: "Publishing · instagram" });
 
     /* 7/8 — receipts decide partial vs complete */
-    await CalosScheduledPublish.updateOne({ deliverableId: String(d1) }, { status: "published" });
-    await CalosScheduledPublish.create(mkQueue(String(d2), "pending", new Date(Date.now() + 4 * 86_400_000)));
+    await CalosScheduledPublish.updateOne({ deliverableId: `card_${d1}` }, { status: "published" });
+    await CalosScheduledPublish.create(mkQueue(`card_${d2}`, "pending", new Date(Date.now() + 4 * 86_400_000)));
     expect((await computeProjectStatus(id)).label).toBe("Partially published · 1 of 2");
-    await CalosScheduledPublish.updateOne({ deliverableId: String(d2) }, { status: "published" });
+    await CalosScheduledPublish.updateOne({ deliverableId: `card_${d2}` }, { status: "published" });
     expect((await computeProjectStatus(id)).label).toBe("Published · 2 of 2");
   });
 });

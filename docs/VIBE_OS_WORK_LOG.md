@@ -595,3 +595,20 @@ purge, (5) clarification render + decline persistence, (6) sequential
 studio suite (flake), (7) structured ambiguity flag + two-flag guard,
 (8) T3-v9 verdict when it lands.
 Gates: tsc 0, eslint 0, studio 99/99 × 2.
+
+## 2026-09-04 (audit P0-2 + flake) — ID namespace standardized; suite deterministic
+
+The spine links Mongo _ids but the decision route AND queue rows key by the
+deliverable's card.id — every ship approval 404'd and ship/status/delivery-
+diagnostics never matched queue rows (my ship test had MASKED this by
+seeding card:{id:String(_id)}, a shape production never creates). Fixed by
+resolving the namespace at read time (zero migrations, legacy CalOS UI
+untouched): ship + status + delivery-status load the deliverable docs,
+resolve card.id, and join/query/decide in that namespace. Tests de-masked:
+production card.id format (card_<ts>_<rand>) seeded; the decision URL is
+asserted against the CARD id; queue rows keyed by card.id.
+ALSO: vitest fileParallelism:false — studio suites set process-global
+MONGODB_DB_NAME and wipe collections; parallel files raced each other's
+env (the audit's order-flake, reproduced live mid-fix). Sequential files;
+"passes twice" is now real and deterministic.
+Gates: tsc 0, eslint 0, studio 99/99 × 2 (deterministic).
