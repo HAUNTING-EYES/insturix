@@ -291,9 +291,12 @@ export async function* runWriteTurn(
 
     const existingScript = ctx.scriptId ? await db.getScript(ctx.thinkforgeSessionId, ctx.scriptId) : null;
     /* ChatRequest requires a non-empty scriptId; a fresh one lets processChat
-     * create the document (its script_created path). */
+     * create the document (its script_created path). Reality-check fix: the
+     * local id is NEVER written into ctx — ctx.scriptId holds only VERIFIED
+     * ids (script_created, script_update, or read-back), so the listScripts
+     * fallback below stays reachable instead of short-circuiting on a
+     * phantom id that never matches a stored document. */
     const scriptId = existingScript?.scriptId ?? ctx.scriptId ?? crypto.randomUUID();
-    ctx.scriptId = scriptId;
     const stream = await processChat({
       sessionId: ctx.thinkforgeSessionId,
       orgId: ctx.orgId ?? undefined,
@@ -303,15 +306,31 @@ export async function* runWriteTurn(
       script: existingScript ?? undefined,
       scriptId,
       generationId,
+      /* Reality-check fix: the real product ASSERTS draft intent on a fresh
+       * ask (lastUserAction: initial_draft_claim) instead of gambling on an
+       * unseeded classifier — a coin-flip "chat" answer persists no document
+       * and produced the 0-words draft. Continuations still classify, but
+       * inside the script workspace. */
+      intentContext: existingScript
+        ? { workspaceMode: "script" }
+        : { workspaceMode: "script", lastUserAction: "initial_draft_claim" },
       authoringContext: undefined,
       abortSignal: signal,
     });
 
     let tokenCount = 0;
     let lastProgressAt = 0;
+    /* Reality-check fix: the engine's output was COUNTED and thrown away.
+     * Capture both in-band channels — token prose (chat/research answers)
+     * and script_update (the finished document, inline). Real engine output
+     * only; nothing is invented here. */
+    let streamedProse = "";
+    let streamedScript: { scriptId: string; title?: string; content?: string; version?: number } | null = null;
     for await (const frame of engineFrames(stream, signal)) {
       if (frame.event === "token") {
         tokenCount++;
+        const piece = (frame.data as { content?: unknown } | null)?.content;
+        if (typeof piece === "string") streamedProse += piece;
         if (Date.now() - lastProgressAt > 600) {
           lastProgressAt = Date.now();
           yield { type: "step.progress", turnId, stepId: "w3", stage: `writing · ${tokenCount} tokens`, percent: null };
@@ -321,25 +340,77 @@ export async function* runWriteTurn(
           ? String((frame.data as Record<string, unknown>).message)
           : frame.event;
         yield { type: "step.progress", turnId, stepId: "w3", stage, percent: null };
+      } else if (frame.event === "script_update" && frame.data && typeof frame.data === "object") {
+        const script = (frame.data as { script?: { scriptId?: string; title?: string; content?: string; version?: number } | null }).script;
+        if (script?.scriptId) {
+          streamedScript = { scriptId: script.scriptId, title: script.title, content: script.content, version: script.version };
+          ctx.scriptId = script.scriptId;
+        }
       } else if (frame.event === "script_created" && frame.data && typeof frame.data === "object") {
         const created = frame.data as { scriptId?: string };
         if (created.scriptId) ctx.scriptId = created.scriptId;
       } else if (frame.event === "error") {
-        const message = typeof frame.data === "object" && frame.data && "message" in (frame.data as Record<string, unknown>)
-          ? String((frame.data as Record<string, unknown>).message)
-          : "The writer failed.";
+        /* Reality-check fix: the engine sends `.error` — read both shapes */
+        const payload = frame.data as { message?: unknown; error?: unknown } | null;
+        const message = typeof payload?.error === "string" ? payload.error : typeof payload?.message === "string" ? payload.message : "The writer failed.";
         throw new Error(message);
       }
       // `done` falls through — script fetch below is authoritative
     }
 
-    /* authoritative read-back from the engine's own store */
+    /* authoritative read-back from the engine's own store; the in-band
+     * script_update document is the fallback when the store lags — both are
+     * REAL engine output */
     const finalScriptId = ctx.scriptId ?? (await db.listScripts(ctx.thinkforgeSessionId))[0]?.scriptId ?? null;
-    if (!finalScriptId) throw new Error("Generation finished but no document was stored.");
-    ctx.scriptId = finalScriptId;
-    const script = await db.getScript(ctx.thinkforgeSessionId, finalScriptId);
-    const artifact = script ? scriptToArtifact(ctx.thinkforgeSessionId, script) : null;
-    const wordCount = script?.content?.trim().split(/\s+/).length ?? 0;
+    const script = finalScriptId ? await db.getScript(ctx.thinkforgeSessionId, finalScriptId) : null;
+    if (script?.scriptId) ctx.scriptId = script.scriptId;
+    const hasStreamedDoc = Boolean(streamedScript && (streamedScript.content?.trim().length ?? 0) > 0);
+    const artifact = script
+      ? scriptToArtifact(ctx.thinkforgeSessionId, script)
+      : hasStreamedDoc && streamedScript
+        ? {
+            id: `art_tf_${ctx.thinkforgeSessionId}:${streamedScript.scriptId}`,
+            kind: "script" as const,
+            status: "done" as const,
+            title: streamedScript.title?.trim() || "Draft",
+            sourceRef: { engine: "thinkforge" as const, externalId: `${ctx.thinkforgeSessionId}:${streamedScript.scriptId}`, manualHref: null },
+            contentMarkdown: streamedScript.content ?? "",
+            revisions: streamedScript.version != null ? [{ id: `rev_${streamedScript.scriptId}_v${streamedScript.version}`, createdAt: new Date().toISOString(), checkpointRef: null, summary: `v${streamedScript.version} from the writer` }] : [],
+            updatedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          }
+        : null;
+
+    /* Reality-check fix (the 0-words turn): a turn that produced NO document
+     * and NO prose fails loudly and refunds — never "Draft's ready." */
+    if (!artifact && streamedProse.trim().length === 0) {
+      throw new Error("The writer finished without producing anything — the charge is refunded.");
+    }
+
+    /* the engine answered but persisted no document (chat/research intent):
+     * deliver the REAL answer as prose — an answer, never a fake draft */
+    if (!artifact) {
+      yield {
+        type: "step.done",
+        turnId,
+        stepId: "w3",
+        receipt: { label: "answered", detail: `${tokenCount} tokens · no document this turn`, artifactIds: [], creditsConsumed: getCreditCost("thinkforge", "chat_message") },
+      };
+      yield {
+        type: "turn.done",
+        turnId,
+        summary: streamedProse.trim(),
+        creditsConsumedTotal: getCreditCost("thinkforge", "chat_message"),
+        artifactIds: [],
+        artifactPayload: null,
+        stageFocus: null,
+      };
+      return;
+    }
+
+    const content = script?.content ?? streamedScript?.content ?? "";
+    const wordCount = content.trim().length > 0 ? content.trim().split(/\s+/).length : 0;
+    const version = script?.version ?? streamedScript?.version;
 
     yield {
       type: "step.done",
@@ -347,19 +418,19 @@ export async function* runWriteTurn(
       stepId: "w3",
       receipt: {
         label: mWriter.receiptLabel,
-        detail: `${wordCount} words · v${script?.version ?? 1}`,
-        artifactIds: artifact ? [artifact.id] : [],
+        detail: version != null ? `${wordCount} words · v${version}` : `${wordCount} words`,
+        artifactIds: [artifact.id],
         creditsConsumed: getCreditCost("thinkforge", "chat_message"),
       },
     };
     yield {
       type: "turn.done",
       turnId,
-      summary: artifact ? `Draft's ready — ${wordCount} words, showing it. Keep talking to reshape it.` : "Draft's ready.",
+      summary: wordCount > 0 ? `Draft's ready — ${wordCount} words, showing it. Keep talking to reshape it.` : "Draft's ready — showing it. Keep talking to reshape it.",
       creditsConsumedTotal: getCreditCost("thinkforge", "chat_message"),
-      artifactIds: artifact ? [artifact.id] : [],
-      artifactPayload: artifact ?? null,
-      stageFocus: artifact ? { artifactId: artifact.id, why: "just written" } : null,
+      artifactIds: [artifact.id],
+      artifactPayload: artifact,
+      stageFocus: { artifactId: artifact.id, why: "just written" },
     };
   } catch (error) {
     if (deduction) await creditCheck.refund(`studio write turn failed: ${error instanceof Error ? error.message : "unknown"}`);

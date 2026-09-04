@@ -746,3 +746,44 @@ contradictions (rule 2(d) holds). The 14 ungraded cells (P9-s2..5, P10,
 P11) resume after the quota resets 2026-09-06 16:38 UTC — a scheduled
 automation (2026-09-07) re-runs JUST those cells, scores, and if the final
 table holds at zero breaks: logs the T3 PASS and pushes.
+
+## 2026-09-04 (REALITY CHECK) — the write path was broken in production; S0 fixed, Phase 4 exit RETRACTED
+
+The founder's real-mode test (STUDIO_REALITY_CHECK_2026-09-04.md) hit the
+core write path: "Draft's ready · 0 words", charged, empty stage. Every
+claim verified by direct read and CONFIRMED — and the work log's "PHASE 4
+EXIT MET" claim is RETRACTED: the sim suite mocked runWriteTurn itself, so
+the orchestrator's real behavior was never under test. The 2026-08-31
+audit's warning about masked tests applied to the worst possible place.
+
+Root causes (all in write.ts) + fixes:
+1. Engine output DISCARDED in flight (tokens counted, never captured;
+   script_update never handled) → both in-band channels now captured:
+   streamed prose + the inline script_update document.
+2. Unconditional success + charge on a null read-back → a turn with NO
+   document and NO prose now fails loudly AND refunds (the catch path
+   refunds; verified by test). A prose-only answer (chat/research intent)
+   delivers the REAL answer — never a fake draft.
+3. Dead fallback (phantom ctx.scriptId always set pre-stream) → ctx holds
+   only VERIFIED ids; listScripts fallback is reachable again.
+4. Intent was an unseeded classifier coin flip (→ chat mode → no doc) →
+   fresh asks ASSERT draft intent exactly like the real product
+   (lastUserAction: initial_draft_claim); continuations classify inside
+   the script workspace.
+5. Error frames: .error surfaced (was .message-only).
+
+NEW TEST CLASS: tests/studio/write-turn-integration.test.ts drives the
+REAL runWriteTurn with only the engine stream + its DB stubbed — the
+founder's exact scenario (store lags, in-band doc lands), the honest
+prose answer, the loud-refund empty turn, .error surfacing, and the
+asserted intent. This class should have existed before any Phase 4 claim.
+Gates: tsc 0, eslint 0, studio 111/111 × 2.
+
+STILL OPEN from the reality check (next slices, in severity order):
+S0-3 reservation-settles-completed money leak (chat-service.ts:1360);
+S1-6 the ideas FUNNEL (3-phrase regex, either/or — needs intake + 4-idea
+stage + selection); S1-7 session orphaning per turn (route state reset —
+follow-ups can't continue the session); S2 shell (account redirects,
+orphaned brands nav, thin calendar vs RE-HOME CalOS v3, fake step names,
+hardcoded Instagram); S3 identity (real logo, lucide, float credits,
+prompt-as-title, workspace switcher/settings/assumption chips per §1-§16).
